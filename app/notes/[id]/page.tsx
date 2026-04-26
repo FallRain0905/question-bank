@@ -34,6 +34,7 @@ export default function NoteDetailPage() {
   useEffect(() => {
     if (noteId) {
       loadNote();
+      cleanupLongComments();
       loadComments();
     }
   }, [noteId]);
@@ -91,6 +92,29 @@ export default function NoteDetailPage() {
     setNoteAuthor(profileData);
 
     setLoading(false);
+  };
+
+  const cleanupLongComments = async () => {
+    try {
+      const supabase = getSupabase();
+      // 查找所有评论并筛选超过250字的
+      const { data: allComments } = await supabase
+        .from('comments')
+        .select('id, content');
+
+      const longComments = allComments?.filter(c => c.content && c.content.length > 250) || [];
+
+      if (longComments.length > 0) {
+        const commentIds = longComments.map(c => c.id);
+        await supabase
+          .from('comments')
+          .delete()
+          .in('id', commentIds);
+        console.log(`已清理 ${commentIds.length} 条超长评论`);
+      }
+    } catch (error) {
+      console.error('清理超长评论失败:', error);
+    }
   };
 
   const loadComments = async () => {
@@ -302,6 +326,11 @@ export default function NoteDetailPage() {
       return;
     }
 
+    if (commentText.trim().length > 250) {
+      alert('评论字数不能超过250字');
+      return;
+    }
+
     const supabase = getSupabase();
 
     await supabase.from('comments').insert({
@@ -333,6 +362,11 @@ export default function NoteDetailPage() {
 
     if (!replyText.trim()) {
       alert('请输入回复内容');
+      return;
+    }
+
+    if (replyText.trim().length > 250) {
+      alert('回复字数不能超过250字');
       return;
     }
 
@@ -566,11 +600,16 @@ export default function NoteDetailPage() {
                 placeholder="写下你的评论..."
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
                 rows={3}
+                maxLength={250}
               />
-              <div className="flex justify-end mt-2">
+              <div className="flex justify-between items-center mt-2">
+                <span className={`text-xs ${commentText.length > 250 ? 'text-red-500' : 'text-gray-400'}`}>
+                  {commentText.length}/250
+                </span>
                 <button
                   onClick={handleComment}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                  disabled={commentText.trim().length === 0 || commentText.trim().length > 250}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   发表评论
                 </button>
@@ -621,23 +660,30 @@ export default function NoteDetailPage() {
                             placeholder={`回复 ${comment.user.username || comment.user.email}...`}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none text-sm"
                             rows={2}
+                            maxLength={250}
                           />
-                          <div className="flex justify-end mt-2 gap-2">
-                            <button
-                              onClick={() => {
-                                setReplyTo(null);
-                                setReplyText('');
-                              }}
-                              className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
-                            >
-                              取消
-                            </button>
-                            <button
-                              onClick={() => handleReply(comment.id)}
-                              className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                            >
-                              回复
-                            </button>
+                          <div className="flex justify-between items-center mt-2">
+                            <span className={`text-xs ${replyText.length > 250 ? 'text-red-500' : 'text-gray-400'}`}>
+                              {replyText.length}/250
+                            </span>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  setReplyTo(null);
+                                  setReplyText('');
+                                }}
+                                className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
+                              >
+                                取消
+                              </button>
+                              <button
+                                onClick={() => handleReply(comment.id)}
+                                disabled={replyText.trim().length === 0 || replyText.trim().length > 250}
+                                className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                回复
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )}
