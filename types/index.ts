@@ -267,5 +267,6 @@ export interface UserSettings {
   llm_provider: string;
   llm_api_key: string;
   llm_api_url: string;
+  llm_model: string;
   mineru_api_key: string;
 }

@@ -46,7 +46,7 @@ export async function getUserLLMConfig(token: string) {
       apiKey: settings.llm_api_key,
       endpoint: settings.llm_api_url || endpoints[provider] || endpoints.qwen,
       provider,
-      defaultModel: defaultModels[provider] || 'qwen-plus',
+      defaultModel: settings.llm_model || defaultModels[provider] || DEFAULT_MODEL,
     };
   } catch {
     return { apiKey: envKey, endpoint: envKey === DEFAULT_KEY ? DEFAULT_ENDPOINT : 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', provider: 'deepseek', defaultModel: DEFAULT_MODEL };

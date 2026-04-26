@@ -262,6 +262,7 @@ export interface Database {
           llm_provider: string | null
           llm_api_key: string | null
           llm_api_url: string | null
+          llm_model: string | null
           mineru_api_key: string | null
           created_at: string
           updated_at: string
@@ -271,6 +272,7 @@ export interface Database {
           llm_provider?: string | null
           llm_api_key?: string | null
           llm_api_url?: string | null
+          llm_model?: string | null
           mineru_api_key?: string | null
           created_at?: string
           updated_at?: string
@@ -280,6 +282,7 @@ export interface Database {
           llm_provider?: string | null
           llm_api_key?: string | null
           llm_api_url?: string | null
+          llm_model?: string | null
           mineru_api_key?: string | null
           created_at?: string
           updated_at?: string

@@ -22,9 +22,10 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
 
   return NextResponse.json(data || {
-    llm_provider: 'qwen',
+    llm_provider: 'deepseek',
     llm_api_key: '',
     llm_api_url: '',
+    llm_model: '',
     mineru_api_key: '',
   });
 }
@@ -35,15 +36,16 @@ export async function PUT(req: NextRequest) {
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
 
   const body = await req.json();
-  const { llm_provider, llm_api_key, llm_api_url, mineru_api_key } = body;
+  const { llm_provider, llm_api_key, llm_api_url, llm_model, mineru_api_key } = body;
 
   const { data, error } = await supabase
     .from('user_settings')
     .upsert({
       user_id: user.id,
-      llm_provider: llm_provider || 'qwen',
+      llm_provider: llm_provider || 'deepseek',
       llm_api_key: llm_api_key || '',
       llm_api_url: llm_api_url || '',
+      llm_model: llm_model || '',
       mineru_api_key: mineru_api_key || '',
       updated_at: new Date().toISOString(),
     })
