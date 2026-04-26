@@ -17,6 +17,6 @@ EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
 
 ALTER TABLE user_settings ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "settings_select_own" ON user_settings FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "settings_insert_own" ON user_settings FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "settings_update_own" ON user_settings FOR UPDATE USING (auth.uid() = user_id);
+DO $$ BEGIN CREATE POLICY "settings_select_own" ON user_settings FOR SELECT USING (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "settings_insert_own" ON user_settings FOR INSERT WITH CHECK (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "settings_update_own" ON user_settings FOR UPDATE USING (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;

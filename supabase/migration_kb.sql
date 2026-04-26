@@ -1,6 +1,6 @@
 -- =============================================
 -- 知识库 + 出题机 数据库迁移
--- 在 Supabase SQL Editor 中执行此文件
+-- 可重复执行（幂等）
 -- =============================================
 
 -- 1. 知识库表
@@ -14,10 +14,10 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
 );
 
 ALTER TABLE knowledge_bases ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "kb_select_own" ON knowledge_bases FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "kb_insert_own" ON knowledge_bases FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "kb_update_own" ON knowledge_bases FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "kb_delete_own" ON knowledge_bases FOR DELETE USING (auth.uid() = user_id);
+DO $$ BEGIN CREATE POLICY "kb_select_own" ON knowledge_bases FOR SELECT USING (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "kb_insert_own" ON knowledge_bases FOR INSERT WITH CHECK (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "kb_update_own" ON knowledge_bases FOR UPDATE USING (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "kb_delete_own" ON knowledge_bases FOR DELETE USING (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- 2. 知识库文档表
 CREATE TABLE IF NOT EXISTS kb_documents (
@@ -36,10 +36,10 @@ CREATE TABLE IF NOT EXISTS kb_documents (
 );
 
 ALTER TABLE kb_documents ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "kbdoc_select_own" ON kb_documents FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "kbdoc_insert_own" ON kb_documents FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "kbdoc_update_own" ON kb_documents FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "kbdoc_delete_own" ON kb_documents FOR DELETE USING (auth.uid() = user_id);
+DO $$ BEGIN CREATE POLICY "kbdoc_select_own" ON kb_documents FOR SELECT USING (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "kbdoc_insert_own" ON kb_documents FOR INSERT WITH CHECK (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "kbdoc_update_own" ON kb_documents FOR UPDATE USING (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "kbdoc_delete_own" ON kb_documents FOR DELETE USING (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- 3. 生成题目表
 CREATE TABLE IF NOT EXISTS generated_questions (
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS generated_questions (
 );
 
 ALTER TABLE generated_questions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "genq_select_own" ON generated_questions FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "genq_insert_own" ON generated_questions FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "genq_update_own" ON generated_questions FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "genq_delete_own" ON generated_questions FOR DELETE USING (auth.uid() = user_id);
+DO $$ BEGIN CREATE POLICY "genq_select_own" ON generated_questions FOR SELECT USING (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "genq_insert_own" ON generated_questions FOR INSERT WITH CHECK (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "genq_update_own" ON generated_questions FOR UPDATE USING (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "genq_delete_own" ON generated_questions FOR DELETE USING (auth.uid() = user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
