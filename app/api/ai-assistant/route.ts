@@ -1,25 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getUserLLMConfig } from '@/lib/user-settings';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const API_ENDPOINT = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
-
-function getApiKey(): string {
-  return process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || '';
-}
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { question, history, image, messages, model, temperature = 0.7 } = body;
 
-    const apiKey = getApiKey();
+    const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
+    const { apiKey, endpoint, defaultModel } = await getUserLLMConfig(token);
 
     if (!apiKey) {
       return NextResponse.json({
-        answer: 'AI 服务尚未配置，请联系管理员。',
-        content: 'AI 服务尚未配置，请联系管理员。',
+        answer: 'AI 服务尚未配置，请在设置中填写 API Key 或联系管理员。',
+        content: 'AI 服务尚未配置，请在设置中填写 API Key 或联系管理员。',
       });
     }
 
@@ -62,7 +58,7 @@ export async function POST(req: NextRequest) {
           content: question || '',
         });
       }
-      selectedModel = image ? 'qwen-vl-max' : 'qwen3.5-flash';
+      selectedModel = image ? 'qwen-vl-max' : (defaultModel || 'qwen-plus');
     } else {
       return NextResponse.json({
         answer: '请输入问题或上传图片',
@@ -70,7 +66,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const response = await fetch(API_ENDPOINT, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

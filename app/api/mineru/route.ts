@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const MINERU_API = 'https://mineru.net/api/v4/extract/task';
-const MINERU_TOKEN = process.env.MINERU_API_TOKEN || '';
+import { getUserMineruConfig } from '@/lib/user-settings';
 
 export async function POST(req: NextRequest) {
   try {
+    const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
+    const { token: mineruToken } = await getUserMineruConfig(token);
+
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
 
@@ -12,8 +13,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '请上传 PDF 文件' }, { status: 400 });
     }
 
-    if (!MINERU_TOKEN) {
-      return NextResponse.json({ error: 'MinerU API Token 未配置' }, { status: 500 });
+    if (!mineruToken) {
+      return NextResponse.json({ error: 'MinerU API Token 未配置，请在设置中填写' }, { status: 500 });
     }
 
     // Step 1: Upload file to get a URL (use Supabase storage)
@@ -63,11 +64,11 @@ export async function POST(req: NextRequest) {
     const publicUrl = `${supabaseUrl}/storage/v1/object/public/${fileName}`;
 
     // Step 3: Submit to MinerU v4 API
-    const mineruRes = await fetch(MINERU_API, {
+    const mineruRes = await fetch("https://mineru.net/api/v4/extract/task", {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${MINERU_TOKEN}`,
+        Authorization: `Bearer ${mineruToken}`,
       },
       body: JSON.stringify({
         file_url: publicUrl,
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest) {
         await new Promise((r) => setTimeout(r, 2000));
         const pollRes = await fetch(
           `https://mineru.net/api/v4/extract/task/${taskId}`,
-          { headers: { Authorization: `Bearer ${MINERU_TOKEN}` } }
+          { headers: { Authorization: `Bearer ${mineruToken}` } }
         );
         if (pollRes.ok) {
           const pollData = await pollRes.json();

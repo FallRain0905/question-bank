@@ -105,21 +105,6 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
     </svg>
   ),
-  theme: (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828-2.828l5.656 5.657a2 2 0 010 2.828l-1.657 1.657a2 2 0 01-2.828 0l-5.656-5.657a2 2 0 010-2.828z" />
-    </svg>
-  ),
-  collapse: (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-    </svg>
-  ),
-  ai: (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-    </svg>
-  ),
 };
 
 const mainNavItems: NavItem[] = [
@@ -252,7 +237,7 @@ export default function Sidebar() {
           {!collapsed ? (
             <Link href="/" className="flex items-center gap-2.5">
               <img src="/logo.png" alt="" className="w-7 h-7 rounded-md" />
-              <span className="text-sm font-semibold text-gray-900">学习共享</span>
+              <span className="text-sm font-semibold text-gray-900">Synap</span>
             </Link>
           ) : (
             <Link href="/" className="mx-auto">
@@ -331,14 +316,44 @@ export default function Sidebar() {
                 {!collapsed && <span>上传文件</span>}
               </Link>
 
+              {!collapsed && (
+                <div className="px-2 mt-4 mb-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                  知识
+                </div>
+              )}
               <Link
-                href="/ai"
+                href="/kb"
                 className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                  isActive('/ai') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  isActive('/kb') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 } ${collapsed ? 'justify-center' : ''}`}
               >
-                {Icons.ai}
-                {!collapsed && <span>AI 助手</span>}
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+                {!collapsed && <span>知识库</span>}
+              </Link>
+              <Link
+                href="/generator"
+                className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                  isActive('/generator') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                } ${collapsed ? 'justify-center' : ''}`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+                </svg>
+                {!collapsed && <span>出题机</span>}
+              </Link>
+
+              <Link
+                href="/english"
+                className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                  isActive('/english') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                } ${collapsed ? 'justify-center' : ''}`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                </svg>
+                {!collapsed && <span>英语训练</span>}
               </Link>
 
               {(user.is_admin || isClassModerator) && (
@@ -365,6 +380,20 @@ export default function Sidebar() {
 
         {/* Bottom section */}
         <div className="shrink-0 border-t border-gray-100 px-2 py-2 space-y-1">
+          {/* Settings */}
+          <Link
+            href="/settings"
+            className={`flex items-center w-full p-2 text-gray-500 hover:bg-gray-50 rounded-lg transition-colors ${
+              collapsed ? 'justify-center' : 'gap-2.5'
+            }`}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            {!collapsed && <span className="text-xs">设置</span>}
+          </Link>
+
           {/* 主题切换按钮 */}
           <button
             onClick={toggleTheme}

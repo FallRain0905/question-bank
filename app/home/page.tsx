@@ -1,21 +1,27 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { getSupabase } from '@/lib/supabase';
-import AIPage from '../ai/page';
 
 export default function HomePage() {
+  const router = useRouter();
+
   useEffect(() => {
-    // 检查用户是否登录，未登录则跳转到登录页
     const checkAuth = async () => {
       const { data: { session } } = await getSupabase().auth.getSession();
       if (!session) {
-        window.location.href = '/login';
+        router.push('/login');
+      } else {
+        router.push('/');
       }
     };
     checkAuth();
-  }, []);
+  }, [router]);
 
-  // 登录用户直接渲染AI助手页面
-  return <AIPage />;
+  return (
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-400" />
+    </div>
+  );
 }

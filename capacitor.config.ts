@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.questionbank.app',
-  appName: '学习共享',
+  appName: 'Synap',
   webDir: 'out',
   // 配置服务器 URL - 请替换为你的局域网IP地址或生产服务器地址
   server: {

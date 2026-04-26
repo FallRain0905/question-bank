@@ -45,7 +45,7 @@ export function UserAvatar({
         className={`${avatarSize[size]} rounded-full flex items-center justify-center font-medium transition-transform hover:scale-105 ${
           avatarUrl
             ? 'overflow-hidden'
-            : 'bg-gradient-to-br from-gray-500 to-gray-600 text-gray-50 shadow-lg shadow-gray-500/20'
+            : 'bg-gray-900 text-white'
         }`}
       >
         {avatarUrl ? (
@@ -103,10 +103,10 @@ export function UserTag({
           <img
             src={avatarUrl}
             alt={displayName}
-            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover ring-2 ring-gray-800/50 flex-shrink-0"
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover flex-shrink-0"
           />
         ) : (
-          <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gradient-to-br from-gray-500 to-gray-600 rounded-full flex items-center justify-center text-gray-50 text-xs font-medium ring-2 ring-gray-800/50 flex-shrink-0">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gray-900 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
             {displayName[0]?.toUpperCase() || '?'}
           </div>
         )}

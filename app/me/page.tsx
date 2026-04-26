@@ -287,14 +287,14 @@ export default function MePage() {
               {/* 头像 */}
               <div
                 className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center text-2xl overflow-hidden ${
-                  avatarUrl ? '' : 'bg-gray-100'
+                  avatarUrl ? '' : 'bg-gray-900 text-white'
                 } ${uploadingAvatar ? 'opacity-50' : 'cursor-pointer hover:opacity-80 transition'}`}
                 onClick={!uploadingAvatar ? handleAvatarClick : undefined}
               >
                 {avatarUrl ? (
                   <img src={avatarUrl} alt="头像" className="w-full h-full object-cover" />
                 ) : (
-                  <span>👤</span>
+                  <span>{user.username?.[0]?.toUpperCase() || '?'}</span>
                 )}
                 {uploadingAvatar && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/30">

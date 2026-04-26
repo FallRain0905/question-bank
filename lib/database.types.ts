@@ -186,6 +186,140 @@ export interface Database {
           updated_at?: string
         }
       }
+      knowledge_bases: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          description: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          description?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          description?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      kb_documents: {
+        Row: {
+          id: string
+          kb_id: string
+          user_id: string
+          title: string
+          content_md: string | null
+          file_url: string | null
+          file_name: string | null
+          file_type: string | null
+          file_size: number | null
+          status: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          kb_id: string
+          user_id: string
+          title: string
+          content_md?: string | null
+          file_url?: string | null
+          file_name?: string | null
+          file_type?: string | null
+          file_size?: number | null
+          status?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          kb_id?: string
+          user_id?: string
+          title?: string
+          content_md?: string | null
+          file_url?: string | null
+          file_name?: string | null
+          file_type?: string | null
+          file_size?: number | null
+          status?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      user_settings: {
+        Row: {
+          user_id: string
+          llm_provider: string | null
+          llm_api_key: string | null
+          llm_api_url: string | null
+          mineru_api_key: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          llm_provider?: string | null
+          llm_api_key?: string | null
+          llm_api_url?: string | null
+          mineru_api_key?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          llm_provider?: string | null
+          llm_api_key?: string | null
+          llm_api_url?: string | null
+          mineru_api_key?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      generated_questions: {
+        Row: {
+          id: string
+          user_id: string
+          source_doc_id: string | null
+          source_text: string
+          question_type: string
+          question_data: Json
+          synced_to_bank: boolean
+          synced_question_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          source_doc_id?: string | null
+          source_text: string
+          question_type?: string
+          question_data: Json
+          synced_to_bank?: boolean
+          synced_question_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          source_doc_id?: string | null
+          source_text?: string
+          question_type?: string
+          question_data?: Json
+          synced_to_bank?: boolean
+          synced_question_id?: string | null
+          created_at?: string
+        }
+      }
     }
   }
 }

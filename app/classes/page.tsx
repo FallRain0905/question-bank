@@ -376,12 +376,12 @@ export default function ClassesPage() {
         <img
           src={member.avatar_url}
           alt={member.username}
-          className="w-10 h-10 rounded-full object-cover border-2 border-gray-600"
+          className="w-10 h-10 rounded-full object-cover"
         />
       );
     }
     return (
-      <div className="w-10 h-10 rounded-full bg-gray-500 flex items-center justify-center text-gray-900 font-medium border-2 border-gray-600">
+      <div className="w-10 h-10 rounded-full bg-gray-900 flex items-center justify-center text-white text-sm font-medium">
         {member.username?.[0]?.toUpperCase() || '?'}
       </div>
     );

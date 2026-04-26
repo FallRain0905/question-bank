@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import { getSupabase } from '@/lib/supabase';
 
 const STORAGE_KEY = 'qwen_chat_sessions';
 
@@ -199,9 +200,14 @@ export default function FloatingAIButton() {
         });
       }
 
+      const sb = getSupabase();
+      const { data: { session: authSession } } = await sb.auth.getSession();
       const response = await fetch('/api/ai-assistant', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authSession?.access_token}`,
+        },
         body: JSON.stringify({
           messages: messagesToSend,
           temperature: 0.7,

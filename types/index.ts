@@ -207,3 +207,65 @@ export interface ClassApprovalRequest {
   reviewed_at: string | null;
   reviewed_by: string | null;
 }
+
+// 知识库相关类型
+export interface KnowledgeBase {
+  id: string;
+  user_id: string;
+  name: string;
+  description?: string;
+  document_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KBDocument {
+  id: string;
+  kb_id: string;
+  user_id: string;
+  title: string;
+  content_md?: string;
+  file_url?: string;
+  file_name?: string;
+  file_type?: string;
+  file_size?: number;
+  status?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// 出题机相关类型
+export interface GeneratedQuestion {
+  id: string;
+  user_id: string;
+  source_doc_id?: string;
+  source_text: string;
+  question_type: 'choice' | 'fill_blank' | 'short_answer';
+  question_data: QuestionData;
+  synced_to_bank: boolean;
+  synced_question_id?: string;
+  created_at: string;
+}
+
+export interface QuestionData {
+  question_text: string;
+  question_type: string;
+  options?: string[];
+  answer: string;
+  explanation?: string;
+}
+
+export interface GenerateQuestionRequest {
+  source_text: string;
+  requirement: string;
+  question_type?: string;
+  source_doc_id?: string;
+}
+
+export interface UserSettings {
+  user_id?: string;
+  llm_provider: string;
+  llm_api_key: string;
+  llm_api_url: string;
+  mineru_api_key: string;
+}

@@ -257,8 +257,8 @@ export default function UserProfilePage() {
         <div className="max-w-4xl mx-auto px-4 py-8">
           <div className="flex items-center gap-6">
             {/* 头像 */}
-            <div className={`w-24 h-24 rounded-full flex items-center justify-center text-4xl overflow-hidden border-4 border-white shadow-lg ${
-              profileUser.avatar_url ? '' : 'bg-gradient-to-br from-gray-400 to-gray-600'
+            <div className={`w-24 h-24 rounded-full flex items-center justify-center text-4xl overflow-hidden ${
+              profileUser.avatar_url ? '' : 'bg-gray-900 text-white'
             }`}>
               {profileUser.avatar_url ? (
                 <img 

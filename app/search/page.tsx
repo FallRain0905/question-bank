@@ -292,14 +292,14 @@ export default function SearchPage() {
         <img
           src={profile.avatar_url}
           alt={profile.username || '用户'}
-          className="w-10 h-10 rounded-full object-cover border-2 border-gray-300"
+          className="w-10 h-10 rounded-full object-cover"
         />
       );
     }
     const displayName = profile?.username || '用户';
 
     return (
-      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-500 to-gray-400 flex items-center justify-center text-white font-medium border-2 border-gray-300">
+      <div className="w-10 h-10 rounded-full bg-gray-900 flex items-center justify-center text-white text-sm font-medium">
         {displayName}
       </div>
     );

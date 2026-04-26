@@ -433,7 +433,7 @@ export default function SocialPage() {
               <div key={post.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
                 {/* 帖子头部 */}
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-medium">
+                  <div className="w-10 h-10 bg-gray-900 rounded-full flex items-center justify-center text-white text-sm font-medium">
                     {post.user_name?.[0]?.toUpperCase() || '?'}
                   </div>
                   <div className="flex-1">
@@ -495,7 +495,7 @@ export default function SocialPage() {
                     {/* 评论列表 */}
                     {comments.get(post.id)?.map((comment) => (
                       <div key={comment.id} className="flex gap-3 mb-3">
-                        <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-gray-600 text-sm font-medium flex-shrink-0">
+                        <div className="w-8 h-8 bg-gray-900 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
                           {comment.user_name?.[0]?.toUpperCase() || '?'}
                         </div>
                         <div className="flex-1 bg-gray-50 rounded-lg p-3">
