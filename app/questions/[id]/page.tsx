@@ -309,7 +309,7 @@ export default function QuestionDetailPage() {
   if (loading) {
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
-        <div className="text-gray-400">加载中...</div>
+        <div className="text-gray-500">加载中...</div>
       </div>
     );
   }
@@ -317,7 +317,7 @@ export default function QuestionDetailPage() {
   if (!question) {
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
-        <div className="text-gray-400">题目不存在</div>
+        <div className="text-gray-500">题目不存在</div>
       </div>
     );
   }
@@ -363,7 +363,7 @@ export default function QuestionDetailPage() {
               {question.tags.map((tag) => (
                 <span
                   key={tag.id}
-                  className="px-3 py-1 text-sm bg-gray-600/30 text-gray-500 rounded-full"
+                  className="px-3 py-1 text-sm bg-gray-50 text-gray-500 rounded-full"
                 >
                   {tag.name}
                 </span>
@@ -406,13 +406,13 @@ export default function QuestionDetailPage() {
 
             {/* 文档预览和下载 */}
             {question.question_file_url && (
-              <div className="mb-4 p-4 bg-gray-600/30 border border-gray-700 rounded-lg">
+              <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                 <div className="flex items-center gap-3 mb-3">
                   <span className="text-2xl">📄</span>
                   <div>
                     <p className="text-sm font-medium text-gray-50">{question.question_file_name || '题目文档'}</p>
                     {(question.question_file_type || question.question_file_size) && (
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-gray-500">
                         {question.question_file_type && <span>{question.question_file_type}</span>}
                         {question.question_file_type && question.question_file_size && <span> · </span>}
                         {question.question_file_size && <span>{formatFileSize(question.question_file_size)}</span>}
@@ -436,7 +436,7 @@ export default function QuestionDetailPage() {
             )}
 
             {question.question_text && (
-              <div className="text-gray-200 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: renderLatexText(question.question_text || '') }} />
+              <div className="text-gray-800 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: renderLatexText(question.question_text || '') }} />
             )}
 
             {question.question_image_url && (
@@ -460,7 +460,7 @@ export default function QuestionDetailPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-50">{question.answer_file_name || '答案文档'}</p>
                     {(question.answer_file_type || question.answer_file_size) && (
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-gray-500">
                         {question.answer_file_type && <span>{question.answer_file_type}</span>}
                         {question.answer_file_type && question.answer_file_size && <span> · </span>}
                         {question.answer_file_size && <span>{formatFileSize(question.answer_file_size)}</span>}
@@ -484,7 +484,7 @@ export default function QuestionDetailPage() {
             )}
 
             {question.answer_text && (
-              <div className="text-gray-200 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: renderLatexText(question.answer_text || '') }} />
+              <div className="text-gray-800 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: renderLatexText(question.answer_text || '') }} />
             )}
 
             {question.answer_image_url && (
@@ -512,7 +512,7 @@ export default function QuestionDetailPage() {
         </div>
 
         {/* 评论区 */}
-        <div className="bg-gray-800/50 rounded-xl shadow-sm border border-gray-800 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h3 className="text-lg font-medium text-gray-800 mb-4">评论 ({comments.length})</h3>
 
           {/* 评论输入 */}
@@ -522,7 +522,7 @@ export default function QuestionDetailPage() {
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
                 placeholder="写下你的评论..."
-                className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none resize-none"
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-300 focus:border-gray-300 outline-none resize-none"
                 rows={3}
               />
               <div className="flex justify-end mt-2">
@@ -545,7 +545,7 @@ export default function QuestionDetailPage() {
           {/* 评论列表 */}
           <div className="space-y-6">
             {comments.length === 0 ? (
-              <p className="text-gray-400 text-center py-8">还没有评论，快来抢沙发吧！</p>
+              <p className="text-gray-500 text-center py-8">还没有评论，快来抢沙发吧！</p>
             ) : (
               comments.map((comment) => (
                 <div key={comment.id} className="border-b border-gray-900 pb-5 last:border-0">
@@ -557,17 +557,17 @@ export default function QuestionDetailPage() {
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-1">
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-500">
                           {formatDistanceToNow(new Date(comment.created_at), { locale: zhCN, addSuffix: true })}
                         </span>
                       </div>
-                      <p className="text-gray-200">{comment.content}</p>
+                      <p className="text-gray-800">{comment.content}</p>
 
                       {/* 回复按钮 */}
                       {user && (
                         <button
                           onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}
-                          className="text-sm text-gray-400 hover:text-gray-500 mt-2"
+                          className="text-sm text-gray-500 hover:text-gray-500 mt-2"
                         >
                           {replyTo === comment.id ? '取消回复' : '回复'}
                         </button>
@@ -580,7 +580,7 @@ export default function QuestionDetailPage() {
                             value={replyText}
                             onChange={(e) => setReplyText(e.target.value)}
                             placeholder={`回复 ${comment.user.username || comment.user.email}...`}
-                            className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none resize-none text-sm"
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-300 focus:border-gray-300 outline-none resize-none text-sm"
                             rows={2}
                           />
                           <div className="flex justify-end mt-2 gap-2">
@@ -589,7 +589,7 @@ export default function QuestionDetailPage() {
                                 setReplyTo(null);
                                 setReplyText('');
                               }}
-                              className="px-3 py-1 text-sm text-gray-300 hover:text-gray-100"
+                              className="px-3 py-1 text-sm text-gray-600 hover:text-gray-100"
                             >
                               取消
                             </button>
@@ -616,11 +616,11 @@ export default function QuestionDetailPage() {
                               />
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-3 mb-1">
-                                  <span className="text-xs text-gray-400">
+                                  <span className="text-xs text-gray-500">
                                     {formatDistanceToNow(new Date(reply.created_at), { locale: zhCN, addSuffix: true })}
                                   </span>
                                 </div>
-                                <p className="text-gray-200 text-sm">{reply.content}</p>
+                                <p className="text-gray-800 text-sm">{reply.content}</p>
                               </div>
                             </div>
                           ))}

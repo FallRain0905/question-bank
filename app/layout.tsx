@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "katex/dist/katex.min.css";
 import Sidebar, { SidebarProvider } from "@/components/Sidebar";
-import AnnouncementBanner from "@/components/AnnouncementBanner";
 import MobileTabBar from "@/components/MobileTabBar";
 import FloatingAIButton from "@/components/FloatingAIButton";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -35,7 +34,6 @@ export default function RootLayout({
             <div className="flex min-h-screen">
               <Sidebar />
               <SidebarSpacer>
-                <AnnouncementBanner />
                 <main className="pb-16 sm:pb-0">
                   {children}
                 </main>
