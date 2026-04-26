@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 export async function GET(req: NextRequest, { params }: any) {
-  const docId = params.docId as string;
+  const { docId } = await params;
   const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest, { params }: any) {
 }
 
 export async function DELETE(req: NextRequest, { params }: any) {
-  const docId = params.docId as string;
+  const { docId } = await params;
   const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

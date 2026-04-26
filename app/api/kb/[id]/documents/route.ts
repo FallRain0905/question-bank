@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import mammoth from 'mammoth';
 
 export async function POST(req: NextRequest, { params }: any) {
-  const id = params.id as string;
+  const { id } = await params;
   const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
