@@ -1,13 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 
+// DeepSeek 官方 API 配置
 const DEFAULT_KEY = 'sk-bb3c52688dbc43b3864f8fb07ede67dd';
 const DEFAULT_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
 const DEFAULT_MODEL = 'deepseek-v4-flash';
 
 export async function getUserLLMConfig(token: string) {
-  const envKey = process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || DEFAULT_KEY;
+  console.log('Getting LLM config, has token:', !!token);
 
-  if (!token) return { apiKey: envKey, endpoint: envKey === DEFAULT_KEY ? DEFAULT_ENDPOINT : 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', provider: 'deepseek', defaultModel: DEFAULT_MODEL };
+  // 优先使用 DeepSeek API Key（硬编码）
+  const deepseekKey = process.env.DEEPSEEK_API_KEY || DEFAULT_KEY;
+
+  if (!token) {
+    console.log('Using default config (no token):', { hasKey: !!deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek' });
+    return { apiKey: deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek', defaultModel: DEFAULT_MODEL };
+  }
 
   try {
     const supabase = createClient(
@@ -17,7 +24,10 @@ export async function getUserLLMConfig(token: string) {
     );
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { apiKey: envKey, endpoint: envKey === DEFAULT_KEY ? DEFAULT_ENDPOINT : 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', provider: 'deepseek', defaultModel: DEFAULT_MODEL };
+    if (!user) {
+      console.log('Using default config (no user):', { hasKey: !!deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek' });
+      return { apiKey: deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek', defaultModel: DEFAULT_MODEL };
+    }
 
     const { data: settings } = await supabase
       .from('user_settings')
@@ -25,11 +35,14 @@ export async function getUserLLMConfig(token: string) {
       .eq('user_id', user.id)
       .maybeSingle();
 
+    console.log('User settings:', settings ? 'found' : 'not found');
+
     if (!settings?.llm_api_key) {
-      return { apiKey: envKey, endpoint: envKey === DEFAULT_KEY ? DEFAULT_ENDPOINT : 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', provider: 'deepseek', defaultModel: DEFAULT_MODEL };
+      console.log('Using default config (no user settings):', { hasKey: !!deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek' });
+      return { apiKey: deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek', defaultModel: DEFAULT_MODEL };
     }
 
-    const provider = settings.llm_provider || 'qwen';
+    const provider = settings.llm_provider || 'deepseek';
     const endpoints: Record<string, string> = {
       qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
       kimi: 'https://api.moonshot.cn/v1/chat/completions',
@@ -42,14 +55,18 @@ export async function getUserLLMConfig(token: string) {
       deepseek: 'deepseek-v4-flash',
     };
 
-    return {
+    const config = {
       apiKey: settings.llm_api_key,
-      endpoint: settings.llm_api_url || endpoints[provider] || endpoints.qwen,
+      endpoint: settings.llm_api_url || endpoints[provider] || endpoints.deepseek,
       provider,
       defaultModel: settings.llm_model || defaultModels[provider] || DEFAULT_MODEL,
     };
-  } catch {
-    return { apiKey: envKey, endpoint: envKey === DEFAULT_KEY ? DEFAULT_ENDPOINT : 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', provider: 'deepseek', defaultModel: DEFAULT_MODEL };
+
+    console.log('Using user config:', { provider, endpoint: config.endpoint, hasKey: !!config.apiKey });
+    return config;
+  } catch (error) {
+    console.error('Error getting LLM config:', error);
+    return { apiKey: deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek', defaultModel: DEFAULT_MODEL };
   }
 }
 

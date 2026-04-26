@@ -28,15 +28,31 @@ const SYSTEM_PROMPT = `你是一个文档分析专家。请根据文档内容生
 
 export async function POST(req: NextRequest) {
   try {
+    console.log('Generate outline request received');
     const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
     const { apiKey, endpoint, defaultModel } = await getUserLLMConfig(token);
-    if (!apiKey) return NextResponse.json({ error: 'AI 服务未配置' }, { status: 500 });
+
+    console.log('Outline API config:', { apiKey: apiKey ? '***' : 'missing', endpoint, defaultModel });
+
+    if (!apiKey) {
+      console.error('API Key missing');
+      return NextResponse.json({ error: 'AI 服务未配置，请检查 API Key 设置' }, { status: 500 });
+    }
+
+    if (!endpoint) {
+      console.error('API endpoint missing');
+      return NextResponse.json({ error: 'API 端点未配置，请联系管理员' }, { status: 500 });
+    }
 
     const { content_md } = await req.json();
-    if (!content_md?.trim()) return NextResponse.json({ error: '请提供文档内容' }, { status: 400 });
+    if (!content_md?.trim()) {
+      console.error('Content missing');
+      return NextResponse.json({ error: '请提供文档内容' }, { status: 400 });
+    }
 
     // Truncate content to avoid token limits
     const truncated = content_md.slice(0, 8000);
+    console.log('Calling AI API for outline generation');
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -55,16 +71,25 @@ export async function POST(req: NextRequest) {
       }),
     });
 
-    if (!response.ok) return NextResponse.json({ error: 'AI 服务暂不可用' }, { status: 502 });
+    console.log('Outline API response status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Outline API error:', { status: response.status, errorText });
+      return NextResponse.json({ error: `AI 服务暂不可用 (${response.status})` }, { status: 502 });
+    }
 
     const data = await response.json();
-    const rawContent = data.choices?.[0]?.message?.content || '';
+    console.log('Outline API response data:', JSON.stringify(data).substring(0, 200) + '...');
+
+    const rawContent = data.choices?.[0]?.message?.content || data?.message?.content || '';
     let jsonStr = rawContent.trim().replace(/```json\s*/g, '').replace(/```\s*/g, '');
 
     try {
       const outline = JSON.parse(jsonStr);
       return NextResponse.json({ success: true, ...outline });
-    } catch {
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
       const match = jsonStr.match(/\{[\s\S]*\}/);
       if (match) {
         try {
@@ -73,9 +98,10 @@ export async function POST(req: NextRequest) {
           // ignore — will return error below
         }
       }
-      return NextResponse.json({ error: 'AI 返回格式异常', raw: rawContent }, { status: 500 });
+      return NextResponse.json({ error: 'AI 返回格式异常', raw: rawContent.substring(0, 500) }, { status: 500 });
     }
   } catch (e: any) {
+    console.error('Generate outline error:', e);
     return NextResponse.json({ error: e.message || '生成失败' }, { status: 500 });
   }
 }
