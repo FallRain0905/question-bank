@@ -32,6 +32,10 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
+# Other
+question-bank-live2D/
+image.png
+
 # 测试覆盖率
 coverage
 .nyc_output
