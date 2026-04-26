@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { QuestionWithTags } from '@/types';
 import { getSupabase } from '@/lib/supabase';
+import { renderLatexText } from '@/lib/render-markdown';
 
 interface QuestionCardProps {
   question: QuestionWithTags;
@@ -42,7 +43,7 @@ export default function QuestionCard({
           <div className="flex-1">
             <h3 className="font-medium text-gray-900 mb-2">题目</h3>
             {question.question_text && (
-              <p className="text-gray-700 whitespace-pre-wrap">{question.question_text}</p>
+              <div className="text-gray-700 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: renderLatexText(question.question_text || '') }} />
             )}
             {question.question_image_url && (
               <img
@@ -68,7 +69,7 @@ export default function QuestionCard({
         {show && (
           <div className="mt-4 animate-in fade-in slide-in-from-top-2 duration-200">
             {question.answer_text && (
-              <p className="text-gray-700 whitespace-pre-wrap">{question.answer_text}</p>
+              <div className="text-gray-700 whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: renderLatexText(question.answer_text || '') }} />
             )}
             {question.answer_image_url && (
               <img

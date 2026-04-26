@@ -5,8 +5,8 @@ import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
 import type { KBDocument } from '@/types';
-import { marked } from 'marked';
 import DocumentOutline from '@/components/DocumentOutline';
+import { renderMarkdown } from '@/lib/render-markdown';
 
 export default function DocumentViewerPage() {
   const router = useRouter();
@@ -95,13 +95,13 @@ export default function DocumentViewerPage() {
     return md;
   };
 
-  const renderMarkdown = useCallback((md: string) => {
+  const renderContent = useCallback((md: string) => {
     // Add IDs to headings for anchor navigation
     let processed = md.replace(/^(#{1,4})\s+(.+)$/gm, (_, hashes, text) => {
       const id = text.trim().toLowerCase().replace(/[^a-z0-9一-鿿]+/g, '-').replace(/(^-|-$)/g, '');
       return `${hashes} <span id="${id}">${text}</span>`;
     });
-    return { __html: marked.parse(processed, { breaks: true }) as string };
+    return { __html: renderMarkdown(processed) };
   }, []);
 
   if (!doc) return <div className="max-w-4xl mx-auto px-4 py-10 text-center text-gray-400">加载中...</div>;
@@ -129,7 +129,7 @@ export default function DocumentViewerPage() {
           </div>
 
           {/* Content */}
-          <div onMouseUp={handleTextSelect} className="bg-white border border-gray-100 rounded-xl p-6 prose prose-sm max-w-none min-h-[400px]" dangerouslySetInnerHTML={renderMarkdown(doc.content_md || '')} />
+          <div onMouseUp={handleTextSelect} className="bg-white border border-gray-100 rounded-xl p-6 prose prose-sm max-w-none min-h-[400px]" dangerouslySetInnerHTML={renderContent(doc.content_md || '')} />
 
           {/* AI Q&A */}
           <div className="mt-6 bg-white border border-gray-100 rounded-xl p-4">

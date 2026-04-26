@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "katex/dist/katex.min.css";
 import Sidebar, { SidebarProvider } from "@/components/Sidebar";
 import AnnouncementBanner from "@/components/AnnouncementBanner";
 import MobileTabBar from "@/components/MobileTabBar";

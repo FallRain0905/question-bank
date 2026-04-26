@@ -5,6 +5,7 @@ import { getSupabase } from '@/lib/supabase';
 import Link from 'next/link';
 import type { QuestionWithTags } from '@/types';
 import type { SearchHistory } from '@/types';
+import { renderLatexText } from '@/lib/render-markdown';
 
 type SortOption = 'newest' | 'oldest' | 'popular';
 
@@ -495,9 +496,7 @@ export default function SearchPage() {
                       </div>
                     )}
                     {question.question_text && (
-                      <p className="text-gray-800 line-clamp-2 leading-relaxed">
-                        {question.question_text}
-                      </p>
+                      <p className="text-gray-800 line-clamp-2 leading-relaxed" dangerouslySetInnerHTML={{ __html: renderLatexText(question.question_text || '') }} />
                     )}
                     {question.question_image_url && (
                       <img
