@@ -9,13 +9,25 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { question, history, image, messages, model, temperature = 0.7 } = body;
 
+    console.log('AI Assistant request body:', { hasQuestion: !!question, hasImage: !!image, messagesCount: messages?.length, historyCount: history?.length });
+
     const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
-    const { apiKey, endpoint, defaultModel } = await getUserLLMConfig(token);
+    const { apiKey, endpoint, defaultModel, provider } = await getUserLLMConfig(token);
+
+    console.log('AI Config:', { apiKey: apiKey ? '***' : 'missing', endpoint, defaultModel, provider });
 
     if (!apiKey) {
       return NextResponse.json({
         answer: 'AI 服务尚未配置，请在设置中填写 API Key 或联系管理员。',
         content: 'AI 服务尚未配置，请在设置中填写 API Key 或联系管理员。',
+      });
+    }
+
+    if (!endpoint) {
+      console.error('Missing API endpoint');
+      return NextResponse.json({
+        answer: 'API 端点配置错误，请联系管理员。',
+        content: 'API 端点配置错误，请联系管理员。',
       });
     }
 
@@ -66,6 +78,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    console.log('Sending to API:', { endpoint, model: selectedModel, messagesCount: apiMessages.length });
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -86,18 +100,24 @@ export async function POST(req: NextRequest) {
       }),
     });
 
+    console.log('API Response status:', response.status);
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('千问 API 错误:', errorText);
+      console.error('AI API 错误:', { status: response.status, errorText });
       return NextResponse.json({
-        answer: 'AI 服务暂时不可用，请稍后再试。',
-        content: 'AI 服务暂时不可用，请稍后再试。',
+        answer: `AI 服务暂时不可用 (错误: ${response.status})，请稍后再试。`,
+        content: `AI 服务暂时不可用 (错误: ${response.status})，请稍后再试。`,
       });
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '抱歉，我暂时无法回答这个问题。';
+    console.log('API Response data:', JSON.stringify(data).substring(0, 200) + '...');
+
+    const content = data.choices?.[0]?.message?.content || data?.message?.content || '抱歉，我暂时无法回答这个问题。';
     const responseImage = data.choices?.[0]?.message?.image;
+
+    console.log('Extracted content:', content.substring(0, 100) + '...');
 
     return NextResponse.json({
       answer: content,
@@ -107,8 +127,8 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('AI Assistant error:', error);
     return NextResponse.json({
-      answer: '发生错误，请稍后重试。',
-      content: '发生错误，请稍后重试。',
+      answer: `发生错误: ${error.message}，请稍后重试。`,
+      content: `发生错误: ${error.message}，请稍后重试。`,
     });
   }
 }
