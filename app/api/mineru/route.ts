@@ -1,0 +1,124 @@
+import { NextRequest, NextResponse } from 'next/server';
+
+const MINERU_API = 'https://mineru.net/api/v4/extract/task';
+const MINERU_TOKEN = process.env.MINERU_API_TOKEN || '';
+
+export async function POST(req: NextRequest) {
+  try {
+    const formData = await req.formData();
+    const file = formData.get('file') as File | null;
+
+    if (!file) {
+      return NextResponse.json({ error: '请上传 PDF 文件' }, { status: 400 });
+    }
+
+    if (!MINERU_TOKEN) {
+      return NextResponse.json({ error: 'MinerU API Token 未配置' }, { status: 500 });
+    }
+
+    // Step 1: Upload file to get a URL (use Supabase storage)
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    const fileName = `mineru-temp/${Date.now()}-${file.name}`;
+
+    const uploadRes = await fetch(
+      `${supabaseUrl}/storage/v1/object/${fileName}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${supabaseKey}`,
+          'Content-Type': file.type,
+        },
+        body: file,
+      }
+    );
+
+    if (!uploadRes.ok) {
+      // Fallback: try base64 approach
+      const bytes = await file.arrayBuffer();
+
+      // Submit to MinerU v1 agent API (supports direct file upload, no auth needed)
+      const agentForm = new FormData();
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      agentForm.append('file', blob, file.name);
+      agentForm.append('return_md', 'true');
+
+      const agentRes = await fetch('https://mineru.net/api/v1/agent/parse/file', {
+        method: 'POST',
+        body: agentForm,
+      });
+
+      if (!agentRes.ok) {
+        return NextResponse.json({ error: 'PDF 上传失败' }, { status: 500 });
+      }
+
+      const agentData = await agentRes.json();
+      return NextResponse.json({
+        success: true,
+        markdown: agentData.content || agentData.markdown || '',
+      });
+    }
+
+    // Step 2: Get public URL
+    const publicUrl = `${supabaseUrl}/storage/v1/object/public/${fileName}`;
+
+    // Step 3: Submit to MinerU v4 API
+    const mineruRes = await fetch(MINERU_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${MINERU_TOKEN}`,
+      },
+      body: JSON.stringify({
+        file_url: publicUrl,
+        return_md: true,
+      }),
+    });
+
+    if (!mineruRes.ok) {
+      const errText = await mineruRes.text();
+      console.error('MinerU API error:', errText);
+      return NextResponse.json({ error: 'MinerU 解析请求失败' }, { status: 500 });
+    }
+
+    const mineruData = await mineruRes.json();
+
+    // v4 API is async — poll for result
+    if (mineruData.task_id) {
+      const taskId = mineruData.task_id;
+      let result: any = null;
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const pollRes = await fetch(
+          `https://mineru.net/api/v4/extract/task/${taskId}`,
+          { headers: { Authorization: `Bearer ${MINERU_TOKEN}` } }
+        );
+        if (pollRes.ok) {
+          const pollData = await pollRes.json();
+          if (pollData.status === 'completed') {
+            result = pollData;
+            break;
+          }
+          if (pollData.status === 'failed') {
+            return NextResponse.json({ error: 'MinerU 解析失败' }, { status: 500 });
+          }
+        }
+      }
+      if (!result) {
+        return NextResponse.json({ error: 'MinerU 解析超时' }, { status: 504 });
+      }
+      return NextResponse.json({
+        success: true,
+        markdown: result.markdown || result.content || '',
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      markdown: mineruData.markdown || mineruData.content || '',
+    });
+  } catch (error: any) {
+    console.error('MinerU parse error:', error);
+    return NextResponse.json({ error: '解析失败: ' + error.message }, { status: 500 });
+  }
+}

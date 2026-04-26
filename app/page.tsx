@@ -1,350 +1,220 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
-import { motion } from 'framer-motion';
+import type { QuestionWithTags } from '@/types';
 
-export default function Home() {
-  const [stats, setStats] = useState({ questions: 0, notes: 0, users: 0 });
+const QUICK_ENTRIES = [
+  {
+    href: '/search',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+      </svg>
+    ),
+    label: '题库',
+    color: 'text-blue-600 bg-blue-50',
+  },
+  {
+    href: '/notes',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+    ),
+    label: '笔记',
+    color: 'text-emerald-600 bg-emerald-50',
+  },
+  {
+    href: '/classes',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+      </svg>
+    ),
+    label: '班级',
+    color: 'text-violet-600 bg-violet-50',
+  },
+  {
+    href: '/ai',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+      </svg>
+    ),
+    label: 'AI',
+    color: 'text-amber-600 bg-amber-50',
+  },
+];
+
+export default function HomePage() {
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [focused, setFocused] = useState(false);
+  const [popularTags, setPopularTags] = useState<string[]>([]);
+  const [recentQuestions, setRecentQuestions] = useState<QuestionWithTags[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentWord, setCurrentWord] = useState(0);
-  const words = ['题目管理', '学习笔记', '知识图谱', '智能检索'];
 
   useEffect(() => {
-    loadStats();
-    const wordInterval = setInterval(() => {
-      setCurrentWord((prev) => (prev + 1) % words.length);
-    }, 2500);
-    return () => clearInterval(wordInterval);
+    loadData();
   }, []);
 
-  const loadStats = async () => {
-    try {
-      const supabase = getSupabase();
-      const { count: questionsCount } = await supabase
+  const loadData = async () => {
+    const supabase = getSupabase();
+    const [tagsResult, questionsResult] = await Promise.all([
+      supabase.from('tags').select('name').order('name'),
+      supabase
         .from('questions')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'approved');
-      const { count: notesCount } = await supabase
-        .from('notes')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'approved');
-      const { count: usersCount } = await supabase
-        .from('user_profiles')
-        .select('*', { count: 'exact', head: true });
-      setStats({
-        questions: questionsCount || 0,
-        notes: notesCount || 0,
-        users: usersCount || 0,
-      });
-    } catch (err) {
-      console.error('加载统计数据失败:', err);
-      setStats({ questions: 0, notes: 0, users: 0 });
-    } finally {
-      setLoading(false);
+        .select('*, tags(id, name)')
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false })
+        .limit(8),
+    ]);
+    if (tagsResult.data) {
+      setPopularTags(tagsResult.data.map((t) => t.name).slice(0, 10));
+    }
+    if (questionsResult.data) {
+      setRecentQuestions(questionsResult.data as QuestionWithTags[]);
+    }
+    setLoading(false);
+  };
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
     }
   };
 
   return (
-    <div className="min-h-screen relative pb-20 sm:pb-0">
-      {/* 背景装饰 - 只在没有自定义背景时显示 */}
-      <div className="fixed inset-0 pointer-events-none theme-bg-gradient" />
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-20 -left-20 w-96 h-96 bg-brand-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob" />
-        <div className="absolute top-40 -right-20 w-96 h-96 bg-brand-300 rounded-full mix-blend-multiply filter blur-3xl opacity-15 animate-blob animation-delay-2000" />
-        <div className="absolute -bottom-32 left-1/3 w-80 h-80 bg-brand-400 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-4000" />
-      </div>
-
-      {/* Hero Section */}
-      <section className="relative overflow-hidden py-10 sm:py-16 md:py-24">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 relative">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-            className="text-center"
+    <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12">
+      {/* Search */}
+      <form onSubmit={handleSearch} className="mb-8">
+        <div
+          className={`flex items-center gap-0 border rounded-xl transition-all duration-200 bg-white ${
+            focused
+              ? 'border-blue-500 ring-1 ring-blue-500 shadow-sm'
+              : 'border-gray-200'
+          }`}
+        >
+          <svg
+            className="w-5 h-5 ml-4 text-gray-400 shrink-0"
+            fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"
           >
-            {/* 标签 */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.2 }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur-sm text-brand-700 rounded-full text-sm font-medium mb-8 border border-brand-200 shadow-sm"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-500"></span>
-              </span>
-              开源免费，随时随地访问
-            </motion.div>
-
-            {/* 主标题 */}
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-brand-800 mb-4 sm:mb-6 tracking-tight leading-tight"
-            >
-              共享学习资料<br className="hidden sm:block" />
-              <span className="inline-block relative">
-                <motion.span
-                  key={currentWord}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.3 }}
-                  className="text-transparent bg-clip-text bg-gradient-to-r from-brand-500 via-brand-600 to-brand-700"
-                >
-                  {words[currentWord]}
-                </motion.span>
-              </span>
-            </motion.h1>
-
-            {/* 副标题 */}
-            <motion.p
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-              className="text-base sm:text-lg md:text-xl text-brand-600 max-w-2xl mx-auto mb-6 sm:mb-10 leading-relaxed px-2"
-            >
-              支持文档解析、AI 辅助、多端同步。让学习资料管理变得简单高效。
-            </motion.p>
-
-            {/* 按钮组 */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-              className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center px-4"
-            >
-              <Link
-                href="/search"
-                className="group w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 bg-brand-500 text-white rounded-full hover:bg-brand-600 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 flex items-center justify-center gap-2 font-medium text-base"
-              >
-                浏览题库
-                <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                </svg>
-              </Link>
-              <Link
-                href="/notes"
-                className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 bg-white text-brand-700 border border-brand-200 rounded-full hover:border-brand-300 hover:bg-brand-50 transition-all hover:-translate-y-0.5 font-medium shadow-sm text-base"
-              >
-                浏览笔记
-              </Link>
-            </motion.div>
-          </motion.div>
-
-          {/* Bento Grid 功能展示 */}
-          <motion.div
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6, duration: 0.8 }}
-            className="mt-10 sm:mt-16 grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4"
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder="搜索题目、笔记..."
+            className="flex-1 px-3 py-3 text-sm text-gray-900 placeholder-gray-400 bg-transparent border-0 outline-none"
+          />
+          <button
+            type="submit"
+            className="mr-1.5 px-4 py-1.5 my-1 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-800 transition-colors"
           >
-            {/* 大卡片 */}
-            <BentoCard
-              icon="📚"
-              title="智能题库"
-              description="支持文本、图片、PDF、DOCX 多种格式上传，AI 自动解析题目内容"
-              size="large"
-            />
-            <div className="grid grid-rows-2 gap-3 sm:gap-4">
-              <BentoCard
-                icon="📝"
-                title="学习笔记"
-                description="整理学习心得，分享优质内容"
-                size="small"
-              />
-              <BentoCard
-                icon="🏷️"
-                title="标签分类"
-                description="自定义标签，多维度管理"
-                size="small"
-              />
-            </div>
-            <BentoCard
-              icon="🎓"
-              title="班级系统"
-              description="创建学习班级，邀请同学加入，共享专属学习资源"
-              size="large"
-            />
-          </motion.div>
+            搜索
+          </button>
         </div>
-      </section>
 
-      {/* 数据统计 */}
-      <section className="py-6 sm:py-8">
-        <div className="max-w-4xl mx-auto px-3 sm:px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="bg-white/80 backdrop-blur-sm rounded-2xl border border-brand-200 shadow-lg p-4 sm:p-8"
-          >
-            <div className="grid grid-cols-3 gap-2 sm:gap-8">
-              <StatItem
-                value={loading ? '...' : stats.questions.toLocaleString()}
-                label="题目"
-                delay={0.1}
-              />
-              <StatItem
-                value={loading ? '...' : stats.notes.toLocaleString()}
-                label="笔记"
-                delay={0.2}
-              />
-              <StatItem
-                value={loading ? '...' : stats.users.toLocaleString()}
-                label="用户"
-                delay={0.3}
-              />
-            </div>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* 功能特点 */}
-      <section className="py-6 sm:py-8">
-        <div className="max-w-5xl mx-auto px-3 sm:px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-center mb-8 sm:mb-16"
-          >
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-brand-700 mb-2 sm:mb-4">
-              强大的功能，极致的体验
-            </h2>
-            <p className="text-sm sm:text-base text-brand-500 max-w-2xl mx-auto">
-              从内容管理到社交互动，满足你学习中的所有需求
-            </p>
-          </motion.div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
-            <FeatureCard icon="📷" title="图片识别" description="上传题目和答案图片，自动压缩优化，清晰呈现" />
-            <FeatureCard icon="📁" title="文档解析" description="支持 PDF、Word 等多种格式文件，智能提取内容" />
-            <FeatureCard icon="🤖" title="AI 辅助" description="AI 智能解析题目，自动生成答案，提升效率" />
-            <FeatureCard icon="🔍" title="智能搜索" description="全文检索，标签筛选，快速定位所需内容" />
-            <FeatureCard icon="💬" title="社区互动" description="评论交流，收藏喜欢，关注作者，构建学习圈子" />
-            <FeatureCard icon="📊" title="公式渲染" description="原生支持 LaTeX 数学公式渲染，专业呈现数学内容" />
+        {/* Hot tags */}
+        {popularTags.length > 0 && (
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <span className="text-xs text-gray-400 shrink-0">热门:</span>
+            {popularTags.slice(0, 8).map((tag) => (
+              <button
+                key={tag}
+                onClick={() => router.push(`/search?tag=${encodeURIComponent(tag)}`)}
+                className="px-2.5 py-0.5 text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-full hover:border-gray-200 hover:text-gray-700 transition-colors"
+              >
+                {tag}
+              </button>
+            ))}
           </div>
-        </div>
-      </section>
+        )}
+      </form>
 
-      {/* CTA 区域 */}
-      <section className="py-12 sm:py-20">
-        <div className="max-w-3xl mx-auto px-3 sm:px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="relative overflow-hidden bg-gradient-to-br from-brand-500 via-brand-600 to-brand-700 rounded-2xl sm:rounded-3xl p-6 sm:p-12 text-center text-white"
+      {/* Quick entries */}
+      <div className="grid grid-cols-4 gap-3 mb-8">
+        {QUICK_ENTRIES.map((entry) => (
+          <Link
+            key={entry.href}
+            href={entry.href}
+            className="flex flex-col items-center gap-2 p-4 rounded-xl bg-white border border-gray-100 hover:border-gray-200 hover:shadow-sm transition-all group"
           >
-            {/* 背景装饰 */}
-            <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
-            <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
-
-            <div className="relative">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3 sm:mb-4">
-                开始你的学习之旅
-              </h2>
-              <p className="text-sm sm:text-base text-white/90 mb-6 sm:mb-8 max-w-xl mx-auto">
-                免费注册，立即开始管理你的学习资料，与更多学习者分享知识
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center px-2">
-                <Link
-                  href="/upload"
-                  className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 bg-white text-brand-600 rounded-full hover:bg-brand-50 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 font-medium text-base"
-                >
-                  上传题目
-                </Link>
-                <Link
-                  href="/notes/upload"
-                  className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 bg-white/20 text-white border border-white/30 rounded-full hover:bg-white/30 transition-all font-medium text-base"
-                >
-                  上传笔记
-                </Link>
-              </div>
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${entry.color}`}>
+              {entry.icon}
             </div>
-          </motion.div>
-        </div>
-      </section>
+            <span className="text-xs font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
+              {entry.label}
+            </span>
+          </Link>
+        ))}
+      </div>
 
-      {/* 页脚 - 移动端隐藏，使用底部导航 */}
-      <footer className="hidden sm:block py-12 border-t border-brand-200 bg-brand-950">
-        <div className="max-w-5xl mx-auto px-4 text-center text-brand-300 text-sm">
-          <p>Built with Next.js + Supabase</p>
+      {/* Recent questions */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-medium text-gray-700">最近更新</h2>
+          <Link href="/search" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+            查看全部 →
+          </Link>
         </div>
-      </footer>
+
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 animate-pulse">
+                <div className="h-4 bg-gray-100 rounded w-3/4 mb-2" />
+                <div className="h-3 bg-gray-50 rounded w-full mb-3" />
+                <div className="flex gap-2">
+                  <div className="h-5 bg-gray-50 rounded-full w-12" />
+                  <div className="h-5 bg-gray-50 rounded-full w-16" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : recentQuestions.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {recentQuestions.map((q) => (
+              <Link
+                key={q.id}
+                href={`/questions/${q.id}`}
+                className="bg-white rounded-xl border border-gray-100 p-4 hover:border-gray-200 hover:shadow-sm transition-all group"
+              >
+                <p className="text-sm text-gray-700 line-clamp-2 mb-3 group-hover:text-gray-900 transition-colors">
+                  {q.question_text || '（图片题目）'}
+                </p>
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-1.5 flex-wrap">
+                    {q.tags?.slice(0, 3).map((tag) => (
+                      <span key={tag.id} className="px-2 py-0.5 bg-gray-50 text-gray-500 rounded-full text-xs">
+                        {tag.name}
+                      </span>
+                    ))}
+                  </div>
+                  <span className="text-xs text-gray-300">
+                    {new Date(q.created_at).toLocaleDateString('zh-CN')}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-sm text-gray-400 bg-white rounded-xl border border-gray-100">
+            还没有题目，成为第一个
+            <Link href="/upload" className="text-blue-600 hover:text-blue-700 ml-1 font-medium">
+              上传题目
+            </Link>
+            的人吧
+          </div>
+        )}
+      </div>
     </div>
-  );
-}
-
-// Bento Grid 卡片
-function BentoCard({
-  icon,
-  title,
-  description,
-  size = 'large',
-}: {
-  icon: string;
-  title: string;
-  description: string;
-  size?: 'small' | 'large';
-}) {
-  const heightClass = size === 'small' ? 'min-h-[100px] sm:min-h-[120px]' : 'min-h-[180px] sm:min-h-[264px]';
-
-  return (
-    <motion.div
-      whileHover={{ y: -4, transition: { duration: 0.2 } }}
-      className={`group relative overflow-hidden ${heightClass} bg-white/90 backdrop-blur-sm border border-brand-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 transition-all hover:border-brand-300 hover:shadow-lg`}
-    >
-      <div className="text-3xl sm:text-4xl mb-2 sm:mb-4 group-hover:scale-110 transition-transform">{icon}</div>
-      <h3 className="text-base sm:text-lg font-semibold text-brand-700 mb-1 sm:mb-2">{title}</h3>
-      <p className="text-xs sm:text-sm text-brand-500 leading-relaxed">{description}</p>
-    </motion.div>
-  );
-}
-
-// 统计项
-function StatItem({ value, label, delay }: { value: string | number; label: string; delay: number }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      transition={{ delay }}
-      viewport={{ once: true }}
-      className="text-center px-1 sm:px-4"
-    >
-      <div className="text-2xl sm:text-4xl md:text-5xl font-bold text-brand-600 mb-1 sm:mb-2">
-        {value}
-      </div>
-      <div className="text-xs sm:text-sm text-brand-500 font-medium">{label}</div>
-    </motion.div>
-  );
-}
-
-// 功能卡片
-function FeatureCard({
-  icon,
-  title,
-  description,
-}: {
-  icon: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <motion.div
-      whileHover={{ y: -6, transition: { duration: 0.2 } }}
-      className="group p-4 sm:p-6 bg-white/80 backdrop-blur-sm border border-brand-200 rounded-xl sm:rounded-2xl hover:border-brand-300 hover:shadow-lg transition-all duration-300"
-    >
-      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-brand-100 flex items-center justify-center text-xl sm:text-2xl">
-        {icon}
-      </div>
-      <h3 className="text-base sm:text-lg font-semibold text-brand-700 mb-1 sm:mb-2 mt-3 sm:mt-4">{title}</h3>
-      <p className="text-xs sm:text-sm text-brand-500 leading-relaxed">{description}</p>
-    </motion.div>
   );
 }

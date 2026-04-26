@@ -275,19 +275,19 @@ export default function MePage() {
   const avatarUrl = userProfile?.avatar_url;
 
   return (
-    <div className="min-h-screen relative pb-20 sm:pb-0">
+    <div className="min-h-screen bg-gray-50 pb-20 sm:pb-0">
       {/* 背景 */}
-      <div className="fixed inset-0 pointer-events-none theme-bg-gradient" />
+      
 
       {/* 用户信息 */}
-      <div className="relative bg-white/80 backdrop-blur-sm border-b border-brand-200">
+      <div className="relative bg-white/80 backdrop-blur-sm border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 sm:gap-4">
               {/* 头像 */}
               <div
                 className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center text-2xl overflow-hidden ${
-                  avatarUrl ? '' : 'bg-brand-100'
+                  avatarUrl ? '' : 'bg-gray-100'
                 } ${uploadingAvatar ? 'opacity-50' : 'cursor-pointer hover:opacity-80 transition'}`}
                 onClick={!uploadingAvatar ? handleAvatarClick : undefined}
               >
@@ -317,7 +317,7 @@ export default function MePage() {
                       value={newUsername}
                       onChange={(e) => setNewUsername(e.target.value)}
                       placeholder="输入用户名"
-                      className="px-2 sm:px-3 py-1.5 border border-brand-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none text-sm w-full max-w-[180px]"
+                      className="px-2 sm:px-3 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none text-sm w-full max-w-[180px]"
                       minLength={2}
                       autoFocus
                       onKeyDown={(e) => {
@@ -330,7 +330,7 @@ export default function MePage() {
                     />
                     <button
                       onClick={handleUpdateUsername}
-                      className="px-2 sm:px-3 py-1.5 bg-brand-500 text-white rounded-lg text-xs sm:text-sm hover:bg-brand-600 transition flex-shrink-0"
+                      className="px-2 sm:px-3 py-1.5 bg-gray-500 text-white rounded-lg text-xs sm:text-sm hover:bg-gray-600 transition flex-shrink-0"
                     >
                       保存
                     </button>
@@ -339,24 +339,24 @@ export default function MePage() {
                         setEditingUsername(false);
                         setNewUsername(user.user_metadata?.username || user.user_metadata?.display_name || '');
                       }}
-                      className="px-2 sm:px-3 py-1.5 border border-brand-300 text-brand-600 rounded-lg text-xs sm:text-sm hover:bg-brand-50 transition flex-shrink-0"
+                      className="px-2 sm:px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs sm:text-sm hover:bg-gray-50 transition flex-shrink-0"
                     >
                       取消
                     </button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <h1 className="text-lg sm:text-xl font-bold text-brand-800 truncate">{displayName}</h1>
+                    <h1 className="text-lg sm:text-xl font-bold text-gray-800 truncate">{displayName}</h1>
                     <button
                       onClick={() => setEditingUsername(true)}
-                      className="text-brand-400 hover:text-brand-600 transition flex-shrink-0"
+                      className="text-gray-400 hover:text-gray-600 transition flex-shrink-0"
                       title="修改用户名"
                     >
                       ✏️
                     </button>
                   </div>
                 )}
-                <p className="text-brand-500 text-xs sm:text-sm truncate">{user.email}</p>
+                <p className="text-gray-500 text-xs sm:text-sm truncate">{user.email}</p>
               </div>
             </div>
           </div>
@@ -364,15 +364,15 @@ export default function MePage() {
       </div>
 
       {/* 标签切换 */}
-      <div className="sticky top-16 z-30 bg-white/80 backdrop-blur-sm border-b border-brand-200">
+      <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-sm border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-3 sm:px-4 overflow-x-auto scrollbar-hide">
           <div className="flex gap-2 sm:gap-8 min-w-max">
             <button
               onClick={() => setActiveTab('questions')}
               className={`py-3 sm:py-4 px-2 border-b-2 font-medium transition whitespace-nowrap text-sm ${
                 activeTab === 'questions'
-                  ? 'border-brand-500 text-brand-600'
-                  : 'border-transparent text-brand-400 hover:text-brand-600'
+                  ? 'border-gray-500 text-gray-600'
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
               }`}
             >
               我的题目 ({questions.length})
@@ -381,8 +381,8 @@ export default function MePage() {
               onClick={() => setActiveTab('notes')}
               className={`py-3 sm:py-4 px-2 border-b-2 font-medium transition whitespace-nowrap text-sm ${
                 activeTab === 'notes'
-                  ? 'border-brand-500 text-brand-600'
-                  : 'border-transparent text-brand-400 hover:text-brand-600'
+                  ? 'border-gray-500 text-gray-600'
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
               }`}
             >
               我的笔记 ({notes.length})
@@ -391,8 +391,8 @@ export default function MePage() {
               onClick={() => setActiveTab('favorites')}
               className={`py-3 sm:py-4 px-2 border-b-2 font-medium transition whitespace-nowrap text-sm ${
                 activeTab === 'favorites'
-                  ? 'border-brand-500 text-brand-600'
-                  : 'border-transparent text-brand-400 hover:text-brand-600'
+                  ? 'border-gray-500 text-gray-600'
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
               }`}
             >
               我的收藏 ({favorites.questions.length + favorites.notes.length})
@@ -405,18 +405,18 @@ export default function MePage() {
       <div className="relative max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
         {loading ? (
           <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500"></div>
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-500"></div>
           </div>
         ) : activeTab === 'questions' && questions.length === 0 ? (
-          <div className="text-center py-12 text-brand-500">
-            还没有上传题目，<Link href="/upload" className="text-brand-600 hover:text-brand-700 underline">去上传</Link>
+          <div className="text-center py-12 text-gray-500">
+            还没有上传题目，<Link href="/upload" className="text-gray-600 hover:text-gray-700 underline">去上传</Link>
           </div>
         ) : activeTab === 'notes' && notes.length === 0 ? (
-          <div className="text-center py-12 text-brand-500">
-            还没有上传笔记，<Link href="/notes/upload" className="text-brand-600 hover:text-brand-700 underline">去上传</Link>
+          <div className="text-center py-12 text-gray-500">
+            还没有上传笔记，<Link href="/notes/upload" className="text-gray-600 hover:text-gray-700 underline">去上传</Link>
           </div>
         ) : activeTab === 'favorites' && favorites.questions.length === 0 && favorites.notes.length === 0 ? (
-          <div className="text-center py-12 text-brand-500">
+          <div className="text-center py-12 text-gray-500">
             还没有收藏任何内容
           </div>
         ) : (
@@ -439,34 +439,34 @@ export default function MePage() {
                 ))
               : (
                 <>
-                  <h3 className="text-base sm:text-lg font-medium text-brand-700 mb-3 sm:mb-4">收藏的题目</h3>
+                  <h3 className="text-base sm:text-lg font-medium text-gray-700 mb-3 sm:mb-4">收藏的题目</h3>
                   {favorites.questions.length === 0 ? (
-                    <p className="text-center text-brand-400 py-8 mb-8 text-sm">还没有收藏题目</p>
+                    <p className="text-center text-gray-400 py-8 mb-8 text-sm">还没有收藏题目</p>
                   ) : (
                     <div className="space-y-3 sm:space-y-4 mb-8">
                       {favorites.questions.map((question) => (
                         <Link
                           key={question.id}
                           href={`/questions/${question.id}`}
-                          className="block bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5 hover:shadow-md transition"
+                          className="block bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200 p-4 sm:p-5 hover:shadow-md transition"
                         >
-                          <p className="text-brand-700 text-sm">{question.question_text}</p>
+                          <p className="text-gray-700 text-sm">{question.question_text}</p>
                         </Link>
                       ))}
                     </div>
                   )}
-                  <h3 className="text-base sm:text-lg font-medium text-brand-700 mb-3 sm:mb-4">收藏的笔记</h3>
+                  <h3 className="text-base sm:text-lg font-medium text-gray-700 mb-3 sm:mb-4">收藏的笔记</h3>
                   {favorites.notes.length === 0 ? (
-                    <p className="text-center text-brand-400 py-8 text-sm">还没有收藏笔记</p>
+                    <p className="text-center text-gray-400 py-8 text-sm">还没有收藏笔记</p>
                   ) : (
                     <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
                       {favorites.notes.map((note) => (
                         <Link
                           key={note.id}
                           href={`/notes/${note.id}`}
-                          className="block bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5 hover:shadow-md transition"
+                          className="block bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200 p-4 sm:p-5 hover:shadow-md transition"
                         >
-                          <h3 className="font-medium text-brand-700 text-sm">{note.title}</h3>
+                          <h3 className="font-medium text-gray-700 text-sm">{note.title}</h3>
                         </Link>
                       ))}
                     </div>
@@ -486,21 +486,21 @@ function QuestionItem({ question, onDelete }: {
   onDelete: (id: string) => void;
 }) {
   return (
-    <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
+    <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200 p-4 sm:p-5">
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
-            <h3 className="font-medium text-brand-700 text-sm sm:text-base">题目</h3>
+            <h3 className="font-medium text-gray-700 text-sm sm:text-base">题目</h3>
             {getStatusBadge(question.status)}
           </div>
           {question.question_file_url && (
-            <div className="flex items-center gap-2 text-xs sm:text-sm text-brand-500 mb-2">
+            <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-500 mb-2">
               <span>📄</span>
               <span className="truncate">{question.question_file_name || '文档'}</span>
             </div>
           )}
           {question.question_text && (
-            <p className="text-brand-600 text-xs sm:text-sm whitespace-pre-wrap line-clamp-3">
+            <p className="text-gray-600 text-xs sm:text-sm whitespace-pre-wrap line-clamp-3">
               {question.question_text}
             </p>
           )}
@@ -508,29 +508,29 @@ function QuestionItem({ question, onDelete }: {
             <img
               src={question.question_image_url}
               alt="题目图片"
-              className="mt-2 max-w-full sm:max-w-xs h-auto rounded-lg border border-brand-200"
+              className="mt-2 max-w-full sm:max-w-xs h-auto rounded-lg border border-gray-200"
             />
           )}
         </div>
         <button
           onClick={() => onDelete(question.id)}
-          className="ml-2 sm:ml-4 text-brand-400 hover:text-red-500 transition flex-shrink-0 text-sm"
+          className="ml-2 sm:ml-4 text-gray-400 hover:text-red-500 transition flex-shrink-0 text-sm"
         >
           删除
         </button>
       </div>
 
       {(question.tags && question.tags.length > 0) || question.created_at ? (
-        <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-3 pt-3 border-t border-brand-100">
+        <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-3 pt-3 border-t border-gray-100">
           {question.tags && question.tags.map((tag) => (
             <span
               key={tag.id}
-              className="px-2 py-0.5 text-[10px] sm:text-xs font-medium bg-brand-100/80 text-brand-600 rounded-full"
+              className="px-2 py-0.5 text-[10px] sm:text-xs font-medium bg-gray-100/80 text-gray-600 rounded-full"
             >
               {tag.name}
             </span>
           ))}
-          <span className="text-[10px] sm:text-xs text-brand-400 ml-auto flex-shrink-0">
+          <span className="text-[10px] sm:text-xs text-gray-400 ml-auto flex-shrink-0">
             {new Date(question.created_at).toLocaleDateString('zh-CN')}
           </span>
         </div>
@@ -544,31 +544,31 @@ function NoteItem({ note, onDelete }: {
   onDelete: (note: NoteWithTags) => void;
 }) {
   return (
-    <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
+    <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200 p-4 sm:p-5">
       <div className="flex items-start gap-3 sm:gap-4">
         <div className="text-2xl sm:text-3xl flex-shrink-0">{getFileIcon(note.file_name || '')}</div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h3 className="font-medium text-brand-700 truncate text-sm sm:text-base">{note.title}</h3>
+            <h3 className="font-medium text-gray-700 truncate text-sm sm:text-base">{note.title}</h3>
             {getStatusBadge(note.status)}
           </div>
           {note.description && (
-            <p className="text-xs sm:text-sm text-brand-500 line-clamp-2 mb-1">{note.description}</p>
+            <p className="text-xs sm:text-sm text-gray-500 line-clamp-2 mb-1">{note.description}</p>
           )}
           {note.file_name && (
-            <p className="text-xs sm:text-sm text-brand-400 truncate">{note.file_name}</p>
+            <p className="text-xs sm:text-sm text-gray-400 truncate">{note.file_name}</p>
           )}
           {note.file_url && (
             <a
               href={note.file_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs sm:text-sm text-brand-500 hover:text-brand-600 underline"
+              className="text-xs sm:text-sm text-gray-500 hover:text-gray-600 underline"
             >
               查看文件
             </a>
           )}
-          <p className="text-[10px] sm:text-xs text-brand-400 mt-2">
+          <p className="text-[10px] sm:text-xs text-gray-400 mt-2">
             {new Date(note.created_at).toLocaleDateString('zh-CN')}
             {note.file_size && ` · ${formatFileSize(note.file_size)}`}
             {` · ${note.likes_count || 0} 个赞`}
@@ -578,7 +578,7 @@ function NoteItem({ note, onDelete }: {
               {note.tags.map((tag) => (
                 <span
                   key={tag.id}
-                  className="px-2 py-0.5 text-[10px] sm:text-xs font-medium bg-brand-100/80 text-brand-600 rounded-full"
+                  className="px-2 py-0.5 text-[10px] sm:text-xs font-medium bg-gray-100/80 text-gray-600 rounded-full"
                 >
                   {tag.name}
                 </span>
@@ -588,7 +588,7 @@ function NoteItem({ note, onDelete }: {
         </div>
         <button
           onClick={() => onDelete(note)}
-          className="text-brand-400 hover:text-red-500 transition flex-shrink-0 text-sm"
+          className="text-gray-400 hover:text-red-500 transition flex-shrink-0 text-sm"
         >
           删除
         </button>

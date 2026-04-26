@@ -29,17 +29,6 @@ export default function UserProfilePage() {
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
 
-  useEffect(() => {
-    checkUser();
-    loadUserData();
-  }, [userId]);
-
-  useEffect(() => {
-    if (currentUser) {
-      loadFavorites();
-    }
-  }, [currentUser, userId]);
-
   const loadFavorites = async () => {
     const supabase = getSupabase();
     
@@ -187,6 +176,17 @@ export default function UserProfilePage() {
   };
 
   useEffect(() => {
+    checkUser();
+    loadUserData();
+  }, [userId]);
+
+  useEffect(() => {
+    if (currentUser) {
+      loadFavorites();
+    }
+  }, [currentUser, userId]);
+
+  useEffect(() => {
     if (profileUser) {
       loadContent();
     }
@@ -248,17 +248,17 @@ export default function UserProfilePage() {
   const isOwnProfile = currentUser && currentUser.id === userId;
 
   return (
-    <div className="min-h-screen relative">
+    <div className="min-h-screen bg-gray-50">
       {/* 背景 */}
-      <div className="fixed inset-0 pointer-events-none theme-bg-gradient" />
+      
       
       {/* 用户信息头部 */}
-      <div className="bg-white/80 backdrop-blur-md border-b border-brand-200 relative z-10">
+      <div className="bg-white/80 backdrop-blur-md border-b border-gray-200 relative z-10">
         <div className="max-w-4xl mx-auto px-4 py-8">
           <div className="flex items-center gap-6">
             {/* 头像 */}
             <div className={`w-24 h-24 rounded-full flex items-center justify-center text-4xl overflow-hidden border-4 border-white shadow-lg ${
-              profileUser.avatar_url ? '' : 'bg-gradient-to-br from-brand-400 to-brand-600'
+              profileUser.avatar_url ? '' : 'bg-gradient-to-br from-gray-400 to-gray-600'
             }`}>
               {profileUser.avatar_url ? (
                 <img 

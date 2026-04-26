@@ -11,21 +11,21 @@ type SortOption = 'newest' | 'oldest' | 'popular';
 // 骨架屏组件
 function SkeletonCard() {
   return (
-    <div className="bg-white/80 backdrop-blur-sm border border-brand-200 rounded-xl p-5 animate-pulse">
+    <div className="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl p-5 animate-pulse">
       <div className="flex items-start gap-3 mb-4">
-        <div className="w-10 h-10 rounded-full bg-brand-200" />
+        <div className="w-10 h-10 rounded-full bg-gray-200" />
         <div className="flex-1">
-          <div className="h-4 bg-brand-200 rounded w-24 mb-2" />
-          <div className="h-3 bg-brand-100 rounded w-16" />
+          <div className="h-4 bg-gray-200 rounded w-24 mb-2" />
+          <div className="h-3 bg-gray-100 rounded w-16" />
         </div>
       </div>
       <div className="space-y-2">
-        <div className="h-4 bg-brand-100 rounded w-full" />
-        <div className="h-4 bg-brand-100 rounded w-3/4" />
+        <div className="h-4 bg-gray-100 rounded w-full" />
+        <div className="h-4 bg-gray-100 rounded w-3/4" />
       </div>
       <div className="flex gap-2 mt-4">
-        <div className="h-6 bg-brand-100 rounded-full w-16" />
-        <div className="h-6 bg-brand-100 rounded-full w-20" />
+        <div className="h-6 bg-gray-100 rounded-full w-16" />
+        <div className="h-6 bg-gray-100 rounded-full w-20" />
       </div>
     </div>
   );
@@ -292,14 +292,14 @@ export default function SearchPage() {
         <img
           src={profile.avatar_url}
           alt={profile.username || '用户'}
-          className="w-10 h-10 rounded-full object-cover border-2 border-brand-300"
+          className="w-10 h-10 rounded-full object-cover border-2 border-gray-300"
         />
       );
     }
     const displayName = profile?.username || '用户';
 
     return (
-      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-500 to-brand-400 flex items-center justify-center text-white font-medium border-2 border-brand-300">
+      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-500 to-gray-400 flex items-center justify-center text-white font-medium border-2 border-gray-300">
         {displayName}
       </div>
     );
@@ -313,16 +313,16 @@ export default function SearchPage() {
   const hotTags = availableTags.slice(0, 10);
 
   return (
-    <div className="min-h-screen relative pb-20 sm:pb-0">
+    <div className="min-h-screen bg-gray-50 pb-20 sm:pb-0">
       {/* 背景 */}
-      <div className="fixed inset-0 pointer-events-none theme-bg-gradient" />
+      
       
       {/* 搜索栏 */}
-      <div className="bg-white/80 backdrop-blur-md border-b border-brand-200 sticky top-16 z-40 px-3 sm:px-4 py-3 sm:py-4">
+      <div className="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-40 px-3 sm:px-4 py-3 sm:py-4">
         <div className="max-w-6xl mx-auto">
           {/* 第一行：返回按钮 + 搜索框 */}
           <div className="flex items-center gap-2 sm:gap-3">
-            <Link href="/" className="flex items-center gap-1 text-brand-600 hover:text-brand-800 flex-shrink-0">
+            <Link href="/" className="flex items-center gap-1 text-gray-600 hover:text-gray-800 flex-shrink-0">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
@@ -344,15 +344,15 @@ export default function SearchPage() {
                   }
                 }}
                 placeholder="搜索题目或答案..."
-                className="w-full px-4 py-2.5 bg-white/80 border border-brand-200 rounded-xl sm:rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none text-brand-800 placeholder-brand-500 text-sm"
+                className="w-full px-4 py-2.5 bg-white/80 border border-gray-200 rounded-xl sm:rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none text-gray-800 placeholder-gray-500 text-sm"
               />
               {showHistory && searchHistory.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white/95 backdrop-blur-sm border border-brand-200 rounded-xl shadow-lg z-50 overflow-hidden">
-                  <div className="p-2 border-b border-brand-200 flex justify-between items-center">
-                    <span className="text-sm font-medium text-brand-700">搜索历史</span>
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden">
+                  <div className="p-2 border-b border-gray-200 flex justify-between items-center">
+                    <span className="text-sm font-medium text-gray-700">搜索历史</span>
                     <button
                       onClick={clearHistory}
-                      className="text-xs text-brand-400 hover:text-brand-700"
+                      className="text-xs text-gray-400 hover:text-gray-700"
                     >
                       清空
                     </button>
@@ -362,7 +362,7 @@ export default function SearchPage() {
                       <button
                         key={item.id}
                         onClick={() => handleHistoryClick(item.query)}
-                        className="w-full text-left px-4 py-2 text-sm text-brand-700 hover:bg-brand-100 rounded-lg transition-colors"
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                       >
                         {item.query}
                       </button>
@@ -374,11 +374,11 @@ export default function SearchPage() {
 
             {/* 排序选择器 */}
             <div className="hidden sm:flex items-center gap-2 ml-2">
-              <span className="text-sm text-brand-400">排序:</span>
+              <span className="text-sm text-gray-400">排序:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="px-3 py-1.5 bg-white/80 border border-brand-200 rounded-lg text-sm focus:ring-500 outline-none text-brand-700"
+                className="px-3 py-1.5 bg-white/80 border border-gray-200 rounded-lg text-sm focus:ring-500 outline-none text-gray-700"
               >
                 <option value="newest">最新</option>
                 <option value="oldest">最早</option>
@@ -390,7 +390,7 @@ export default function SearchPage() {
         {/* 第二行：标签筛选（移动端） */}
         {availableTags.length > 0 && (
           <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
-            <span className="text-xs text-brand-400 flex-shrink-0">标签:</span>
+            <span className="text-xs text-gray-400 flex-shrink-0">标签:</span>
             <div className="flex gap-1.5 flex-wrap">
               {hotTags.map(tag => (
                 <button
@@ -398,8 +398,8 @@ export default function SearchPage() {
                   onClick={() => toggleTag(tag)}
                   className={`px-2.5 py-1 text-xs rounded-full transition whitespace-nowrap ${
                     selectedTags.includes(tag)
-                      ? 'bg-brand-500 text-white'
-                      : 'bg-brand-50/80 text-brand-600 hover:bg-brand-100'
+                      ? 'bg-gray-500 text-white'
+                      : 'bg-gray-50/80 text-gray-600 hover:bg-gray-100'
                   }`}
                 >
                   {tag}
@@ -419,11 +419,11 @@ export default function SearchPage() {
 
         {/* 移动端排序选择器 */}
         <div className="sm:hidden mt-2 flex items-center gap-2">
-          <span className="text-xs text-brand-400">排序:</span>
+          <span className="text-xs text-gray-400">排序:</span>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortOption)}
-            className="px-2 py-1 bg-white/80 border border-brand-200 rounded-lg text-xs focus:ring-500 outline-none text-brand-700"
+            className="px-2 py-1 bg-white/80 border border-gray-200 rounded-lg text-xs focus:ring-500 outline-none text-gray-700"
           >
             <option value="newest">最新</option>
             <option value="oldest">最早</option>
@@ -441,8 +441,8 @@ export default function SearchPage() {
         ) : filteredQuestions.length === 0 ? (
           <div className="text-center py-12">
             <div className="text-5xl sm:text-6xl mb-4">🔍</div>
-            <h3 className="text-lg sm:text-xl font-medium text-brand-700 mb-2">没有找到相关题目</h3>
-            <p className="text-sm sm:text-base text-brand-400">
+            <h3 className="text-lg sm:text-xl font-medium text-gray-700 mb-2">没有找到相关题目</h3>
+            <p className="text-sm sm:text-base text-gray-400">
               {!currentUserId && '请先登录查看题目'}
               {currentUserId && isAdmin && '请先上传一些题目'}
               {currentUserId && !isAdmin && '试试其他搜索词或标签'}
@@ -456,7 +456,7 @@ export default function SearchPage() {
                 href={`/questions/${question.id}`}
                 className="block group"
               >
-                <div className="bg-white/80 backdrop-blur-sm border border-brand-200 rounded-xl p-4 sm:p-5 hover:border-brand-400 hover:shadow-lg hover:scale-[1.02] transition-all duration-300 relative overflow-hidden">
+                <div className="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl p-4 sm:p-5 hover:border-gray-400 hover:shadow-lg hover:scale-[1.02] transition-all duration-300 relative overflow-hidden">
                   {/* 悬停时显示的收藏按钮 */}
                   <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
                     <button
@@ -464,10 +464,10 @@ export default function SearchPage() {
                         e.preventDefault();
                         handleFavorite(question.id, e);
                       }}
-                      className="p-2 bg-white/90 backdrop-blur-sm rounded-lg shadow-sm hover:bg-brand-50 transition-colors"
+                      className="p-2 bg-white/90 backdrop-blur-sm rounded-lg shadow-sm hover:bg-gray-50 transition-colors"
                       title="收藏"
                     >
-                      <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
                       </svg>
                     </button>
@@ -476,7 +476,7 @@ export default function SearchPage() {
                   <div className="flex items-start gap-3 mb-4">
                     {getUserAvatar(question)}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-brand-400">
+                      <p className="text-sm text-gray-400">
                         {getDisplayName(question)} · {new Date(question.created_at).toLocaleDateString()}
                       </p>
                       {/* 显示审核状态 */}
@@ -487,15 +487,15 @@ export default function SearchPage() {
                   </div>
                   <div className="mb-4">
                     {question.question_file_url && (
-                      <div className="mb-2 p-2 bg-brand-100/30 border border-brand-300/50 rounded-lg">
-                        <div className="flex items-center gap-2 text-sm text-brand-700">
+                      <div className="mb-2 p-2 bg-gray-100/30 border border-gray-300/50 rounded-lg">
+                        <div className="flex items-center gap-2 text-sm text-gray-700">
                           <span>📄</span>
                           <span>{question.question_file_name || '题目文档'}</span>
                         </div>
                       </div>
                     )}
                     {question.question_text && (
-                      <p className="text-brand-800 line-clamp-2 leading-relaxed">
+                      <p className="text-gray-800 line-clamp-2 leading-relaxed">
                         {question.question_text}
                       </p>
                     )}

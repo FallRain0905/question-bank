@@ -60,16 +60,16 @@ export default function MobileActionSheet({
       />
 
       {/* 底部面板 */}
-      <div className="action-sheet-content absolute bottom-0 left-0 right-0 bg-brand-900 rounded-t-2xl shadow-2xl border-t border-brand-700 transition-transform duration-300">
+      <div className="action-sheet-content absolute bottom-0 left-0 right-0 bg-gray-900 rounded-t-2xl shadow-2xl border-t border-gray-700 transition-transform duration-300">
         {/* 拖动指示器 */}
         <div className="flex justify-center py-3">
-          <div className="w-10 h-1 bg-brand-600 rounded-full" />
+          <div className="w-10 h-1 bg-gray-600 rounded-full" />
         </div>
 
         {/* 标题 */}
         {title && (
-          <div className="px-6 pb-3 border-b border-brand-800">
-            <h3 className="text-lg font-medium text-brand-50">{title}</h3>
+          <div className="px-6 pb-3 border-b border-gray-800">
+            <h3 className="text-lg font-medium text-gray-50">{title}</h3>
           </div>
         )}
 
@@ -85,7 +85,7 @@ export default function MobileActionSheet({
               className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition ${
                 action.destructive
                   ? 'text-red-400 hover:bg-red-900/20'
-                  : 'text-brand-200 hover:bg-brand-800'
+                  : 'text-gray-200 hover:bg-gray-800'
               }`}
             >
               {action.icon && (
@@ -98,7 +98,7 @@ export default function MobileActionSheet({
           {/* 取消按钮 */}
           <button
             onClick={onClose}
-            className="w-full mt-2 px-4 py-3.5 rounded-xl text-brand-400 hover:bg-brand-800 transition"
+            className="w-full mt-2 px-4 py-3.5 rounded-xl text-gray-400 hover:bg-gray-800 transition"
           >
             <span className="text-base">取消</span>
           </button>

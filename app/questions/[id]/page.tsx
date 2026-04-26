@@ -308,7 +308,7 @@ export default function QuestionDetailPage() {
   if (loading) {
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
-        <div className="text-brand-400">加载中...</div>
+        <div className="text-gray-400">加载中...</div>
       </div>
     );
   }
@@ -316,7 +316,7 @@ export default function QuestionDetailPage() {
   if (!question) {
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
-        <div className="text-brand-400">题目不存在</div>
+        <div className="text-gray-400">题目不存在</div>
       </div>
     );
   }
@@ -333,15 +333,15 @@ export default function QuestionDetailPage() {
   const statusInfo = statusConfig[question.status] || statusConfig.pending;
 
   return (
-    <div className="min-h-screen relative">
+    <div className="min-h-screen bg-gray-50">
       {/* 背景 */}
-      <div className="fixed inset-0 pointer-events-none theme-bg-gradient" />
+      
       
       <div className="max-w-5xl mx-auto px-4 py-8 relative z-10">
         {/* 返回按钮 */}
         <Link
           href="/search"
-          className="inline-flex items-center text-brand-600 hover:text-brand-800 mb-6"
+          className="inline-flex items-center text-gray-600 hover:text-gray-800 mb-6"
         >
           ← 返回题库
         </Link>
@@ -350,7 +350,7 @@ export default function QuestionDetailPage() {
           {/* 主内容区 */}
           <div className="lg:col-span-2">
             {/* 题目内容 */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-brand-200 p-6 mb-6">
+            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
           {/* 状态提示和操作按钮 */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
@@ -362,7 +362,7 @@ export default function QuestionDetailPage() {
               {question.tags.map((tag) => (
                 <span
                   key={tag.id}
-                  className="px-3 py-1 text-sm bg-brand-600/30 text-brand-500 rounded-full"
+                  className="px-3 py-1 text-sm bg-gray-600/30 text-gray-500 rounded-full"
                 >
                   {tag.name}
                 </span>
@@ -372,7 +372,7 @@ export default function QuestionDetailPage() {
               <button
                 onClick={handleFavorite}
                 className={`p-2 rounded-lg transition ${
-                  isFavorited ? 'text-yellow-500 bg-yellow-50' : 'text-brand-500 hover:text-yellow-500 hover:bg-brand-100'
+                  isFavorited ? 'text-yellow-500 bg-yellow-50' : 'text-gray-500 hover:text-yellow-500 hover:bg-gray-100'
                 }`}
                 title="收藏"
               >
@@ -381,7 +381,7 @@ export default function QuestionDetailPage() {
               {isOwner && (
                 <button
                   onClick={handleDelete}
-                  className="p-2 text-brand-500 hover:text-red-400 hover:bg-brand-100 rounded-lg transition"
+                  className="p-2 text-gray-500 hover:text-red-400 hover:bg-gray-100 rounded-lg transition"
                   title="删除"
                 >
                   🗑️
@@ -401,17 +401,17 @@ export default function QuestionDetailPage() {
 
           {/* 题目 */}
           <div className="mb-6">
-            <h2 className="text-lg font-medium text-brand-800 mb-3">题目</h2>
+            <h2 className="text-lg font-medium text-gray-800 mb-3">题目</h2>
 
             {/* 文档预览和下载 */}
             {question.question_file_url && (
-              <div className="mb-4 p-4 bg-brand-600/30 border border-brand-700 rounded-lg">
+              <div className="mb-4 p-4 bg-gray-600/30 border border-gray-700 rounded-lg">
                 <div className="flex items-center gap-3 mb-3">
                   <span className="text-2xl">📄</span>
                   <div>
-                    <p className="text-sm font-medium text-brand-50">{question.question_file_name || '题目文档'}</p>
+                    <p className="text-sm font-medium text-gray-50">{question.question_file_name || '题目文档'}</p>
                     {(question.question_file_type || question.question_file_size) && (
-                      <p className="text-xs text-brand-400">
+                      <p className="text-xs text-gray-400">
                         {question.question_file_type && <span>{question.question_file_type}</span>}
                         {question.question_file_type && question.question_file_size && <span> · </span>}
                         {question.question_file_size && <span>{formatFileSize(question.question_file_size)}</span>}
@@ -424,7 +424,7 @@ export default function QuestionDetailPage() {
                   download={question.question_file_name || '题目文档'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 text-brand-50 rounded-lg text-sm font-medium hover:bg-brand-600 transition no-underline"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-gray-500 text-gray-50 rounded-lg text-sm font-medium hover:bg-gray-600 transition no-underline"
                 >
                   <span>下载题目文档</span>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -435,7 +435,7 @@ export default function QuestionDetailPage() {
             )}
 
             {question.question_text && (
-              <p className="text-brand-200 whitespace-pre-wrap">{question.question_text}</p>
+              <p className="text-gray-200 whitespace-pre-wrap">{question.question_text}</p>
             )}
 
             {question.question_image_url && (
@@ -448,8 +448,8 @@ export default function QuestionDetailPage() {
           </div>
 
           {/* 答案 */}
-          <div className="border-t border-brand-900 pt-6">
-            <h2 className="text-lg font-medium text-brand-800 mb-3">答案</h2>
+          <div className="border-t border-gray-900 pt-6">
+            <h2 className="text-lg font-medium text-gray-800 mb-3">答案</h2>
 
             {/* 答案文档预览和下载 */}
             {question.answer_file_url && (
@@ -457,9 +457,9 @@ export default function QuestionDetailPage() {
                 <div className="flex items-center gap-3 mb-3">
                   <span className="text-2xl">📄</span>
                   <div>
-                    <p className="text-sm font-medium text-brand-50">{question.answer_file_name || '答案文档'}</p>
+                    <p className="text-sm font-medium text-gray-50">{question.answer_file_name || '答案文档'}</p>
                     {(question.answer_file_type || question.answer_file_size) && (
-                      <p className="text-xs text-brand-400">
+                      <p className="text-xs text-gray-400">
                         {question.answer_file_type && <span>{question.answer_file_type}</span>}
                         {question.answer_file_type && question.answer_file_size && <span> · </span>}
                         {question.answer_file_size && <span>{formatFileSize(question.answer_file_size)}</span>}
@@ -472,7 +472,7 @@ export default function QuestionDetailPage() {
                   download={question.answer_file_name || '答案文档'}
                   rel="noopener noreferrer"
                   target="_blank"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-brand-50 rounded-lg text-sm font-medium hover:bg-green-700 transition no-underline"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-gray-50 rounded-lg text-sm font-medium hover:bg-green-700 transition no-underline"
                 >
                   <span>下载答案文档</span>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -483,7 +483,7 @@ export default function QuestionDetailPage() {
             )}
 
             {question.answer_text && (
-              <p className="text-brand-200 whitespace-pre-wrap">{question.answer_text}</p>
+              <p className="text-gray-200 whitespace-pre-wrap">{question.answer_text}</p>
             )}
 
             {question.answer_image_url && (
@@ -496,7 +496,7 @@ export default function QuestionDetailPage() {
           </div>
 
           {/* 上传信息 */}
-          <div className="border-t border-brand-900 pt-5 mt-6">
+          <div className="border-t border-gray-900 pt-5 mt-6">
             <div className="flex items-center justify-between">
               <UserAvatar
                 userId={question.user_id}
@@ -511,8 +511,8 @@ export default function QuestionDetailPage() {
         </div>
 
         {/* 评论区 */}
-        <div className="bg-brand-800/50 rounded-xl shadow-sm border border-brand-800 p-6">
-          <h3 className="text-lg font-medium text-brand-800 mb-4">评论 ({comments.length})</h3>
+        <div className="bg-gray-800/50 rounded-xl shadow-sm border border-gray-800 p-6">
+          <h3 className="text-lg font-medium text-gray-800 mb-4">评论 ({comments.length})</h3>
 
           {/* 评论输入 */}
           {user ? (
@@ -521,21 +521,21 @@ export default function QuestionDetailPage() {
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
                 placeholder="写下你的评论..."
-                className="w-full px-4 py-3 border border-brand-700 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none resize-none"
+                className="w-full px-4 py-3 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none resize-none"
                 rows={3}
               />
               <div className="flex justify-end mt-2">
                 <button
                   onClick={handleComment}
-                  className="px-4 py-2 bg-brand-500 text-brand-50 rounded-lg hover:bg-brand-600 transition"
+                  className="px-4 py-2 bg-gray-500 text-gray-50 rounded-lg hover:bg-gray-600 transition"
                 >
                   发表评论
                 </button>
               </div>
             </div>
           ) : (
-            <div className="mb-6 p-4 bg-brand-100 rounded-lg text-center">
-              <Link href="/login" className="text-brand-500 hover:text-brand-600">
+            <div className="mb-6 p-4 bg-gray-100 rounded-lg text-center">
+              <Link href="/login" className="text-gray-500 hover:text-gray-600">
                 登录后参与评论
               </Link>
             </div>
@@ -544,10 +544,10 @@ export default function QuestionDetailPage() {
           {/* 评论列表 */}
           <div className="space-y-6">
             {comments.length === 0 ? (
-              <p className="text-brand-400 text-center py-8">还没有评论，快来抢沙发吧！</p>
+              <p className="text-gray-400 text-center py-8">还没有评论，快来抢沙发吧！</p>
             ) : (
               comments.map((comment) => (
-                <div key={comment.id} className="border-b border-brand-900 pb-5 last:border-0">
+                <div key={comment.id} className="border-b border-gray-900 pb-5 last:border-0">
                   <div className="flex items-start gap-3">
                     <UserTag
                       username={comment.user.username}
@@ -556,17 +556,17 @@ export default function QuestionDetailPage() {
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-1">
-                        <span className="text-xs text-brand-400">
+                        <span className="text-xs text-gray-400">
                           {formatDistanceToNow(new Date(comment.created_at), { locale: zhCN, addSuffix: true })}
                         </span>
                       </div>
-                      <p className="text-brand-200">{comment.content}</p>
+                      <p className="text-gray-200">{comment.content}</p>
 
                       {/* 回复按钮 */}
                       {user && (
                         <button
                           onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}
-                          className="text-sm text-brand-400 hover:text-brand-500 mt-2"
+                          className="text-sm text-gray-400 hover:text-gray-500 mt-2"
                         >
                           {replyTo === comment.id ? '取消回复' : '回复'}
                         </button>
@@ -579,7 +579,7 @@ export default function QuestionDetailPage() {
                             value={replyText}
                             onChange={(e) => setReplyText(e.target.value)}
                             placeholder={`回复 ${comment.user.username || comment.user.email}...`}
-                            className="w-full px-3 py-2 border border-brand-700 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none resize-none text-sm"
+                            className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none resize-none text-sm"
                             rows={2}
                           />
                           <div className="flex justify-end mt-2 gap-2">
@@ -588,13 +588,13 @@ export default function QuestionDetailPage() {
                                 setReplyTo(null);
                                 setReplyText('');
                               }}
-                              className="px-3 py-1 text-sm text-brand-300 hover:text-brand-100"
+                              className="px-3 py-1 text-sm text-gray-300 hover:text-gray-100"
                             >
                               取消
                             </button>
                             <button
                               onClick={() => handleReply(comment.id)}
-                              className="px-3 py-1 text-sm bg-brand-500 text-brand-50 rounded-lg hover:bg-brand-600"
+                              className="px-3 py-1 text-sm bg-gray-500 text-gray-50 rounded-lg hover:bg-gray-600"
                             >
                               回复
                             </button>
@@ -604,7 +604,7 @@ export default function QuestionDetailPage() {
 
                       {/* 子评论 */}
                       {comment.replies && comment.replies.length > 0 && (
-                        <div className="mt-4 space-y-3 pl-4 border-l-2 border-brand-900">
+                        <div className="mt-4 space-y-3 pl-4 border-l-2 border-gray-900">
                           {comment.replies.map((reply) => (
                             <div key={reply.id} className="flex items-start gap-2">
                               <UserTag
@@ -615,11 +615,11 @@ export default function QuestionDetailPage() {
                               />
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-3 mb-1">
-                                  <span className="text-xs text-brand-400">
+                                  <span className="text-xs text-gray-400">
                                     {formatDistanceToNow(new Date(reply.created_at), { locale: zhCN, addSuffix: true })}
                                   </span>
                                 </div>
-                                <p className="text-brand-200 text-sm">{reply.content}</p>
+                                <p className="text-gray-200 text-sm">{reply.content}</p>
                               </div>
                             </div>
                           ))}
@@ -688,11 +688,11 @@ function RelatedQuestions({ tags, currentQuestionId }: { tags: string[], current
 
   if (loading) {
     return (
-      <div className="bg-white/80 backdrop-blur-sm rounded-xl border border-brand-200 p-4">
-        <h4 className="font-medium text-brand-700 mb-3">相关题目</h4>
+      <div className="bg-white/80 backdrop-blur-sm rounded-xl border border-gray-200 p-4">
+        <h4 className="font-medium text-gray-700 mb-3">相关题目</h4>
         <div className="space-y-2">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-12 bg-brand-100 rounded animate-pulse" />
+            <div key={i} className="h-12 bg-gray-100 rounded animate-pulse" />
           ))}
         </div>
       </div>
@@ -704,22 +704,22 @@ function RelatedQuestions({ tags, currentQuestionId }: { tags: string[], current
   }
 
   return (
-    <div className="bg-white/80 backdrop-blur-sm rounded-xl border border-brand-200 p-4 sticky top-24">
-      <h4 className="font-medium text-brand-700 mb-3">相关题目</h4>
+    <div className="bg-white/80 backdrop-blur-sm rounded-xl border border-gray-200 p-4 sticky top-0">
+      <h4 className="font-medium text-gray-700 mb-3">相关题目</h4>
       <div className="space-y-3">
         {related.map(q => (
           <Link
             key={q.id}
             href={`/questions/${q.id}`}
-            className="block p-3 bg-brand-50 rounded-lg hover:bg-brand-100 transition-colors"
+            className="block p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
           >
-            <p className="text-sm text-brand-700 line-clamp-2">
+            <p className="text-sm text-gray-700 line-clamp-2">
               {q.question_text || '点击查看详情'}
             </p>
             {q.tags && q.tags.length > 0 && (
               <div className="flex gap-1 mt-2 flex-wrap">
                 {q.tags.slice(0, 2).map(tag => (
-                  <span key={tag.id} className="text-xs px-2 py-0.5 bg-brand-200 text-brand-600 rounded-full">
+                  <span key={tag.id} className="text-xs px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full">
                     {tag.name}
                   </span>
                 ))}

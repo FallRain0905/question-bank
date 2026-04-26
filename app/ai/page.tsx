@@ -241,7 +241,7 @@ export default function AIPage() {
 
       console.log('发送请求，消息数量:', messagesToSend.length);
 
-      const response = await fetch('/api/qwen', {
+      const response = await fetch('/api/ai-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -406,8 +406,8 @@ export default function AIPage() {
             <BotIcon />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-brand-100">千问AI助手</h1>
-            <p className="text-sm text-brand-400">智能问答，图文对话</p>
+            <h1 className="text-xl font-bold text-gray-100">千问AI助手</h1>
+            <p className="text-sm text-gray-400">智能问答，图文对话</p>
           </div>
         </div>
         <div className="relative">
@@ -427,10 +427,10 @@ export default function AIPage() {
                     setSelectedModel(option.id);
                     setShowModelSelect(false);
                   }}
-                  className="w-full px-4 py-2 text-left hover:bg-brand-800 transition"
+                  className="w-full px-4 py-2 text-left hover:bg-gray-800 transition"
                 >
-                  <div className="text-brand-100 text-sm">{option.name}</div>
-                  <div className="text-brand-500 text-xs">{option.description}</div>
+                  <div className="text-gray-100 text-sm">{option.name}</div>
+                  <div className="text-gray-500 text-xs">{option.description}</div>
                 </button>
               ))}
             </div>
@@ -440,7 +440,7 @@ export default function AIPage() {
 
       <div className="flex flex-1 overflow-hidden relative">
         {/* Sidebar - Session History */}
-        <div className="hidden lg:block w-64 border-r border-brand-800 bg-brand-900 overflow-y-auto">
+        <div className="hidden lg:block w-64 border-r border-gray-800 bg-gray-900 overflow-y-auto">
           {/* 调整尺寸按钮 */}
           <button
             onClick={() => {
@@ -449,7 +449,7 @@ export default function AIPage() {
               setChatHeight(512);
               saveDimensions();
             }}
-            className="fixed top-20 right-4 lg:right-[280px] glass-button p-2 rounded-lg z-50 flex items-center gap-2 hover:bg-brand-800 transition"
+            className="fixed top-20 right-4 lg:right-[280px] glass-button p-2 rounded-lg z-50 flex items-center gap-2 hover:bg-gray-800 transition"
             title="重置对话框尺寸"
           >
             <ResizeIcon />
@@ -471,8 +471,8 @@ export default function AIPage() {
                 key={session.id}
                 className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition ${
                   session.id === currentSessionId
-                    ? 'bg-brand-700 text-brand-100'
-                    : 'text-brand-400 hover:bg-brand-800 hover:text-brand-200'
+                    ? 'bg-gray-700 text-gray-100'
+                    : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
                 }`}
                 onClick={() => setCurrentSessionId(session.id)}
               >
@@ -482,7 +482,7 @@ export default function AIPage() {
                     e.stopPropagation();
                     deleteSession(session.id);
                   }}
-                  className="opacity-0 group-hover:opacity-100 text-brand-500 hover:text-red-400 transition"
+                  className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition"
                 >
                   <TrashIcon />
                 </button>
@@ -499,16 +499,16 @@ export default function AIPage() {
           {/* 右下角尺寸调整手柄 */}
           <div
             onMouseDown={handleResizeStart}
-            className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize hover:bg-brand-800 transition flex items-center justify-center rounded-tl z-10"
+            className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize hover:bg-gray-800 transition flex items-center justify-center rounded-tl z-10"
             title="拖动调整尺寸"
           >
-            <div className="w-0.5 h-0.5 bg-brand-400 rounded-full"></div>
-            <div className="w-0.5 h-3 bg-brand-400 rounded"></div>
+            <div className="w-0.5 h-0.5 bg-gray-400 rounded-full"></div>
+            <div className="w-0.5 h-3 bg-gray-400 rounded"></div>
           </div>
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {currentSession?.messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-brand-500">
+              <div className="flex flex-col items-center justify-center h-full text-gray-500">
                 <div className="glass-icon glass-float mb-4">
                   <BotIcon />
                 </div>
@@ -525,7 +525,7 @@ export default function AIPage() {
                     <div className={`flex-shrink-0 glass-icon !w-8 !h-8 !rounded-lg !p-1.5`}>
                       {message.role === 'user' ? <UserIcon /> : <BotIcon />}
                     </div>
-                    <div className={`glass-card p-3 ${message.role === 'user' ? 'bg-brand-700' : 'bg-brand-800'}`}>
+                    <div className={`glass-card p-3 ${message.role === 'user' ? 'bg-gray-700' : 'bg-gray-800'}`}>
                       {message.image && (
                         <img
                           src={message.image}
@@ -533,7 +533,7 @@ export default function AIPage() {
                           className="max-w-[200px] sm:max-w-[300px] rounded-lg mb-2 object-contain"
                         />
                       )}
-                      <p className="text-brand-100 whitespace-pre-wrap break-words">{message.content}</p>
+                      <p className="text-gray-100 whitespace-pre-wrap break-words">{message.content}</p>
                     </div>
                   </div>
                 </div>
@@ -543,7 +543,7 @@ export default function AIPage() {
           </div>
 
           {/* Input Area */}
-          <div className="p-4 border-t border-brand-800 bg-brand-900 flex-shrink-0">
+          <div className="p-4 border-t border-gray-800 bg-gray-900 flex-shrink-0">
             {uploadedImages.length > 0 && (
               <div className="mb-3 flex items-center gap-3">
                 <div className="relative">
@@ -571,7 +571,7 @@ export default function AIPage() {
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="p-2 hover:bg-brand-800 rounded-lg transition"
+                className="p-2 hover:bg-gray-800 rounded-lg transition"
                 title="上传图片"
               >
                 <ImageIcon />
@@ -581,13 +581,13 @@ export default function AIPage() {
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="输入消息... (Enter发送，Shift+Enter换行)"
-                className="flex-1 bg-transparent resize-none outline-none text-brand-100 placeholder-brand-500 py-2 max-h-32"
+                className="flex-1 bg-transparent resize-none outline-none text-gray-100 placeholder-gray-500 py-2 max-h-32"
                 rows={1}
               />
               <button
                 onClick={handleSendMessage}
                 disabled={isLoading || (!inputMessage.trim() && uploadedImages.length === 0)}
-                className="p-2 bg-brand-600 hover:bg-brand-500 rounded-lg transition disabled:opacity-50"
+                className="p-2 bg-gray-600 hover:bg-gray-500 rounded-lg transition disabled:opacity-50"
               >
                 {isLoading ? (
                   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">

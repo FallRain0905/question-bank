@@ -276,13 +276,16 @@ export default function NotesPage() {
   const hotTags = availableTags.slice(0, 10);
 
   return (
-    <div className="min-h-screen relative">
-      {/* 背景 */}
-      <div className="fixed inset-0 pointer-events-none theme-bg-gradient" />
-      
+    <div className="min-h-screen bg-gray-50">
       {/* 搜索栏 */}
-      <div className="bg-white/80 backdrop-blur-md border-b border-brand-200 sticky top-16 z-40 shadow-sm">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-lg font-semibold text-gray-900">学习笔记</h1>
+            <Link href="/notes/new" className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 transition-colors">
+              新建笔记
+            </Link>
+          </div>
           <div className="flex flex-col gap-4">
             {/* 搜索输入 */}
             <div className="relative flex-1">
@@ -508,14 +511,16 @@ function NoteCard({ note, isLiked, onLike }: {
         <div className="flex items-center gap-3">
           {/* 下载按钮 */}
           {note.file_url && (
-            <a
-              href={note.file_url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.open(note.file_url!, '_blank', 'noopener,noreferrer');
+              }}
               className="text-blue-600 hover:text-blue-700 text-sm"
             >
               下载
-            </a>
+            </button>
           )}
 
           {/* 点赞按钮 */}

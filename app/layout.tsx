@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import Sidebar, { SidebarProvider } from "@/components/Sidebar";
 import AnnouncementBanner from "@/components/AnnouncementBanner";
 import MobileTabBar from "@/components/MobileTabBar";
 import FloatingAIButton from "@/components/FloatingAIButton";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { SidebarSpacer } from "@/components/Sidebar";
 
 export const metadata: Metadata = {
   title: "题库系统",
   description: "共享题库，支持文本和图片上传",
+  icons: {
+    icon: "/favicon.png",
+  },
   viewport: {
     width: "device-width",
     initialScale: 1,
@@ -25,14 +28,19 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className="bg-brand-50 text-brand-900">
+      <body className="bg-gray-50 text-gray-900">
         <ThemeProvider>
-          <Navbar />
-          <AnnouncementBanner />
-          <main className="min-h-screen pb-16 sm:pb-0">
-            {children}
-          </main>
-          <Footer />
+          <SidebarProvider>
+            <div className="flex min-h-screen">
+              <Sidebar />
+              <SidebarSpacer>
+                <AnnouncementBanner />
+                <main className="pb-16 sm:pb-0">
+                  {children}
+                </main>
+              </SidebarSpacer>
+            </div>
+          </SidebarProvider>
           <MobileTabBar />
           <FloatingAIButton />
         </ThemeProvider>

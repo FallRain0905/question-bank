@@ -239,14 +239,14 @@ export default function NoteUploadPage() {
     <div className="min-h-[calc(100vh-64px)] theme-bg-gradient">
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-brand-50">上传笔记</h1>
-          <p className="text-brand-300 mt-1">分享你的学习笔记，帮助更多同学</p>
+          <h1 className="text-2xl font-bold text-gray-900">上传笔记</h1>
+          <p className="text-gray-600 mt-1">分享你的学习笔记，帮助更多同学</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-brand-800/50 border border-brand-700/50 rounded-xl p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-xl p-6 space-y-6">
           {/* 提醒信息 */}
-          <div className="bg-brand-600/30 border border-brand-600/50 px-4 py-3 rounded-lg">
-            <p className="text-sm text-brand-200">
+          <div className="bg-gray-200/30 border border-gray-100 px-4 py-3 rounded-lg">
+            <p className="text-sm text-gray-700">
               ⚠️ <strong>请遵守社区规范：</strong>禁止上传违法违规、色情暴力、广告刷屏等内容。所有内容需经审核后显示，违规账号将被封禁。
             </p>
           </div>
@@ -260,13 +260,13 @@ export default function NoteUploadPage() {
           {/* 班级选择 - 仅当选择班级可见时显示 */}
           {visibility === 'class' && (
             <div>
-              <label className="block text-sm font-medium text-brand-200 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 选择班级 <span className="text-red-400">*</span>
               </label>
               <select
                 value={selectedClassId}
                 onChange={(e) => setSelectedClassId(e.target.value)}
-                className="w-full px-4 py-2.5 bg-brand-900 border border-brand-700 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none text-brand-100"
+                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none text-gray-800"
                 disabled={uploading}
               >
                 <option value="">请选择班级</option>
@@ -278,16 +278,16 @@ export default function NoteUploadPage() {
                 ))}
               </select>
               {classes.length === 0 && (
-                <p className="mt-1 text-sm text-brand-400">
-                  还没有加入班级，请先 <a href="/classes" className="text-brand-200 hover:text-brand-100">创建或加入班级</a>
+                <p className="mt-1 text-sm text-gray-9000">
+                  还没有加入班级，请先 <a href="/classes" className="text-gray-700 hover:text-gray-800">创建或加入班级</a>
                 </p>
               )}
             </div>
           )}
 
           {/* 可见性选择 */}
-          <div className="bg-brand-700/30 border border-brand-700/50 rounded-lg p-4">
-            <label className="block text-sm font-medium text-brand-200 mb-3">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <label className="block text-sm font-medium text-gray-700 mb-3">
               可见范围
             </label>
             <div className="space-y-2">
@@ -299,13 +299,13 @@ export default function NoteUploadPage() {
                   checked={visibility === 'class'}
                   onChange={(e) => setVisibility(e.target.value as 'class' | 'public')}
                   disabled={uploading}
-                  className="mt-1 w-4 h-4 text-brand-500 bg-brand-900 border-brand-700 rounded focus:ring-brand-500"
+                  className="mt-1 w-4 h-4 text-gray-9000 bg-gray-50 border-gray-200 rounded focus:ring-gray-500"
                 />
                 <div>
-                  <span className="text-brand-100 group-hover:text-brand-50 transition-colors">
+                  <span className="text-gray-800 group-hover:text-gray-900 transition-colors">
                     <strong>仅本班级可见</strong>
                   </span>
-                  <p className="text-sm text-brand-400 mt-1">只有该班级的成员可以看到此笔记</p>
+                  <p className="text-sm text-gray-9000 mt-1">只有该班级的成员可以看到此笔记</p>
                 </div>
               </label>
               <label className="flex items-start gap-3 cursor-pointer group">
@@ -316,13 +316,13 @@ export default function NoteUploadPage() {
                   checked={visibility === 'public'}
                   onChange={(e) => setVisibility(e.target.value as 'class' | 'public')}
                   disabled={uploading}
-                  className="mt-1 w-4 h-4 text-brand-500 bg-brand-900 border-brand-700 rounded focus:ring-brand-500"
+                  className="mt-1 w-4 h-4 text-gray-9000 bg-gray-50 border-gray-200 rounded focus:ring-gray-500"
                 />
                 <div>
-                  <span className="text-brand-100 group-hover:text-brand-50 transition-colors">
+                  <span className="text-gray-800 group-hover:text-gray-900 transition-colors">
                     <strong>全部可见</strong>
                   </span>
-                  <p className="text-sm text-brand-400 mt-1">所有用户都可以看到此笔记</p>
+                  <p className="text-sm text-gray-9000 mt-1">所有用户都可以看到此笔记</p>
                 </div>
               </label>
             </div>
@@ -330,7 +330,7 @@ export default function NoteUploadPage() {
 
           {/* 标题 */}
           <div>
-            <label className="block text-sm font-medium text-brand-200 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               标题 <span className="text-red-400">*</span>
             </label>
             <input
@@ -338,14 +338,14 @@ export default function NoteUploadPage() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="给笔记起个名字吧"
-              className="w-full px-4 py-2.5 bg-brand-900 border border-brand-700 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none text-brand-100 placeholder-brand-500"
+              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none text-gray-800 placeholder-gray-500"
               disabled={uploading}
             />
           </div>
 
           {/* 描述 */}
           <div>
-            <label className="block text-sm font-medium text-brand-200 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               描述
             </label>
             <textarea
@@ -353,17 +353,17 @@ export default function NoteUploadPage() {
               onChange={(e) => setDescription(e.target.value)}
               placeholder="简单介绍一下笔记的内容..."
               rows={3}
-              className="w-full px-4 py-2.5 bg-brand-900 border border-brand-700 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none resize-none text-brand-100 placeholder-brand-500"
+              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none resize-none text-gray-800 placeholder-gray-500"
               disabled={uploading}
             />
           </div>
 
           {/* 文件上传 */}
           <div>
-            <label className="block text-sm font-medium text-brand-200 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               文件 <span className="text-red-400">*</span>
             </label>
-            <div className="border-2 border-dashed border-brand-700 rounded-lg p-6 text-center hover:border-brand-500 transition-colors bg-brand-900/30">
+            <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center hover:border-gray-300 transition-colors bg-gray-50/30">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -380,8 +380,8 @@ export default function NoteUploadPage() {
                 {file ? (
                   <div className="space-y-2">
                     <div className="text-4xl">📄</div>
-                    <p className="font-medium text-brand-100">{file.name}</p>
-                    <p className="text-sm text-brand-400">{formatFileSize(file.size)}</p>
+                    <p className="font-medium text-gray-800">{file.name}</p>
+                    <p className="text-sm text-gray-9000">{formatFileSize(file.size)}</p>
                     <button
                       type="button"
                       onClick={(e) => {
@@ -397,11 +397,11 @@ export default function NoteUploadPage() {
                 ) : (
                   <div className="space-y-2">
                     <div className="text-4xl">📁</div>
-                    <p className="text-brand-400">点击选择文件</p>
-                    <p className="text-xs text-brand-500">
+                    <p className="text-gray-9000">点击选择文件</p>
+                    <p className="text-xs text-gray-9000">
                       支持图片、PDF、Word、PPT、Excel 等格式
                     </p>
-                    <p className="text-xs text-brand-500">
+                    <p className="text-xs text-gray-9000">
                       最大文件大小 {formatFileSize(MAX_FILE_SIZE)}
                     </p>
                   </div>
@@ -415,7 +415,7 @@ export default function NoteUploadPage() {
 
           {/* 标签 */}
           <div>
-            <label className="block text-sm font-medium text-brand-200 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               标签 <span className="text-red-400">*</span>
             </label>
             <TagInput
@@ -431,7 +431,7 @@ export default function NoteUploadPage() {
             <button
               type="submit"
               disabled={uploading || (visibility === 'class' && !selectedClassId)}
-              className="w-full py-3 bg-brand-500 text-brand-50 rounded-lg font-medium hover:bg-brand-400 transition disabled:bg-brand-800 disabled:cursor-not-allowed disabled:text-brand-500"
+              className="w-full py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition disabled:bg-white disabled:cursor-not-allowed disabled:text-gray-9000"
             >
               {uploading ? '上传中...' : '上传笔记'}
             </button>
@@ -439,8 +439,8 @@ export default function NoteUploadPage() {
         </form>
 
         {/* 提示信息 */}
-        <div className="mt-6 bg-brand-800/30 border border-brand-700/50 rounded-lg p-4">
-          <p className="text-sm text-brand-200">
+        <div className="mt-6 bg-white/30 border border-gray-200 rounded-lg p-4">
+          <p className="text-sm text-gray-700">
             <strong>提示：</strong>上传的笔记需要经过管理员或班级审核员审核后才能在笔记库中显示。
             {visibility === 'class' && ' 只有该班级的成员可以看到此笔记。'}
           </p>

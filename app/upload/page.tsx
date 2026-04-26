@@ -380,20 +380,20 @@ export default function UploadPage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen relative pb-20 sm:pb-0">
+    <div className="min-h-screen bg-gray-50 pb-20 sm:pb-0">
       {/* 背景 */}
-      <div className="fixed inset-0 pointer-events-none theme-bg-gradient" />
+      
 
       <div className="relative max-w-3xl mx-auto px-3 sm:px-4 py-6 sm:py-8">
         <div className="mb-4 sm:mb-6">
-          <h1 className="text-xl sm:text-2xl font-bold text-brand-700">上传题目</h1>
-          <p className="text-sm sm:text-base text-brand-500 mt-1">支持文本、图片和文档三种上传方式</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-700">上传题目</h1>
+          <p className="text-sm sm:text-base text-gray-500 mt-1">支持文本、图片和文档三种上传方式</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white/90 backdrop-blur-sm border border-brand-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-4 sm:space-y-6 shadow-lg">
+        <form onSubmit={handleSubmit} className="bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-4 sm:space-y-6 shadow-lg">
           {/* 提醒信息 */}
-          <div className="bg-brand-100/80 border border-brand-300/50 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg">
-            <p className="text-xs sm:text-sm text-brand-600">
+          <div className="bg-gray-100/80 border border-gray-300/50 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg">
+            <p className="text-xs sm:text-sm text-gray-600">
               ⚠️ <strong>请遵守社区规范：</strong>禁止上传违法违规、色情暴力、广告刷屏等内容。所有内容需经审核后显示。
             </p>
           </div>
@@ -407,13 +407,13 @@ export default function UploadPage() {
           {/* 班级选择 - 仅当选择班级可见时显示 */}
           {visibility === 'class' && (
             <div>
-              <label className="block text-sm font-medium text-brand-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 选择班级 <span className="text-red-500">*</span>
               </label>
               <select
                 value={selectedClassId}
                 onChange={(e) => setSelectedClassId(e.target.value)}
-                className="w-full px-3 sm:px-4 py-2.5 bg-white border border-brand-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none text-brand-800 text-sm"
+                className="w-full px-3 sm:px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none text-gray-800 text-sm"
                 disabled={loading}
               >
                 <option value="">请选择班级</option>
@@ -425,16 +425,16 @@ export default function UploadPage() {
                 ))}
               </select>
               {classes.length === 0 && (
-                <p className="mt-1.5 text-xs sm:text-sm text-brand-500">
-                  还没有加入班级，请先 <a href="/classes" className="text-brand-600 hover:text-brand-700 underline">创建或加入班级</a>
+                <p className="mt-1.5 text-xs sm:text-sm text-gray-500">
+                  还没有加入班级，请先 <a href="/classes" className="text-gray-600 hover:text-gray-700 underline">创建或加入班级</a>
                 </p>
               )}
             </div>
           )}
 
           {/* 可见性选择 */}
-          <div className="bg-brand-50/80 border border-brand-200 rounded-lg p-3 sm:p-4">
-            <label className="block text-sm font-medium text-brand-700 mb-3">
+          <div className="bg-gray-50/80 border border-gray-200 rounded-lg p-3 sm:p-4">
+            <label className="block text-sm font-medium text-gray-700 mb-3">
               可见范围
             </label>
             <div className="space-y-2">
@@ -446,13 +446,13 @@ export default function UploadPage() {
                   checked={visibility === 'class'}
                   onChange={(e) => setVisibility(e.target.value as 'class' | 'public')}
                   disabled={loading}
-                  className="mt-1 w-4 h-4 text-brand-500 bg-white border-brand-300 rounded focus:ring-brand-500"
+                  className="mt-1 w-4 h-4 text-gray-500 bg-white border-gray-300 rounded focus:ring-gray-500"
                 />
                 <div>
-                  <span className="text-brand-800 group-hover:text-brand-900 transition-colors text-sm">
+                  <span className="text-gray-800 group-hover:text-gray-900 transition-colors text-sm">
                     <strong>仅本班级可见</strong>
                   </span>
-                  <p className="text-xs text-brand-500 mt-0.5">只有该班级的成员可以看到此题目</p>
+                  <p className="text-xs text-gray-500 mt-0.5">只有该班级的成员可以看到此题目</p>
                 </div>
               </label>
               <label className="flex items-start gap-3 cursor-pointer group">
@@ -463,13 +463,13 @@ export default function UploadPage() {
                   checked={visibility === 'public'}
                   onChange={(e) => setVisibility(e.target.value as 'class' | 'public')}
                   disabled={loading}
-                  className="mt-1 w-4 h-4 text-brand-500 bg-white border-brand-300 rounded focus:ring-brand-500"
+                  className="mt-1 w-4 h-4 text-gray-500 bg-white border-gray-300 rounded focus:ring-gray-500"
                 />
                 <div>
-                  <span className="text-brand-800 group-hover:text-brand-900 transition-colors text-sm">
+                  <span className="text-gray-800 group-hover:text-gray-900 transition-colors text-sm">
                     <strong>全部可见</strong>
                   </span>
-                  <p className="text-xs text-brand-500 mt-0.5">所有用户都可以看到此题目</p>
+                  <p className="text-xs text-gray-500 mt-0.5">所有用户都可以看到此题目</p>
                 </div>
               </label>
             </div>
@@ -477,7 +477,7 @@ export default function UploadPage() {
 
           {/* 上传类型选择 */}
           <div>
-            <label className="block text-sm font-medium text-brand-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               上传方式
             </label>
             <div className="flex gap-2 sm:gap-3">
@@ -486,8 +486,8 @@ export default function UploadPage() {
                 onClick={() => setUploadType('text')}
                 className={`flex-1 px-3 sm:px-4 py-2 rounded-lg transition-colors text-sm ${
                   uploadType === 'text'
-                    ? 'bg-brand-500 text-white'
-                    : 'bg-white text-brand-600 border border-brand-300 hover:bg-brand-50'
+                    ? 'bg-gray-500 text-white'
+                    : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
                 }`}
                 disabled={loading}
               >
@@ -498,8 +498,8 @@ export default function UploadPage() {
                 onClick={() => setUploadType('image')}
                 className={`flex-1 px-3 sm:px-4 py-2 rounded-lg transition-colors text-sm ${
                   uploadType === 'image'
-                    ? 'bg-brand-500 text-white'
-                    : 'bg-white text-brand-600 border border-brand-300 hover:bg-brand-50'
+                    ? 'bg-gray-500 text-white'
+                    : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
                 }`}
                 disabled={loading}
               >
@@ -510,8 +510,8 @@ export default function UploadPage() {
                 onClick={() => setUploadType('file')}
                 className={`flex-1 px-3 sm:px-4 py-2 rounded-lg transition-colors text-sm ${
                   uploadType === 'file'
-                    ? 'bg-brand-500 text-white'
-                    : 'bg-white text-brand-600 border border-brand-300 hover:bg-brand-50'
+                    ? 'bg-gray-500 text-white'
+                    : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
                 }`}
                 disabled={loading}
               >
@@ -524,7 +524,7 @@ export default function UploadPage() {
           {uploadType === 'text' && (
             <>
               <div>
-                <label className="block text-sm font-medium text-brand-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   题目内容
                 </label>
                 <textarea
@@ -532,12 +532,12 @@ export default function UploadPage() {
                   onChange={(e) => setQuestionText(e.target.value)}
                   placeholder="输入题目内容..."
                   rows={4}
-                  className="w-full px-3 sm:px-4 py-2.5 bg-white border border-brand-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none resize-none text-brand-800 placeholder-brand-400 text-sm"
+                  className="w-full px-3 sm:px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none resize-none text-gray-800 placeholder-gray-400 text-sm"
                   disabled={loading}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-brand-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   答案内容
                 </label>
                 <textarea
@@ -545,7 +545,7 @@ export default function UploadPage() {
                   onChange={(e) => setAnswerText(e.target.value)}
                   placeholder="输入答案内容..."
                   rows={4}
-                  className="w-full px-3 sm:px-4 py-2.5 bg-white border border-brand-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none resize-none text-brand-800 placeholder-brand-400 text-sm"
+                  className="w-full px-3 sm:px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none resize-none text-gray-800 placeholder-gray-400 text-sm"
                   disabled={loading}
                 />
               </div>
@@ -556,7 +556,7 @@ export default function UploadPage() {
           {uploadType === 'image' && (
             <>
               <div>
-                <label className="block text-sm font-medium text-brand-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   题目图片
                 </label>
                 <input
@@ -569,7 +569,7 @@ export default function UploadPage() {
                 />
                 <div
                   onClick={() => !loading && questionImageInputRef.current?.click()}
-                  className="border-2 border-dashed border-brand-300 rounded-lg p-4 sm:p-6 text-center hover:border-brand-500 transition-colors cursor-pointer bg-white/50"
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-4 sm:p-6 text-center hover:border-gray-500 transition-colors cursor-pointer bg-white/50"
                 >
                   {questionImage ? (
                     <div className="space-y-2">
@@ -588,14 +588,14 @@ export default function UploadPage() {
                   ) : (
                     <div className="space-y-2">
                       <div className="text-4xl">📷</div>
-                      <p className="text-brand-500 text-sm">点击上传题目图片</p>
+                      <p className="text-gray-500 text-sm">点击上传题目图片</p>
                     </div>
                   )}
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-brand-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   答案图片
                 </label>
                 <input
@@ -608,7 +608,7 @@ export default function UploadPage() {
                 />
                 <div
                   onClick={() => !loading && answerImageInputRef.current?.click()}
-                  className="border-2 border-dashed border-brand-300 rounded-lg p-4 sm:p-6 text-center hover:border-brand-500 transition-colors cursor-pointer bg-white/50"
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-4 sm:p-6 text-center hover:border-gray-500 transition-colors cursor-pointer bg-white/50"
                 >
                   {answerImage ? (
                     <div className="space-y-2">
@@ -627,7 +627,7 @@ export default function UploadPage() {
                   ) : (
                     <div className="space-y-2">
                       <div className="text-4xl">📷</div>
-                      <p className="text-brand-500 text-sm">点击上传答案图片</p>
+                      <p className="text-gray-500 text-sm">点击上传答案图片</p>
                     </div>
                   )}
                 </div>
@@ -639,7 +639,7 @@ export default function UploadPage() {
           {uploadType === 'file' && (
             <>
               <div>
-                <label className="block text-sm font-medium text-brand-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   题目文件
                 </label>
                 <input
@@ -652,13 +652,13 @@ export default function UploadPage() {
                 />
                 <div
                   onClick={() => !loading && questionFileInputRef.current?.click()}
-                  className="border-2 border-dashed border-brand-300 rounded-lg p-4 sm:p-6 text-center hover:border-brand-500 transition-colors cursor-pointer bg-white/50"
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-4 sm:p-6 text-center hover:border-gray-500 transition-colors cursor-pointer bg-white/50"
                 >
                   {questionFile ? (
                     <div className="space-y-2">
                       <div className="text-4xl">📄</div>
-                      <p className="font-medium text-brand-700 text-sm">{questionFile.name}</p>
-                      <p className="text-sm text-brand-500">{formatFileSize(questionFile.size)}</p>
+                      <p className="font-medium text-gray-700 text-sm">{questionFile.name}</p>
+                      <p className="text-sm text-gray-500">{formatFileSize(questionFile.size)}</p>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -673,8 +673,8 @@ export default function UploadPage() {
                   ) : (
                     <div className="space-y-2">
                       <div className="text-4xl">📁</div>
-                      <p className="text-brand-500 text-sm">点击选择题目文件</p>
-                      <p className="text-xs text-brand-400">
+                      <p className="text-gray-500 text-sm">点击选择题目文件</p>
+                      <p className="text-xs text-gray-400">
                         支持图片、PDF、Word、PPT、Excel 等格式
                       </p>
                     </div>
@@ -683,7 +683,7 @@ export default function UploadPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-brand-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   答案文件
                 </label>
                 <input
@@ -696,13 +696,13 @@ export default function UploadPage() {
                 />
                 <div
                   onClick={() => !loading && answerFileInputRef.current?.click()}
-                  className="border-2 border-dashed border-brand-300 rounded-lg p-4 sm:p-6 text-center hover:border-brand-500 transition-colors cursor-pointer bg-white/50"
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-4 sm:p-6 text-center hover:border-gray-500 transition-colors cursor-pointer bg-white/50"
                 >
                   {answerFile ? (
                     <div className="space-y-2">
                       <div className="text-4xl">📄</div>
-                      <p className="font-medium text-brand-700 text-sm">{answerFile.name}</p>
-                      <p className="text-sm text-brand-500">{formatFileSize(answerFile.size)}</p>
+                      <p className="font-medium text-gray-700 text-sm">{answerFile.name}</p>
+                      <p className="text-sm text-gray-500">{formatFileSize(answerFile.size)}</p>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -717,8 +717,8 @@ export default function UploadPage() {
                   ) : (
                     <div className="space-y-2">
                       <div className="text-4xl">📁</div>
-                      <p className="text-brand-500 text-sm">点击选择答案文件</p>
-                      <p className="text-xs text-brand-400">
+                      <p className="text-gray-500 text-sm">点击选择答案文件</p>
+                      <p className="text-xs text-gray-400">
                         支持图片、PDF、Word、PPT、Excel 等格式
                       </p>
                     </div>
@@ -733,7 +733,7 @@ export default function UploadPage() {
 
           {/* 标签 */}
           <div>
-            <label className="block text-sm font-medium text-brand-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               标签 <span className="text-red-500">*</span>
             </label>
             <TagInput
@@ -749,7 +749,7 @@ export default function UploadPage() {
             <button
               type="submit"
               disabled={loading || (visibility === 'class' && !selectedClassId)}
-              className="w-full py-3 sm:py-3.5 bg-brand-500 text-white rounded-lg font-medium hover:bg-brand-600 transition disabled:bg-brand-300 disabled:cursor-not-allowed text-base"
+              className="w-full py-3 sm:py-3.5 bg-gray-500 text-white rounded-lg font-medium hover:bg-gray-600 transition disabled:bg-gray-300 disabled:cursor-not-allowed text-base"
             >
               {loading ? '上传中...' : '上传题目'}
             </button>
@@ -757,8 +757,8 @@ export default function UploadPage() {
         </form>
 
         {/* 提示信息 */}
-        <div className="mt-4 sm:mt-6 bg-brand-50/80 border border-brand-200 rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-brand-600">
+        <div className="mt-4 sm:mt-6 bg-gray-50/80 border border-gray-200 rounded-lg p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-gray-600">
             <strong>提示：</strong>上传的题目需要经过管理员或班级审核员审核后才能在题库中显示。
             {visibility === 'class' && ' 只有该班级的成员可以看到此题目。'}
           </p>

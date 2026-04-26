@@ -87,9 +87,9 @@ export default function PullToRefresh({
           opacity: isRefreshing ? 1 : opacity,
         }}
       >
-        <div className="flex items-center gap-3 bg-brand-800/90 backdrop-blur-sm px-4 py-2 rounded-b-xl">
+        <div className="flex items-center gap-3 bg-gray-800/90 backdrop-blur-sm px-4 py-2 rounded-b-xl">
           <svg
-            className={`w-6 h-6 text-brand-400 transition-transform duration-200 ${
+            className={`w-6 h-6 text-gray-400 transition-transform duration-200 ${
               isRefreshing ? 'animate-spin' : ''
             }`}
             style={{ transform: `rotate(${isRefreshing ? 0 : rotation}deg)` }}
@@ -104,7 +104,7 @@ export default function PullToRefresh({
               d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
             />
           </svg>
-          <span className="text-sm text-brand-300">
+          <span className="text-sm text-gray-300">
             {isRefreshing ? '刷新中...' : isPulling ? '释放刷新' : '下拉刷新'}
           </span>
         </div>

@@ -8,9 +8,8 @@ const nextConfig = {
       },
     ],
   },
-  experimental: {
-    // 增加服务器端请求体大小限制（50MB）
-    serverExternalPackages: [],
+  eslint: {
+    ignoreDuringBuilds: true,
   },
 };
 

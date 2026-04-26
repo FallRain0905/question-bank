@@ -23,7 +23,7 @@ export function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
                 ? 'bg-green-600 text-white'
                 : toast.type === 'error'
                 ? 'bg-red-600 text-white'
-                : 'bg-brand-700 text-brand-100'
+                : 'bg-gray-700 text-gray-100'
             }`}
             onClick={() => onRemove(toast.id)}
           >
