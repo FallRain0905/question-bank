@@ -128,6 +128,7 @@ export default function FloatingAIButton() {
   };
 
   const addMessageToSession = (sessionId: string, role: 'user' | 'assistant', content: string, image?: string) => {
+    console.log('Adding message to session:', { sessionId, role, content }); // 调试日志
     const message: ChatMessage = {
       id: generateId(),
       role,
@@ -138,37 +139,46 @@ export default function FloatingAIButton() {
 
     const newSessions = sessions.map(s => {
       if (s.id === sessionId) {
-        const newMessages = [...s.messages, message];
-        const newTitle = role === 'user' && s.messages.length === 0
+        const currentMessages = Array.isArray(s.messages) ? s.messages : [];
+        const newMessages = [...currentMessages, message];
+        const newTitle = role === 'user' && currentMessages.length === 0
           ? (content.slice(0, 20) || '新对话')
           : s.title;
+        console.log('Session updated:', { sessionId, messageCount: newMessages.length }); // 调试日志
         return { ...s, messages: newMessages, title: newTitle, updatedAt: Date.now() };
       }
       return s;
     });
 
+    console.log('New sessions count:', newSessions.length); // 调试日志
     setSessions(newSessions);
     saveSessions(newSessions);
   };
 
   const renderLatex = (text: string) => {
-    let result = text.replace(/\$([^$]+)\$/g, (match, latex) => {
-      try { return katex.renderToString(latex, { throwOnError: false }); }
-      catch { return match; }
-    });
-    result = result.replace(/\$\$([^$]+)\$\$/g, (match, latex) => {
-      try { return katex.renderToString(latex, { throwOnError: false, displayMode: true }); }
-      catch { return match; }
-    });
-    result = result.replace(/\\\[([\s\S]+?)\\\]/g, (match, latex) => {
-      try { return katex.renderToString(latex, { throwOnError: false, displayMode: true }); }
-      catch { return match; }
-    });
-    result = result.replace(/\\\(([\s\S]+?)\\\)/g, (match, latex) => {
-      try { return katex.renderToString(latex, { throwOnError: false }); }
-      catch { return match; }
-    });
-    return result;
+    if (!text || typeof text !== 'string') return '';
+    try {
+      let result = text.replace(/\$([^$]+)\$/g, (match, latex) => {
+        try { return katex.renderToString(latex, { throwOnError: false }); }
+        catch { return match; }
+      });
+      result = result.replace(/\$\$([^$]+)\$\$/g, (match, latex) => {
+        try { return katex.renderToString(latex, { throwOnError: false, displayMode: true }); }
+        catch { return match; }
+      });
+      result = result.replace(/\\\[([\s\S]+?)\\\]/g, (match, latex) => {
+        try { return katex.renderToString(latex, { throwOnError: false, displayMode: true }); }
+        catch { return match; }
+      });
+      result = result.replace(/\\\(([\s\S]+?)\\\)/g, (match, latex) => {
+        try { return katex.renderToString(latex, { throwOnError: false }); }
+        catch { return match; }
+      });
+      return result;
+    } catch (error) {
+      console.error('renderLatex error:', error);
+      return text;
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -225,7 +235,12 @@ export default function FloatingAIButton() {
       });
 
       const data = await response.json();
-      addMessageToSession(currentSessionId, 'assistant', data.answer || '抱歉，我暂时无法回答这个问题。');
+      console.log('AI Response:', data); // 调试日志
+
+      // 确保有有效的回复内容
+      const answerText = data.answer || data.content || '抱歉，我暂时无法回答这个问题。';
+      console.log('Adding AI message:', answerText); // 调试日志
+      addMessageToSession(currentSessionId, 'assistant', answerText);
     } catch {
       alert('网络错误，请稍后重试。');
     } finally {
@@ -379,31 +394,34 @@ export default function FloatingAIButton() {
                 </div>
               ) : (
                 <AnimatePresence>
-                  {(currentSession.messages || []).map((msg) => (
-                    <motion.div
-                      key={msg.id}
-                      initial={{ opacity: 0, y: 10, scale: 0.97 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
-                        msg.role === 'user'
-                          ? 'bg-gray-900 text-white'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {msg.image && (
-                          <img src={msg.image} alt="" className="max-w-full rounded-lg mb-2" />
-                        )}
-                        <div
-                          className="whitespace-pre-wrap prose prose-sm max-w-none"
-                          dangerouslySetInnerHTML={{
-                            __html: msg.role === 'assistant' ? renderLatex(msg.content) : msg.content,
-                          }}
-                        />
-                      </div>
-                    </motion.div>
-                  ))}
+                  {(currentSession.messages || []).map((msg, index) => {
+                    console.log(`Rendering message ${index}:`, msg); // 调试日志
+                    return (
+                      <motion.div
+                        key={msg.id}
+                        initial={{ opacity: 0, y: 10, scale: 0.97 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                        className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
+                          msg.role === 'user'
+                            ? 'bg-gray-900 text-white'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {msg.image && (
+                            <img src={msg.image} alt="" className="max-w-full rounded-lg mb-2" />
+                          )}
+                          <div
+                            className="whitespace-pre-wrap prose prose-sm max-w-none"
+                            dangerouslySetInnerHTML={{
+                              __html: msg.role === 'assistant' ? renderLatex(msg.content || '') : (msg.content || ''),
+                            }}
+                          />
+                        </div>
+                      </motion.div>
+                    );
+                  })}
                 </AnimatePresence>
               )}
               {loading && (
