@@ -73,10 +73,20 @@ export default function FloatingAIButton() {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        const parsed: ChatSession[] = JSON.parse(stored);
-        setSessions(parsed);
-        if (parsed.length > 0) {
-          setCurrentSessionId(parsed[0].id);
+        const parsed: any[] = JSON.parse(stored);
+        // 验证并修复数据格式
+        const validSessions = parsed
+          .filter(s => s && typeof s === 'object' && s.id)
+          .map(s => ({
+            id: s.id,
+            title: s.title || '新对话',
+            messages: Array.isArray(s.messages) ? s.messages : [],
+            createdAt: s.createdAt || Date.now(),
+            updatedAt: s.updatedAt || Date.now(),
+          }));
+        setSessions(validSessions);
+        if (validSessions.length > 0) {
+          setCurrentSessionId(validSessions[0].id);
         }
       }
     } catch {
@@ -359,7 +369,7 @@ export default function FloatingAIButton() {
 
             {/* 消息列表 */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {!currentSession || currentSession.messages.length === 0 ? (
+              {!currentSession || !currentSession.messages || currentSession.messages.length === 0 ? (
                 <div className="text-center text-gray-400 text-sm py-12">
                   <svg className="w-10 h-10 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" strokeWidth={1} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
@@ -369,7 +379,7 @@ export default function FloatingAIButton() {
                 </div>
               ) : (
                 <AnimatePresence>
-                  {currentSession.messages.map((msg) => (
+                  {(currentSession.messages || []).map((msg) => (
                     <motion.div
                       key={msg.id}
                       initial={{ opacity: 0, y: 10, scale: 0.97 }}
