@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "katex/dist/katex.min.css";
 import Sidebar, { SidebarProvider } from "@/components/Sidebar";
-import MobileTabBar from "@/components/MobileTabBar";
 import FloatingAIButton from "@/components/FloatingAIButton";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SidebarSpacer } from "@/components/Sidebar";
@@ -40,7 +39,6 @@ export default function RootLayout({
               </SidebarSpacer>
             </div>
           </SidebarProvider>
-          <MobileTabBar />
           <FloatingAIButton />
         </ThemeProvider>
       </body>
