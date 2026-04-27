@@ -51,7 +51,7 @@ app.add_middleware(
 )
 
 WORKING_DIR = os.environ.get("HYPERRAG_WORKING_DIR", os.path.join(os.path.dirname(__file__), "hyperrag_cache"))
-INSTANCES: dict[str, HyperRAG] = {}
+INSTANCES: dict = {}
 INDEXING_LOCKS: dict[str, asyncio.Lock] = {}
 
 # ======================== Models ========================
