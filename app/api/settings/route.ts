@@ -27,6 +27,11 @@ export async function GET(req: NextRequest) {
     llm_api_url: '',
     llm_model: '',
     mineru_api_key: '',
+    embedding_api_key: '',
+    embedding_api_url: '',
+    embedding_model: '',
+    embedding_dimensions: 1024,
+    hyperrag_service_url: '',
   });
 }
 
@@ -36,7 +41,10 @@ export async function PUT(req: NextRequest) {
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
 
   const body = await req.json();
-  const { llm_provider, llm_api_key, llm_api_url, llm_model, mineru_api_key } = body;
+  const {
+    llm_provider, llm_api_key, llm_api_url, llm_model, mineru_api_key,
+    embedding_api_key, embedding_api_url, embedding_model, embedding_dimensions, hyperrag_service_url,
+  } = body;
 
   const { data, error } = await supabase
     .from('user_settings')
@@ -47,8 +55,13 @@ export async function PUT(req: NextRequest) {
       llm_api_url: llm_api_url || '',
       llm_model: llm_model || '',
       mineru_api_key: mineru_api_key || '',
+      embedding_api_key: embedding_api_key || '',
+      embedding_api_url: embedding_api_url || '',
+      embedding_model: embedding_model || '',
+      embedding_dimensions: embedding_dimensions || 1024,
+      hyperrag_service_url: hyperrag_service_url || '',
       updated_at: new Date().toISOString(),
-    })
+    }, { onConflict: 'user_id' })
     .select()
     .single();
 

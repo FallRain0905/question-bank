@@ -130,3 +130,49 @@ export async function getUserMineruConfig(token: string) {
     return { token: envToken };
   }
 }
+
+// Default embedding config for immediate use without user setup
+const DEFAULT_EMBEDDING_KEY = 'sk-ocgudjeychnfratpdlpupcorjnawqorjqgiqventdbksglsk';
+const DEFAULT_EMBEDDING_URL = 'https://api.siliconflow.cn/v1/embeddings';
+const DEFAULT_EMBEDDING_MODEL = 'Qwen/Qwen3-Embedding-4B';
+const DEFAULT_EMBEDDING_DIMENSIONS = 2560;
+
+export async function getUserEmbeddingConfig(token: string) {
+  if (!token) return null;
+
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${token}` } } }
+    );
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const { data: settings } = await supabase
+      .from('user_settings')
+      .select('embedding_api_key, embedding_api_url, embedding_model, embedding_dimensions, hyperrag_service_url')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    // Use user config if available, otherwise fallback to defaults
+    const apiKey = settings?.embedding_api_key || DEFAULT_EMBEDDING_KEY;
+    const model = settings?.embedding_model || DEFAULT_EMBEDDING_MODEL;
+
+    return {
+      apiKey,
+      apiUrl: settings?.embedding_api_url || DEFAULT_EMBEDDING_URL,
+      model,
+      dimensions: settings?.embedding_dimensions || DEFAULT_EMBEDDING_DIMENSIONS,
+      hyperragServiceUrl: settings?.hyperrag_service_url || process.env.HYPERRAG_SERVICE_URL || 'http://localhost:8001',
+    };
+  } catch (error) {
+    console.error('Error getting embedding config:', error);
+    return null;
+  }
+}
+
+export function getHyperRagServiceUrl(settings?: { hyperrag_service_url?: string } | null): string {
+  return settings?.hyperrag_service_url || process.env.HYPERRAG_SERVICE_URL || 'http://localhost:8001';
+}

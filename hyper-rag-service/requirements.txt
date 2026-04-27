@@ -1,0 +1,10 @@
+fastapi[standard]>=0.104.0
+uvicorn>=0.24.0
+numpy>=1.24.0
+nano-vectordb>=0.0.4.3
+openai>=1.0.0
+tenacity>=8.2.0
+tiktoken>=0.5.0
+pydantic>=2.0.0
+hypergraph-db>=0.1.0
+aiohttp>=3.9.0

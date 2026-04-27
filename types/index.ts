@@ -271,6 +271,11 @@ export interface UserSettings {
   llm_api_url: string;
   llm_model: string;
   mineru_api_key: string;
+  embedding_api_key: string;
+  embedding_api_url: string;
+  embedding_model: string;
+  embedding_dimensions: number;
+  hyperrag_service_url: string;
 }
 
 // AI 阅读器相关类型
