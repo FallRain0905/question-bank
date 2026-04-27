@@ -91,8 +91,18 @@ export async function getUserMineruConfig(token: string) {
       .eq('user_id', user.id)
       .maybeSingle();
 
-    return { token: settings?.mineru_api_key || envToken };
-  } catch {
+    console.log('MinerU user settings:', settings ? { hasKey: !!settings.mineru_api_key } : 'not found');
+
+    // 优先使用用户配置（即使为空字符串），只有在用户没有设置记录时才使用环境变量
+    if (settings && 'mineru_api_key' in settings) {
+      console.log('Using user MinerU config:', !!settings.mineru_api_key);
+      return { token: settings.mineru_api_key };
+    }
+
+    console.log('Using environment MinerU config:', !!envToken);
+    return { token: envToken };
+  } catch (error) {
+    console.error('Error getting MinerU config:', error);
     return { token: envToken };
   }
 }

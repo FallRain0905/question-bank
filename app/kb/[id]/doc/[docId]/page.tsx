@@ -95,6 +95,19 @@ export default function DocumentViewerPage() {
     return md;
   };
 
+  const handleDownloadMarkdown = () => {
+    if (!doc?.content_md) return;
+    const blob = new Blob([doc.content_md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${doc.title || 'document'}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const renderContent = useCallback((md: string) => {
     // Add IDs to headings for anchor navigation
     let processed = md.replace(/^(#{1,4})\s+(.+)$/gm, (_, hashes, text) => {
@@ -124,6 +137,14 @@ export default function DocumentViewerPage() {
               <button onClick={() => setShowOutline(!showOutline)} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
                 {showOutline ? '隐藏目录' : '显示目录'}
               </button>
+              <button onClick={() => handleDownloadMarkdown()} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+                下载 Markdown
+              </button>
+              {doc.file_url && (
+                <a href={doc.file_url} download={doc.file_name || 'document'} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+                  下载原文
+                </a>
+              )}
               <Link href={`/generator?doc=${doc.id}`} className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800">出题</Link>
             </div>
           </div>

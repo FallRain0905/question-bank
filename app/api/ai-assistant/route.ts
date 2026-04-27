@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
         }
         return { role: m.role, content: m.content || '' };
       });
-      selectedModel = model || 'qwen-plus';
+      selectedModel = model || defaultModel || 'deepseek-v4-flash';
     } else if (question || image) {
       // 简单模式: question + history + image (来自 FloatingAIButton)
       apiMessages = (history || []).map((m: any) => ({
@@ -70,7 +70,10 @@ export async function POST(req: NextRequest) {
           content: question || '',
         });
       }
-      selectedModel = image ? 'qwen-vl-max' : (defaultModel || 'qwen-plus');
+      // 对于图片功能，如果用户配置了qwen则使用qwen-vl-max，否则使用默认模型
+      selectedModel = image
+        ? (provider === 'qwen' ? 'qwen-vl-max' : (defaultModel || 'deepseek-v4-flash'))
+        : (defaultModel || 'deepseek-v4-flash');
     } else {
       return NextResponse.json({
         answer: '请输入问题或上传图片',

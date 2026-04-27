@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: defaultModel || 'qwen-plus',
+        model: defaultModel || 'deepseek-v4-flash',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: `请分析以下文档并生成结构化大纲：\n\n${truncated}` },

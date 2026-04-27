@@ -47,7 +47,7 @@ Important rules:
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: defaultModel || 'qwen-plus',
+        model: defaultModel || 'deepseek-v4-flash',
         messages: [{ role: 'system', content: systemPrompt }, ...messages],
         temperature: 0.8,
         max_tokens: 500,

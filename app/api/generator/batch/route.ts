@@ -44,7 +44,7 @@ ${source_text.slice(0, 6000)}
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: defaultModel || 'qwen-plus',
+        model: defaultModel || 'deepseek-v4-flash',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },

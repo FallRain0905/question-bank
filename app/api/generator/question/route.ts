@@ -39,7 +39,7 @@ ${question_type ? `题目类型：${question_type}` : ''}`;
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: defaultModel || 'qwen-plus',
+        model: defaultModel || 'deepseek-v4-flash',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },
