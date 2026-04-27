@@ -5,8 +5,9 @@ import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
 import type { KBDocument } from '@/types';
+import KnowledgeGraph from '@/components/KnowledgeGraph';
 
-type TabKey = 'docs' | 'index';
+type TabKey = 'docs' | 'index' | 'graph';
 
 export default function KnowledgeBaseDetailPage() {
   const router = useRouter();
@@ -112,7 +113,7 @@ export default function KnowledgeBaseDetailPage() {
   };
 
   useEffect(() => {
-    if (activeTab === 'index') {
+    if (activeTab === 'index' || activeTab === 'graph') {
       loadEntities(1);
       loadRelationships(1);
     }
@@ -169,16 +170,53 @@ export default function KnowledgeBaseDetailPage() {
   const handleBuildIndex = async (docIds?: string[]) => {
     setIndexing(true);
     setIndexLogs([]);
+    const startTime = Date.now();
+    const getElapsed = () => {
+      const s = Math.floor((Date.now() - startTime) / 1000);
+      const m = Math.floor(s / 60);
+      return m > 0 ? `${m}分${s % 60}秒` : `${s}秒`;
+    };
+
     addLog('开始构建索引...');
     addLog('正在准备文档数据和模型配置');
+
+    let progressInterval: NodeJS.Timeout | null = null;
+    let lastProgressLog = '';
 
     try {
       const token = await getToken();
       const body: any = { kb_id: kbId };
       if (docIds) body.doc_ids = docIds;
 
-      addLog(`发送 ${docIds ? docIds.length : '全部'} 个文档到索引服务`);
-      addLog('文档嵌入过程需要调用 LLM 和 Embedding 模型，请耐心等待...');
+      const docCount = docIds ? docIds.length : docs.filter((d: any) => d.content_md).length;
+      addLog(`发送 ${docCount} 个文档到 Graph-RAG 索引服务`);
+      addLog('文档嵌入过程需要调用 AI 模型提取实体和关系，请耐心等待...');
+
+      // Start polling real progress from Python service
+      progressInterval = setInterval(async () => {
+        try {
+          const t = await getToken();
+          if (!t) return;
+          const res = await fetch(`/api/hyperrag/sync-progress?kb_id=${kbId}`, {
+            headers: { Authorization: `Bearer ${t}` },
+          });
+          if (!res.ok) return;
+          const p = await res.json();
+          if (p.status === 'running') {
+            const parts: string[] = [];
+            if (p.current_doc) parts.push(`当前: ${p.current_doc}`);
+            parts.push(`进度: ${p.processed_docs || 0}/${p.total_docs || '?'} 文档`);
+            if (p.entities) parts.push(`${p.entities} 实体`);
+            if (p.relations) parts.push(`${p.relations} 关系`);
+            if (p.progress) parts.push(`${p.progress.toFixed(1)}%`);
+            const msg = parts.join(' · ');
+            if (msg !== lastProgressLog) {
+              addLog(msg);
+              lastProgressLog = msg;
+            }
+          }
+        } catch {}
+      }, 3000);
 
       const res = await fetch('/api/hyperrag/sync', {
         method: 'POST',
@@ -187,17 +225,21 @@ export default function KnowledgeBaseDetailPage() {
       });
 
       const result = await res.json();
+
       if (res.ok) {
         const successCount = result.results?.filter?.((r: any) => r.success)?.length || 0;
         const failCount = result.results?.filter?.((r: any) => !r.success)?.length || 0;
-        addLog(`索引构建完成: ${successCount} 成功${failCount > 0 ? `, ${failCount} 失败` : ''}`);
+        const errorDetails = result.results?.filter?.((r: any) => !r.success)?.map((r: any) => r.error)?.join('; ');
+        addLog(`索引构建完成 (耗时 ${getElapsed()}): ${successCount} 个文档成功${failCount > 0 ? `, ${failCount} 个失败` : ''}`);
+        if (errorDetails) addLog(`失败原因: ${errorDetails}`);
         loadDocs(userIdRef.current || undefined);
       } else {
-        addLog(`索引构建失败: ${result.error || '未知错误'}`);
+        addLog(`索引构建失败 (耗时 ${getElapsed()}): ${result.error || '未知错误'}`);
       }
     } catch (err: any) {
-      addLog(`索引构建异常: ${err.message}`);
+      addLog(`索引构建异常 (耗时 ${getElapsed()}): ${err.message}`);
     } finally {
+      if (progressInterval) clearInterval(progressInterval);
       setIndexing(false);
       setTimeout(() => {
         if (activeTab === 'index') {
@@ -223,6 +265,7 @@ export default function KnowledgeBaseDetailPage() {
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'docs', label: '文档' },
     { key: 'index', label: '索引管理' },
+    { key: 'graph', label: '知识图谱' },
   ];
 
   return (
@@ -500,6 +543,11 @@ export default function KnowledgeBaseDetailPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Graph Tab */}
+      {activeTab === 'graph' && (
+        <KnowledgeGraph entities={entities} relationships={relationships} height="calc(100vh - 320px)" />
       )}
     </div>
   );

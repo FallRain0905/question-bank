@@ -16,6 +16,7 @@ import sys
 import logging
 import numpy as np
 from pathlib import Path
+from datetime import datetime
 import importlib.util
 import struct
 import base64
@@ -53,6 +54,7 @@ app.add_middleware(
 WORKING_DIR = os.environ.get("HYPERRAG_WORKING_DIR", os.path.join(os.path.dirname(__file__), "hyperrag_cache"))
 INSTANCES: dict = {}
 INDEXING_LOCKS: dict[str, asyncio.Lock] = {}
+SYNC_PROGRESS: dict[str, dict] = {}  # kb_id -> {status, progress, entities, relations, ...}
 
 # ======================== Models ========================
 
@@ -203,6 +205,13 @@ async def health():
         "instances": list(INSTANCES.keys()),
     }
 
+@app.get("/api/sync-progress/{kb_id}")
+async def get_sync_progress(kb_id: str):
+    progress = SYNC_PROGRESS.get(kb_id)
+    if not progress:
+        return {"status": "idle"}
+    return progress
+
 @app.post("/api/sync-document")
 async def sync_document(req: SyncDocumentRequest):
     if not HYPERRAG_AVAILABLE:
@@ -239,17 +248,53 @@ async def sync_batch(req: SyncBatchRequest):
     if lock.locked():
         raise HTTPException(409, "Indexing already in progress for this knowledge base")
 
+    total_docs = len(req.documents)
+    SYNC_PROGRESS[req.kb_id] = {
+        "status": "running",
+        "total_docs": total_docs,
+        "processed_docs": 0,
+        "current_doc": "",
+        "current_step": "initializing",
+        "entities": 0,
+        "relations": 0,
+        "started_at": datetime.now().isoformat(),
+    }
+
     async with lock:
         results = []
         instance = get_or_create_instance(req.kb_id, req.config)
-        for doc in req.documents:
+
+        for doc_idx, doc in enumerate(req.documents):
+            doc_id = doc.get("doc_id", f"doc-{doc_idx}")
+            doc_title = doc.get("title", "")
+            SYNC_PROGRESS[req.kb_id]["processed_docs"] = doc_idx
+            SYNC_PROGRESS[req.kb_id]["current_doc"] = doc_title
+            SYNC_PROGRESS[req.kb_id]["current_step"] = "chunking"
+
             try:
                 content = doc.get("content_md", "")
                 if content.strip():
+                    SYNC_PROGRESS[req.kb_id]["current_step"] = "embedding"
                     await instance.ainsert(content)
-                results.append({"doc_id": doc.get("doc_id"), "success": True})
+
+                    # Read entity/relation counts from the hypergraph
+                    try:
+                        hg = instance.chunk_entity_relation_hypergraph._hg
+                        SYNC_PROGRESS[req.kb_id]["entities"] = len(hg._v_data)
+                        SYNC_PROGRESS[req.kb_id]["relations"] = len(hg._e_data)
+                    except Exception:
+                        pass
+
+                SYNC_PROGRESS[req.kb_id]["current_step"] = "done_doc"
+                results.append({"doc_id": doc_id, "success": True})
             except Exception as e:
-                results.append({"doc_id": doc.get("doc_id"), "success": False, "error": str(e)})
+                SYNC_PROGRESS[req.kb_id]["current_step"] = "error"
+                results.append({"doc_id": doc_id, "success": False, "error": str(e)})
+
+        SYNC_PROGRESS[req.kb_id]["processed_docs"] = total_docs
+        SYNC_PROGRESS[req.kb_id]["status"] = "done"
+        SYNC_PROGRESS[req.kb_id]["current_step"] = "completed"
+        SYNC_PROGRESS[req.kb_id]["progress"] = 100.0
         return {"success": True, "results": results, "database": f"kb-{req.kb_id}"}
 
 @app.post("/api/query")
