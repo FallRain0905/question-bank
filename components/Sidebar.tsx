@@ -333,6 +333,17 @@ export default function Sidebar() {
                 {!collapsed && <span>知识库</span>}
               </Link>
               <Link
+                href="/convert"
+                className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                  isActive('/convert') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                } ${collapsed ? 'justify-center' : ''}`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                {!collapsed && <span>文档转换</span>}
+              </Link>
+              <Link
                 href="/generator"
                 className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
                   isActive('/generator') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'

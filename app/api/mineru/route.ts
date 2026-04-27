@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
 
     if (!mineruRes.ok) {
       const errText = await mineruRes.text();
-      console.error('MinerU v4 API error:', { status: mineruRes.status, errorText });
+      console.error('MinerU v4 API error:', { status: mineruRes.status, errText });
       return NextResponse.json({ error: `MinerU 解析请求失败 (${mineruRes.status}): ${errText}` }, { status: 500 });
     }
 
