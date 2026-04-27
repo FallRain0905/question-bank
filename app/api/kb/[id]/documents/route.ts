@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import mammoth from 'mammoth';
 
+// 注意：PDF文件使用MinerU API解析，不在服务端使用pdf-parse（避免DOMMatrix错误）
+
 export async function POST(req: NextRequest, { params }: any) {
   const { id } = await params;
   const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
@@ -28,23 +30,25 @@ export async function POST(req: NextRequest, { params }: any) {
 
     if (fileType === 'pdf') {
       // Use MinerU v1 agent API (direct file upload, no auth needed)
-      const minerForm = new FormData();
-      minerForm.append('file', new Blob([buffer], { type: 'application/pdf' }), fileName);
-      minerForm.append('return_md', 'true');
+      try {
+        const minerForm = new FormData();
+        minerForm.append('file', new Blob([buffer], { type: 'application/pdf' }), fileName);
+        minerForm.append('return_md', 'true');
 
-      const minerRes = await fetch('https://mineru.net/api/v1/agent/parse/file', {
-        method: 'POST',
-        body: minerForm,
-      });
+        const minerRes = await fetch('https://mineru.net/api/v1/agent/parse/file', {
+          method: 'POST',
+          body: minerForm,
+        });
 
-      if (minerRes.ok) {
-        const data = await minerRes.json();
-        contentMd = data.content || data.markdown || '';
-      } else {
-        // Fallback: try pdf-parse for text extraction
-        const pdfParse = require('pdf-parse');
-        const pdfData = await pdfParse(buffer);
-        contentMd = pdfData.text || '';
+        if (minerRes.ok) {
+          const data = await minerRes.json();
+          contentMd = data.content || data.markdown || '';
+        } else {
+          throw new Error('PDF解析失败');
+        }
+      } catch (pdfError) {
+        console.error('PDF解析错误:', pdfError);
+        throw new Error('PDF文件解析失败，请尝试使用其他格式');
       }
     } else if (fileType === 'docx') {
       const result = await mammoth.extractRawText({ buffer });

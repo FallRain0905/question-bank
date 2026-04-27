@@ -106,7 +106,7 @@ export default function KnowledgeBaseDetailPage() {
           <h1 className="text-2xl font-bold text-gray-900">{kbName || '加载中...'}</h1>
         </div>
         <div>
-          <input ref={fileInputRef} type="file" accept=".pdf,.docx,.md,.txt" onChange={handleUpload} className="hidden" />
+          <input ref={fileInputRef} type="file" accept=".md,.docx,.txt" onChange={handleUpload} className="hidden" />
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
@@ -122,7 +122,7 @@ export default function KnowledgeBaseDetailPage() {
       ) : docs.length === 0 ? (
         <div className="text-center py-16 bg-white border border-gray-100 rounded-xl">
           <p className="text-gray-400 mb-2">还没有文档</p>
-          <p className="text-xs text-gray-300">支持 PDF、DOCX、Markdown、TXT</p>
+          <p className="text-xs text-gray-300">暂且只支持 Markdown、DOCX、TXT 文件</p>
         </div>
       ) : (
         <div className="grid gap-3">
