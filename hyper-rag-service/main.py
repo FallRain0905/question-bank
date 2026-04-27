@@ -148,7 +148,7 @@ def make_embedding_func(cfg: EmbeddingConfig):
 
     return EmbeddingFunc(embedding_dim=cfg.dimensions, max_token_size=8192, func=func)
 
-def get_or_create_instance(kb_id: str, config: ServiceConfig) -> HyperRAG:
+def get_or_create_instance(kb_id: str, config: ServiceConfig):
     db_name = f"kb-{kb_id}"
     if db_name in INSTANCES:
         return INSTANCES[db_name]
@@ -165,7 +165,7 @@ def get_or_create_instance(kb_id: str, config: ServiceConfig) -> HyperRAG:
     return instance
 
 
-def try_load_instance(kb_id: str) -> Optional[HyperRAG]:
+def try_load_instance(kb_id: str):
     """Try to load an instance from disk cache without requiring config."""
     db_name = f"kb-{kb_id}"
     if db_name in INSTANCES:
