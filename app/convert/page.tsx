@@ -3,12 +3,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
-import { Document, Page, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
-import 'react-pdf/dist/esm/Page/TextLayer.css';
-
-// 配置PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 interface Progress {
   current: number;
@@ -32,8 +26,6 @@ export default function ConvertPage() {
   const [status, setStatus] = useState<string>('idle'); // idle, uploading, processing, completed, error
   const [markdown, setMarkdown] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [pdfPages, setPdfPages] = useState<number>(0);
-  const [currentPage, setCurrentPage] = useState<number>(1);
   const [isDragging, setIsDragging] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -251,21 +243,6 @@ export default function ConvertPage() {
     }
   };
 
-  // 处理PDF加载成功
-  const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
-    setPdfPages(numPages);
-    setCurrentPage(1);
-  };
-
-  // 翻页
-  const goToPrevPage = () => {
-    setCurrentPage(prev => Math.max(1, prev - 1));
-  };
-
-  const goToNextPage = () => {
-    setCurrentPage(prev => Math.min(pdfPages, prev + 1));
-  };
-
   // 下载Markdown
   const handleDownloadMarkdown = () => {
     if (!markdown) return;
@@ -393,40 +370,13 @@ export default function ConvertPage() {
                 <div className="bg-gray-50 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="font-medium text-gray-900">PDF 预览</h4>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={goToPrevPage}
-                        disabled={currentPage <= 1}
-                        className="px-2 py-1 text-sm text-gray-600 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        ← 上一页
-                      </button>
-                      <span className="text-sm text-gray-600">
-                        {currentPage} / {pdfPages}
-                      </span>
-                      <button
-                        onClick={goToNextPage}
-                        disabled={currentPage >= pdfPages}
-                        className="px-2 py-1 text-sm text-gray-600 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        下一页 →
-                      </button>
-                    </div>
                   </div>
                   <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
-                    <Document
-                      file={fileUrl}
-                      onLoadSuccess={onDocumentLoadSuccess}
-                      loading={<div className="text-center py-8 text-gray-400">加载中...</div>}
-                      error={<div className="text-center py-8 text-red-500">PDF加载失败</div>}
-                    >
-                      <Page
-                        pageNumber={currentPage}
-                        scale={1.2}
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
-                      />
-                    </Document>
+                    <iframe
+                      src={fileUrl}
+                      className="w-full h-[600px] border-0"
+                      title="PDF预览"
+                    />
                   </div>
                 </div>
               )}
