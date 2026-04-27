@@ -73,7 +73,12 @@ export async function getUserLLMConfig(token: string) {
 export async function getUserMineruConfig(token: string) {
   const envToken = process.env.MINERU_API_TOKEN || '';
 
-  if (!token) return { token: envToken };
+  console.log('getUserMineruConfig called, has token:', !!token);
+
+  if (!token) {
+    console.log('No token provided, using environment config');
+    return { token: envToken };
+  }
 
   try {
     const supabase = createClient(
@@ -82,24 +87,43 @@ export async function getUserMineruConfig(token: string) {
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { token: envToken };
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      console.error('Error getting user:', userError);
+      return { token: envToken };
+    }
+    if (!user) {
+      console.log('No user found, using environment config');
+      return { token: envToken };
+    }
 
-    const { data: settings } = await supabase
+    console.log('User found:', user.id);
+
+    const { data: settings, error: settingsError } = await supabase
       .from('user_settings')
       .select('mineru_api_key')
       .eq('user_id', user.id)
       .maybeSingle();
 
-    console.log('MinerU user settings:', settings ? { hasKey: !!settings.mineru_api_key } : 'not found');
-
-    // 优先使用用户配置（即使为空字符串），只有在用户没有设置记录时才使用环境变量
-    if (settings && 'mineru_api_key' in settings) {
-      console.log('Using user MinerU config:', !!settings.mineru_api_key);
-      return { token: settings.mineru_api_key };
+    if (settingsError) {
+      console.error('Error getting user settings:', settingsError);
+      return { token: envToken };
     }
 
-    console.log('Using environment MinerU config:', !!envToken);
+    console.log('User settings found:', !!settings);
+
+    // 如果用户有设置记录，使用用户的配置（即使是空字符串）
+    if (settings !== null) {
+      console.log('Using user MinerU config:', {
+        hasKey: 'mineru_api_key' in settings,
+        isNull: settings.mineru_api_key === null,
+        isEmpty: settings.mineru_api_key === '',
+        length: settings.mineru_api_key?.length || 0
+      });
+      return { token: settings.mineru_api_key || '' };
+    }
+
+    console.log('No user settings found, using environment config:', !!envToken);
     return { token: envToken };
   } catch (error) {
     console.error('Error getting MinerU config:', error);

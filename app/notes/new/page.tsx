@@ -56,9 +56,15 @@ export default function NewNotePage() {
     if (!file) return;
     setPdfLoading(true);
     try {
+      const supabase = getSupabase();
+      const { data: { session } } = await supabase.auth.getSession();
       const form = new FormData();
       form.append('file', file);
-      const res = await fetch('/api/mineru', { method: 'POST', body: form });
+      const res = await fetch('/api/mineru', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+        body: form,
+      });
       const data = await res.json();
       if (data.success && data.markdown) {
         setContent((prev) => prev + '\n' + data.markdown);
