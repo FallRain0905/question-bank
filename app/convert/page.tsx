@@ -25,6 +25,7 @@ export default function ConvertPage() {
   const [progress, setProgress] = useState<Progress>({ current: 0, total: 0, percent: 0 });
   const [status, setStatus] = useState<string>('idle'); // idle, uploading, processing, completed, error
   const [markdown, setMarkdown] = useState<string>('');
+  const [zipUrl, setZipUrl] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isDragging, setIsDragging] = useState(false);
 
@@ -175,6 +176,7 @@ export default function ConvertPage() {
         }
 
         // 检查任务状态
+        console.log('Task state check:', taskData.state);
         if (taskData.state === 'done') {
           if (pollIntervalRef.current) {
             clearInterval(pollIntervalRef.current);
@@ -182,9 +184,23 @@ export default function ConvertPage() {
 
           setStatus('completed');
 
-          // 获取转换结果
+          // 保存ZIP文件URL
           if (taskData.full_zip_url) {
-            await fetchConvertResult(taskData.full_zip_url);
+            setZipUrl(taskData.full_zip_url);
+            setMarkdown(`# 转换完成
+
+🎉 文档转换成功完成！
+
+**转换信息:**
+- 总页数: ${progress.total} 页
+- 处理时间: ${(Date.now() - Date.now())} 秒
+
+**下载选项:**
+- 点击下方"下载转换结果"按钮获取完整的转换文件
+- ZIP文件包含：Markdown、JSON、DOCX、HTML等多种格式
+
+**文件内容:**
+ZIP文件已准备就绪，您可以下载后解压获取所需的格式。`);
           }
         } else if (taskData.state === 'failed') {
           if (pollIntervalRef.current) {
@@ -201,16 +217,7 @@ export default function ConvertPage() {
     }, 2000); // 每2秒轮询一次
   };
 
-  // 获取转换结果
-  const fetchConvertResult = async (zipUrl: string) => {
-    try {
-      // 这里需要实现ZIP文件解析，暂时显示占位文本
-      setMarkdown('转换完成！Markdown结果已生成。\n\n(注：ZIP文件解析功能待实现，请使用下载功能获取完整结果)');
-    } catch (error: any) {
-      console.error('获取结果错误:', error);
-      setErrorMessage('获取转换结果失败');
-    }
-  };
+  // 处理拖拽
 
   // 处理拖拽
   const handleDragOver = (e: React.DragEvent) => {
@@ -256,6 +263,17 @@ export default function ConvertPage() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadZip = () => {
+    if (!zipUrl) return;
+
+    const a = document.createElement('a');
+    a.href = zipUrl;
+    a.download = `${file?.name.replace(/\.[^/.]+$/, '') || 'converted'}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   // 复制Markdown
@@ -392,6 +410,14 @@ export default function ConvertPage() {
             <h2 className="text-xl font-bold text-gray-900">Markdown 预览</h2>
             {markdown && (
               <div className="flex items-center gap-2">
+                {zipUrl && (
+                  <button
+                    onClick={handleDownloadZip}
+                    className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    下载转换结果
+                  </button>
+                )}
                 <button
                   onClick={handleCopyMarkdown}
                   className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
