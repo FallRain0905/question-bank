@@ -164,7 +164,7 @@ export interface SearchHistory {
   created_at: string;
 }
 
-// 班级相关类型
+// 团队相关类型
 export interface Class {
   id: string;
   name: string;
@@ -192,7 +192,7 @@ export interface ClassWithRole extends Class {
   userStatus?: 'pending' | 'approved' | 'rejected';
 }
 
-// 班级审核申请类型
+// 团队审核申请类型
 export interface ClassApprovalRequest {
   id: string;
   class_id: string;
@@ -225,6 +225,8 @@ export interface KBDocument {
   user_id: string;
   title: string;
   content_md?: string;
+  outline_md?: string;
+  outline_summary?: string;
   file_url?: string;
   file_name?: string;
   file_type?: string;
@@ -269,4 +271,30 @@ export interface UserSettings {
   llm_api_url: string;
   llm_model: string;
   mineru_api_key: string;
+}
+
+// AI 阅读器相关类型
+export interface DocumentHighlight {
+  id: string;
+  document_id: string;
+  user_id: string;
+  selected_text: string;
+  start_offset: number;
+  end_offset: number;
+  color: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentAnnotation {
+  id: string;
+  document_id: string;
+  user_id: string;
+  highlight_id: string | null;
+  action_type: string;
+  selected_text: string;
+  ai_response: string;
+  saved_as_note_id: string | null;
+  created_at: string;
 }

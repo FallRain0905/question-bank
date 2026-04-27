@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase';
 
-// POST - 退出班级
+// POST - 退出团队
 export async function POST(request: NextRequest) {
   try {
     const supabase = createSupabaseServerClient();
@@ -41,10 +41,10 @@ export async function POST(request: NextRequest) {
     const { classId } = body;
 
     if (!classId) {
-      return NextResponse.json({ error: '班级ID不能为空' }, { status: 400 });
+      return NextResponse.json({ error: '团队ID不能为空' }, { status: 400 });
     }
 
-    // 检查是否是班级创建者
+    // 检查是否是团队创建者
     const { data: classData } = await authSupabase
       .from('classes')
       .select('creator_id')
@@ -52,10 +52,10 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (classData?.creator_id === user.id) {
-      return NextResponse.json({ error: '班级创建者不能退出班级' }, { status: 400 });
+      return NextResponse.json({ error: '团队创建者不能退出团队' }, { status: 400 });
     }
 
-    // 退出班级
+    // 退出团队
     const { error } = await authSupabase
       .from('class_members')
       .delete()
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error('退出班级失败:', error);
-    return NextResponse.json({ error: '退出班级失败' }, { status: 500 });
+    console.error('退出团队失败:', error);
+    return NextResponse.json({ error: '退出团队失败' }, { status: 500 });
   }
 }

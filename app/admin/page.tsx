@@ -46,7 +46,7 @@ export default function AdminPage() {
       return;
     }
 
-    // 检查是否是班级创建者或审核员
+    // 检查是否是团队创建者或审核员
     const supabase = getSupabase();
     try {
       const { data: classMembers } = await supabase
@@ -78,7 +78,7 @@ export default function AdminPage() {
         return;
       }
     } catch (err) {
-      console.error('检查班级权限失败:', err);
+      console.error('检查团队权限失败:', err);
       router.push('/');
       return;
     }
@@ -102,7 +102,7 @@ export default function AdminPage() {
         `)
         .eq('status', filterStatus);
 
-      // 班级审核员只能看到本班级的内容
+      // 团队审核员只能看到本团队的内容
       if (isClassModerator && selectedClassId) {
         query = query.eq('class_id', selectedClassId);
       }
@@ -129,7 +129,7 @@ export default function AdminPage() {
         `)
         .eq('status', filterStatus);
 
-      // 班级审核员只能看到本班级的内容
+      // 团队审核员只能看到本团队的内容
       if (isClassModerator && selectedClassId) {
         query = query.eq('class_id', selectedClassId);
       }
@@ -408,16 +408,24 @@ export default function AdminPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-gray-900">
-                {isAdmin ? '审核管理' : '班级审核'}
+                {isAdmin ? '审核管理' : '团队审核'}
               </h1>
               {/* 系统配置按钮 - 仅超级管理员可见 */}
               {isAdmin && (
-                <Link
-                  href="/admin/settings"
-                  className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition flex items-center gap-1"
-                >
-                  ⚙️ 系统配置
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/admin/classes"
+                    className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition flex items-center gap-1"
+                  >
+                    团队审核
+                  </Link>
+                  <Link
+                    href="/admin/settings"
+                    className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition flex items-center gap-1"
+                  >
+                    ⚙️ 系统配置
+                  </Link>
+                </div>
               )}
             </div>
             <button
@@ -428,11 +436,11 @@ export default function AdminPage() {
             </button>
           </div>
 
-          {/* 班级选择器 - 仅班级审核员显示 */}
+          {/* 团队选择器 - 仅团队审核员显示 */}
           {isClassModerator && userClasses.length > 0 && (
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                选择班级
+                选择团队
               </label>
               <select
                 value={selectedClassId}

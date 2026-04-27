@@ -24,13 +24,13 @@ export default function ClassesPage() {
   // 使用 ref 防止组件卸载后更新状态
   const isMounted = useRef(true);
 
-  // 创建班级表单
+  // 创建团队表单
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [className, setClassName] = useState('');
   const [classDesc, setClassDesc] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // 加入班级表单
+  // 加入团队表单
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [joining, setJoining] = useState(false);
@@ -52,7 +52,7 @@ export default function ClassesPage() {
     };
   }, []);
 
-  // 只有当 user 存在时才加载班级列表
+  // 只有当 user 存在时才加载团队列表
   useEffect(() => {
     if (user) {
       loadClasses();
@@ -74,7 +74,7 @@ export default function ClassesPage() {
     try {
       const supabase = getSupabase();
 
-      // 1. 查询用户的班级成员记录（已批准的）
+      // 1. 查询用户的团队成员记录（已批准的）
       const { data: members, error: membersError } = await supabase
         .from('class_members')
         .select('class_id, role, status')
@@ -89,7 +89,7 @@ export default function ClassesPage() {
 
       let resultClasses: ClassWithRole[] = [];
 
-      // 2. 获取已批准的班级信息
+      // 2. 获取已批准的团队信息
       if (members && members.length > 0) {
         const classIds = members.map(m => m.class_id);
         const { data: approvedClasses, error: classesError } = await supabase
@@ -109,7 +109,7 @@ export default function ClassesPage() {
         }
       }
 
-      // 3. 查询用户创建的待审核班级
+      // 3. 查询用户创建的待审核团队
       const { data: pendingClasses, error: pendingError } = await supabase
         .from('classes')
         .select('id, name, description, invite_code, creator_id, status, created_at, updated_at')
@@ -117,7 +117,7 @@ export default function ClassesPage() {
         .eq('status', 'pending');
 
       if (!pendingError && pendingClasses && pendingClasses.length > 0) {
-        // 添加待审核班级到结果中（用户角色为 creator）
+        // 添加待审核团队到结果中（用户角色为 creator）
         resultClasses = [
           ...resultClasses,
           ...pendingClasses.map(c => ({
@@ -134,7 +134,7 @@ export default function ClassesPage() {
 
       setClasses(resultClasses);
     } catch (err) {
-      console.error('加载班级时出错:', err);
+      console.error('加载团队时出错:', err);
       setClasses([]);
     } finally {
       setLoading(false);
@@ -200,7 +200,7 @@ export default function ClassesPage() {
 
   const handleCreateClass = async () => {
     if (!className.trim()) {
-      alert('请输入班级名称');
+      alert('请输入团队名称');
       return;
     }
 
@@ -223,7 +223,7 @@ export default function ClassesPage() {
         throw error;
       }
 
-      // 创建班级审核请求记录（供管理员查看和审核）
+      // 创建团队审核请求记录（供管理员查看和审核）
       await supabase
         .from('class_approval_requests')
         .insert({
@@ -235,16 +235,16 @@ export default function ClassesPage() {
           status: 'pending',
         });
 
-      // 注意：触发器会自动将创建者添加为班级成员（status = 'approved'）
+      // 注意：触发器会自动将创建者添加为团队成员（status = 'approved'）
       // 不需要手动插入
 
       setClassName('');
       setClassDesc('');
       setShowCreateModal(false);
 
-      alert(`班级 "${data.name}" 创建成功！正在等待超级管理员审核。`);
+      alert(`团队 "${data.name}" 创建成功！正在等待超级管理员审核。`);
     } catch (error: any) {
-      console.error('创建班级失败:', error);
+      console.error('创建团队失败:', error);
       const errorMsg = error?.message || '未知错误';
       console.error('错误详情:', errorMsg, error?.details, error?.hint);
       alert('创建失败: ' + errorMsg);
@@ -266,7 +266,7 @@ export default function ClassesPage() {
     try {
       const supabase = getSupabase();
 
-      // 先查找班级
+      // 先查找团队
       const { data: classData, error: classError } = await supabase
         .from('classes')
         .select('*')
@@ -277,12 +277,12 @@ export default function ClassesPage() {
         throw new Error('邀请码无效');
       }
 
-      // 检查班级状态
+      // 检查团队状态
       if (classData.status !== 'approved') {
-        throw new Error('该班级还在审核中');
+        throw new Error('该团队还在审核中');
       }
 
-      // 检查是否已经是班级成员
+      // 检查是否已经是团队成员
       const { data: existingMember } = await supabase
         .from('class_members')
         .select('status')
@@ -291,7 +291,7 @@ export default function ClassesPage() {
         .maybeSingle();
 
       if (existingMember && existingMember.status === 'approved') {
-        throw new Error('你已经是该班级成员');
+        throw new Error('你已经是该团队成员');
       }
 
       // 插入加入申请
@@ -309,9 +309,9 @@ export default function ClassesPage() {
 
       setInviteCode('');
       setShowJoinModal(false);
-      alert(`已提交加入 "${classData.name}" 的申请，等待班级管理员审核。`);
+      alert(`已提交加入 "${classData.name}" 的申请，等待团队管理员审核。`);
     } catch (error: any) {
-      console.error('加入班级失败:', error);
+      console.error('加入团队失败:', error);
       setJoinError(error.message || '加入失败，请重试');
     } finally {
       setJoining(false);
@@ -319,7 +319,7 @@ export default function ClassesPage() {
   };
 
   const handleLeaveClass = async (classId: string, className: string) => {
-    if (!confirm(`确定要退出班级 "${className}" 吗？`)) return;
+    if (!confirm(`确定要退出团队 "${className}" 吗？`)) return;
     try {
       const supabase = getSupabase();
       const { data: { session } } = await supabase.auth.getSession();
@@ -338,15 +338,15 @@ export default function ClassesPage() {
       }
 
       await loadClasses();
-      alert('已退出班级');
+      alert('已退出团队');
     } catch (error: any) {
-      console.error('退出班级失败:', error);
+      console.error('退出团队失败:', error);
       alert('退出失败: ' + error.message);
     }
   };
 
   const handleRemoveMember = async (memberId: string, memberName: string) => {
-    if (!confirm(`确定要将 "${memberName}" 移出班级吗？`)) return;
+    if (!confirm(`确定要将 "${memberName}" 移出团队吗？`)) return;
     try {
       const supabase = getSupabase();
       const { error } = await supabase
@@ -439,7 +439,7 @@ export default function ClassesPage() {
       
       <div className="max-w-4xl mx-auto px-4 py-8 relative z-10">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-700">我的班级</h1>
+          <h1 className="text-2xl font-bold text-gray-700">我的团队</h1>
         </div>
 
         <div className="flex gap-3">
@@ -447,33 +447,33 @@ export default function ClassesPage() {
             onClick={() => setShowJoinModal(true)}
             className="px-4 py-2 bg-white text-gray-600 border border-gray-300 rounded-lg hover:border-gray-400 transition-colors"
           >
-            加入班级
+            加入团队
           </button>
           <button
             onClick={() => setShowCreateModal(true)}
             className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-200 transition-colors"
           >
-            创建班级
+            创建团队
           </button>
         </div>
 
         {classes.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-xl p-12 text-center mt-6">
             <div className="text-6xl mb-4">📚</div>
-            <h2 className="text-xl font-medium text-gray-700 mb-2">还没有加入任何班级</h2>
-            <p className="text-gray-9000 mb-6">创建班级或使用邀请码加入现有班级</p>
+            <h2 className="text-xl font-medium text-gray-700 mb-2">还没有加入任何团队</h2>
+            <p className="text-gray-9000 mb-6">创建团队或使用邀请码加入现有团队</p>
             <div className="flex justify-center gap-4">
               <button
                 onClick={() => setShowCreateModal(true)}
                 className="px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800"
               >
-                创建班级
+                创建团队
               </button>
               <button
                 onClick={() => setShowJoinModal(true)}
                 className="px-6 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg hover:border-gray-300"
               >
-                加入班级
+                加入团队
               </button>
             </div>
           </div>
@@ -499,7 +499,7 @@ export default function ClassesPage() {
                         )}
                       </div>
                       {isPending && (
-                        <p className="text-yellow-400 text-sm mb-3">⚠️ 班级正在审核中，审核通过后方可正常使用</p>
+                        <p className="text-yellow-400 text-sm mb-3">⚠️ 团队正在审核中，审核通过后方可正常使用</p>
                       )}
                       {cls.description && (
                         <p className="text-gray-9000 mb-3">{cls.description}</p>
@@ -530,7 +530,7 @@ export default function ClassesPage() {
                           onClick={() => handleLeaveClass(cls.id, cls.name)}
                           className="px-4 py-2 text-red-400 hover:bg-red-900/30 rounded-lg transition-colors text-sm"
                         >
-                          退出班级
+                          退出团队
                         </button>
                       )}
                       {isPending && (
@@ -545,20 +545,20 @@ export default function ClassesPage() {
         )}
       </div>
 
-      {/* 创建班级弹窗 */}
+      {/* 创建团队弹窗 */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-gray-50/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white border border-gray-200 rounded-xl max-w-md w-full p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">创建新班级</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">创建新团队</h2>
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4">
               <p className="text-sm text-gray-600">
-                ⚠️ 新创建的班级需要超级管理员审核后才能正常使用。
+                ⚠️ 新创建的团队需要超级管理员审核后才能正常使用。
               </p>
             </div>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  班级名称 <span className="text-red-400">*</span>
+                  团队名称 <span className="text-red-400">*</span>
                 </label>
                 <input
                   type="text"
@@ -571,12 +571,12 @@ export default function ClassesPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  班级描述
+                  团队描述
                 </label>
                 <textarea
                   value={classDesc}
                   onChange={(e) => setClassDesc(e.target.value)}
-                  placeholder="简单描述一下这个班级..."
+                  placeholder="简单描述一下这个团队..."
                   rows={3}
                   className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none resize-none text-gray-800 placeholder-gray-500"
                   disabled={creating}
@@ -602,11 +602,11 @@ export default function ClassesPage() {
         </div>
       )}
 
-      {/* 加入班级弹窗 */}
+      {/* 加入团队弹窗 */}
       {showJoinModal && (
         <div className="fixed inset-0 bg-gray-50/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white border border-gray-200 rounded-xl max-w-md w-full p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">加入班级</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">加入团队</h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -639,7 +639,7 @@ export default function ClassesPage() {
               )}
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
                 <p className="text-sm text-gray-600">
-                  ⚠️ 提交申请后，需要等待班级管理员审核批准后才能加入班级。
+                  ⚠️ 提交申请后，需要等待团队管理员审核批准后才能加入团队。
                 </p>
               </div>
             </div>

@@ -44,8 +44,14 @@ export default function EditNotePage() {
     }
 
     setTitle(note.title || '');
-    setContent(note.content || '');
-    setTags(note.tags || []);
+    setContent(note.description || '');
+    // Load tags from junction table
+    const { data: tagLinks } = await supabase
+      .from('note_tags')
+      .select('tags(id, name)')
+      .eq('note_id', noteId);
+    const loadedTags = (tagLinks || []).map((t: any) => t.tags?.name).filter(Boolean);
+    setTags(loadedTags);
     setLoading(false);
   };
 
@@ -63,10 +69,40 @@ export default function EditNotePage() {
       const supabase = getSupabase();
       const { error } = await supabase.from('notes').update({
         title: title.trim(),
-        content,
-        tags,
+        description: content,
         updated_at: new Date().toISOString(),
       }).eq('id', noteId);
+
+      if (error) throw error;
+
+      // Update tags through junction table
+      await supabase.from('note_tags').delete().eq('note_id', noteId);
+      if (tags.length > 0) {
+        const { data: existingTags } = await supabase
+          .from('tags')
+          .select('id, name')
+          .in('name', tags);
+
+        const tagMap = new Map((existingTags || []).map((t: any) => [t.name, t.id]));
+        const tagInserts = [];
+        for (const tagName of tags) {
+          let tagId = tagMap.get(tagName);
+          if (!tagId) {
+            const { data: newTag } = await supabase
+              .from('tags')
+              .insert({ name: tagName })
+              .select('id')
+              .single();
+            tagId = newTag?.id;
+          }
+          if (tagId) {
+            tagInserts.push({ note_id: noteId, tag_id: tagId });
+          }
+        }
+        if (tagInserts.length > 0) {
+          await supabase.from('note_tags').insert(tagInserts);
+        }
+      }
 
       if (error) throw error;
       router.push(`/notes/${noteId}`);

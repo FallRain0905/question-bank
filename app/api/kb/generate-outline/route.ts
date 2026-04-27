@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfig } from '@/lib/user-settings';
+
+function outlineToMarkdown(node: any, level = 1): string {
+  const prefix = '#'.repeat(Math.min(level, 6));
+  let md = `${prefix} ${node.title}\n\n`;
+  if (node.children) for (const child of node.children) md += outlineToMarkdown(child, level + 1);
+  return md;
+}
 
 const SYSTEM_PROMPT = `你是一个文档分析专家。请根据文档内容生成结构化大纲。
 
@@ -44,7 +52,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'API 端点未配置，请联系管理员' }, { status: 500 });
     }
 
-    const { content_md } = await req.json();
+    const { content_md, document_id } = await req.json();
     if (!content_md?.trim()) {
       console.error('Content missing');
       return NextResponse.json({ error: '请提供文档内容' }, { status: 400 });
@@ -87,6 +95,30 @@ export async function POST(req: NextRequest) {
 
     try {
       const outline = JSON.parse(jsonStr);
+
+      // Save outline to database if document_id provided
+      if (document_id) {
+        try {
+          const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            { global: { headers: { Authorization: `Bearer ${token}` } } }
+          );
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            // Convert outline tree to markdown for storage
+            const outlineMd = outlineToMarkdown(outline.outline || outline);
+            await supabase
+              .from('kb_documents')
+              .update({ outline_md: outlineMd, outline_summary: outline.summary || '' })
+              .eq('id', document_id)
+              .eq('user_id', user.id);
+          }
+        } catch (e) {
+          console.error('Failed to save outline:', e);
+        }
+      }
+
       return NextResponse.json({ success: true, ...outline });
     } catch (parseError) {
       console.error('JSON parse error:', parseError);

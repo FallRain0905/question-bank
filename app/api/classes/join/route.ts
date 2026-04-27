@@ -6,7 +6,7 @@ interface ExistingMember {
   status: 'pending' | 'approved' | 'rejected';
 }
 
-// POST - 通过邀请码申请加入班级
+// POST - 通过邀请码申请加入团队
 export async function POST(request: NextRequest) {
   try {
     const supabase = createSupabaseServerClient();
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '邀请码不能为空' }, { status: 400 });
     }
 
-    // 查找班级
+    // 查找团队
     const { data: classData, error: classError } = await supabase
       .from('classes')
       .select('*')
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
 
     if (existingMember) {
       if (existingMember.status === 'approved') {
-        return NextResponse.json({ error: '你已经是该班级成员' }, { status: 400 });
+        return NextResponse.json({ error: '你已经是该团队成员' }, { status: 400 });
       } else if (existingMember.status === 'pending') {
         return NextResponse.json({ error: '你已经提交了加入申请，请等待审核' }, { status: 400 });
       }
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: '申请已提交，等待班级管理员审核',
+      message: '申请已提交，等待团队管理员审核',
       class: {
         id: classInfo.id,
         name: classInfo.name,
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
       }
     });
   } catch (error: any) {
-    console.error('申请加入班级失败:', error);
+    console.error('申请加入团队失败:', error);
     return NextResponse.json({ error: '申请失败，请重试' }, { status: 500 });
   }
 }

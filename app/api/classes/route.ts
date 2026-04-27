@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase';
 
-// GET - 获取用户加入的班级列表
+// GET - 获取用户加入的团队列表
 export async function GET(request: NextRequest) {
   try {
     const supabase = createSupabaseServerClient();
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    // 获取用户加入的班级
+    // 获取用户加入的团队
     const { data: classes, error } = await authSupabase
       .from('class_members')
       .select(`
@@ -61,12 +61,12 @@ export async function GET(request: NextRequest) {
       userRole: c.role,
     })) || []);
   } catch (error: any) {
-    console.error('获取班级列表失败:', error);
-    return NextResponse.json({ error: '获取班级列表失败' }, { status: 500 });
+    console.error('获取团队列表失败:', error);
+    return NextResponse.json({ error: '获取团队列表失败' }, { status: 500 });
   }
 }
 
-// POST - 创建新班级
+// POST - 创建新团队
 export async function POST(request: NextRequest) {
   try {
     const supabase = createSupabaseServerClient();
@@ -105,10 +105,10 @@ export async function POST(request: NextRequest) {
     const { name, description } = body;
 
     if (!name?.trim()) {
-      return NextResponse.json({ error: '班级名称不能为空' }, { status: 400 });
+      return NextResponse.json({ error: '团队名称不能为空' }, { status: 400 });
     }
 
-    // 创建班级
+    // 创建团队
     const { data, error } = await authSupabase
       .from('classes')
       .insert({
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data);
   } catch (error: any) {
-    console.error('创建班级失败:', error);
-    return NextResponse.json({ error: '创建班级失败' }, { status: 500 });
+    console.error('创建团队失败:', error);
+    return NextResponse.json({ error: '创建团队失败' }, { status: 500 });
   }
 }

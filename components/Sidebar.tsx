@@ -111,8 +111,8 @@ const mainNavItems: NavItem[] = [
   { href: '/', label: '首页', icon: Icons.home },
   { href: '/search', label: '题库', icon: Icons.search },
   { href: '/notes', label: '笔记', icon: Icons.notes },
-  { href: '/social', label: '学习圈', icon: Icons.social },
-  { href: '/classes', label: '班级', icon: Icons.classes },
+  { href: '/social', label: '论坛', icon: Icons.social },
+  { href: '/classes', label: '团队', icon: Icons.classes },
 ];
 
 export default function Sidebar() {
@@ -237,7 +237,7 @@ export default function Sidebar() {
           {!collapsed ? (
             <Link href="/" className="flex items-center gap-2.5">
               <img src="/logo.png" alt="" className="w-7 h-7 rounded-md" />
-              <span className="text-sm font-semibold text-gray-900">Synap</span>
+              <span className="text-sm font-semibold text-gray-900">SynapFlow</span>
             </Link>
           ) : (
             <Link href="/" className="mx-auto">
@@ -365,6 +365,18 @@ export default function Sidebar() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
                 </svg>
                 {!collapsed && <span>英语训练</span>}
+              </Link>
+
+              <Link
+                href="/kb"
+                className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                  isActive('/reader') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                } ${collapsed ? 'justify-center' : ''}`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                </svg>
+                {!collapsed && <span>AI 阅读</span>}
               </Link>
 
               {(user.is_admin || isClassModerator) && (

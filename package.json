@@ -16,6 +16,7 @@
     "@capacitor/status-bar": "^8.0.1",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.48.1",
+    "@tailwindcss/typography": "^0.5.19",
     "@tiptap/extension-code-block": "^3.22.4",
     "@tiptap/extension-highlight": "^3.22.4",
     "@tiptap/extension-horizontal-rule": "^3.22.4",

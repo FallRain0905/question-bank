@@ -7,8 +7,8 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { SidebarSpacer } from "@/components/Sidebar";
 
 export const metadata: Metadata = {
-  title: "Synap",
-  description: "共享题库，支持文本和图片上传",
+  title: "SynapFlow",
+  description: "为学习和研究打造的辅助平台",
   icons: {
     icon: "/favicon.png",
   },

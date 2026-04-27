@@ -1,6 +1,6 @@
-# Synap - 智能学习管理平台
+# SynapFlowFlow - 学习与研究辅助平台
 
-> 集成AI助手、知识库、智能出题的一体化在线学习平台
+> 为学习和研究打造的辅助平台，集成AI助手、知识库、智能出题
 
 [![Next.js](https://img.shields.io/badge/Next.js-16.2.4-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 [![Supabase](https://img.shields.io/badge/Supabase-3E88C6?style=for-the-badge&logo=supabase)](https://supabase.com/)
@@ -9,12 +9,12 @@
 
 ## 📖 项目介绍
 
-Synap 是一个面向学习者的智能学习管理平台，集成了多种AI驱动功能，提供完整的学习解决方案：
+SynapFlowFlow 是一个为学习和研究打造的辅助平台，集成了多种AI驱动功能，提供完整的学习与研究解决方案：
 
 ### 🎯 核心理念
 - **智能化学习**：AI 驱动的智能问答、出题和内容分析
 - **知识管理**：结构化的知识库系统，便于管理和检索学习资料
-- **协作学习**：班级协作和社区互动，构建学习社区
+- **协作学习**：团队协作和社区互动，构建学习社区
 - **个性化体验**：多主题界面和深色模式，满足个人喜好
 
 ### 🌟 主要特色
@@ -78,13 +78,13 @@ Synap 是一个面向学习者的智能学习管理平台，集成了多种AI驱
 - **评论系统**：支持主评论和回复嵌套，深度讨论
 - **关注作者**：关注感兴趣的内容创作者，获取最新动态
 - **消息通知**：实时接收互动通知，不错过重要信息
-- **社交动态**：发现热门内容和活跃用户，拓展学习圈子
+- **社交动态**：发现热门内容和活跃用户，拓展论坛子
 
-### 🎓 班级协作
-- **创建班级**：创建学习班级，组织学习活动
-- **班级审核**：管理员审核班级创建申请，保证质量
+### 🎓 团队协作
+- **创建团队**：创建学习团队，组织学习活动
+- **团队审核**：管理员审核团队创建申请，保证质量
 - **成员管理**：灵活的成员添加、移除和权限管理
-- **班级专属**：班级内专属的学习资源和讨论区
+- **团队专属**：团队内专属的学习资源和讨论区
 
 ## 🛠 技术栈
 
@@ -126,7 +126,7 @@ Synap 是一个面向学习者的智能学习管理平台，集成了多种AI驱
 question-bank/
 ├── app/                    # Next.js 应用页面
 │   ├── admin/            # 管理员页面
-│   │   ├── classes/    # 班级审核
+│   │   ├── classes/    # 团队审核
 │   │   ├── tags/       # 标签管理
 │   │   ├── settings/   # 系统设置
 │   │   └── announcements/ # 公告管理
@@ -138,7 +138,7 @@ question-bank/
 │   │   ├── kb/               # 知识库 API
 │   │   ├── mineru/           # MinerU API
 │   │   └── settings/         # 用户设置 API
-│   ├── classes/          # 班级管理
+│   ├── classes/          # 团队管理
 │   ├── convert/          # 文档转换页面
 │   ├── english/          # 英语训练
 │   ├── generator/        # 智能出题
@@ -169,7 +169,7 @@ question-bank/
 ├── supabase/           # 数据库 SQL 脚本
 │   ├── schema.sql             # 基础表结构
 │   ├── notes_schema.sql       # 笔记表定义
-│   ├── class_system.sql      # 班级系统表
+│   ├── class_system.sql      # 团队系统表
 │   ├── migration_settings.sql # 用户配置表
 │   └── ultimate_fix.sql       # 完整的RLS策略配置
 ├── types/               # TypeScript 类型定义
@@ -253,7 +253,7 @@ npm start
 
 1. `schema.sql` - 基础表结构
 2. `notes_schema.sql` - 笔记相关表
-3. `class_system.sql` - 班级系统表
+3. `class_system.sql` - 团队系统表
 4. `ultimate_fix.sql` - 完整的 RLS 策略配置（整合所有修复）
 
 ### 核心表说明
@@ -269,9 +269,9 @@ npm start
 | `favorites` | 收藏记录 |
 | `follows` | 关注关系 |
 | `tags` | 标签分类 |
-| `classes` | 班级信息 |
-| `class_members` | 班级成员关系 |
-| `class_approval_requests` | 班级审核申请 |
+| `classes` | 团队信息 |
+| `class_members` | 团队成员关系 |
+| `class_approval_requests` | 团队审核申请 |
 | `notifications` | 消息通知 |
 | `kb_categories` | 知识库分类 |
 | `kb_documents` | 知识库文档 |

@@ -101,9 +101,9 @@ export default function AdminClassesPage() {
 
       await loadRequests();
       setSelectedRequest(null);
-      alert(`已批准班级 "${selectedRequest.name}" 的创建申请`);
+      alert(`已批准团队 "${selectedRequest.name}" 的创建申请`);
     } catch (error: any) {
-      console.error('批准班级失败:', error);
+      console.error('批准团队失败:', error);
       alert('批准失败: ' + error.message);
     } finally {
       setProcessing(false);
@@ -116,7 +116,7 @@ export default function AdminClassesPage() {
       return;
     }
 
-    if (!confirm(`确定要拒绝班级 "${selectedRequest.name}" 的创建申请吗？`)) {
+    if (!confirm(`确定要拒绝团队 "${selectedRequest.name}" 的创建申请吗？`)) {
       return;
     }
 
@@ -151,9 +151,9 @@ export default function AdminClassesPage() {
       await loadRequests();
       setSelectedRequest(null);
       setRejectReason('');
-      alert(`已拒绝班级 "${selectedRequest.name}" 的创建申请`);
+      alert(`已拒绝团队 "${selectedRequest.name}" 的创建申请`);
     } catch (error: any) {
-      console.error('拒绝班级失败:', error);
+      console.error('拒绝团队失败:', error);
       alert('拒绝失败: ' + error.message);
     } finally {
       setProcessing(false);
@@ -208,8 +208,8 @@ export default function AdminClassesPage() {
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center gap-3">
             <div>
-              <h1 className="text-3xl font-bold text-gray-50">班级创建审核</h1>
-              <p className="text-gray-400 mt-1">审核用户提交的班级创建申请</p>
+              <h1 className="text-3xl font-bold text-gray-50">团队创建审核</h1>
+              <p className="text-gray-400 mt-1">审核用户提交的团队创建申请</p>
             </div>
             {/* 系统配置按钮 - 仅超级管理员可见 */}
             {isAdmin && (
@@ -241,7 +241,7 @@ export default function AdminClassesPage() {
           <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-12 text-center">
             <div className="text-6xl mb-4">📋</div>
             <h2 className="text-xl font-medium text-gray-200 mb-2">暂无审核请求</h2>
-            <p className="text-gray-400">目前没有待审核的班级创建申请</p>
+            <p className="text-gray-400">目前没有待审核的团队创建申请</p>
           </div>
         ) : (
           <div className="space-y-6">
@@ -340,7 +340,7 @@ export default function AdminClassesPage() {
             <div className="bg-gray-800 border border-gray-700 rounded-xl max-w-2xl w-full">
               <div className="p-6 border-b border-gray-700">
                 <div className="flex justify-between items-start">
-                  <h2 className="text-xl font-bold text-gray-50">审核班级创建申请</h2>
+                  <h2 className="text-xl font-bold text-gray-50">审核团队创建申请</h2>
                   <button
                     onClick={() => {
                       setSelectedRequest(null);
@@ -355,12 +355,12 @@ export default function AdminClassesPage() {
               <div className="p-6">
                 <div className="space-y-4">
                   <div>
-                    <label className="text-sm font-medium text-gray-400">班级名称</label>
+                    <label className="text-sm font-medium text-gray-400">团队名称</label>
                     <p className="text-lg font-medium text-gray-100">{selectedRequest.name}</p>
                   </div>
                   {selectedRequest.description && (
                     <div>
-                      <label className="text-sm font-medium text-gray-400">班级描述</label>
+                      <label className="text-sm font-medium text-gray-400">团队描述</label>
                       <p className="text-gray-200">{selectedRequest.description}</p>
                     </div>
                   )}

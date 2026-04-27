@@ -354,7 +354,7 @@ export default function SocialPage() {
             <span className="sm:hidden">首页</span>
           </Link>
         </div>
-        <h1 className="text-2xl font-bold text-gray-900">学习圈</h1>
+        <h1 className="text-2xl font-bold text-gray-900">论坛</h1>
 
         {/* 发帖表单 - 只有登录用户可见 */}
         {user ? (

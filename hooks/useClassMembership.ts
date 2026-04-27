@@ -52,9 +52,9 @@ export function useClassMembership(userId?: string) {
         );
       }
     } catch (err) {
-      console.error('获取班级失败:', err);
+      console.error('获取团队失败:', err);
       if (isMounted.current) {
-        setError('获取班级失败');
+        setError('获取团队失败');
         setClasses([]);
       }
     } finally {
@@ -73,7 +73,7 @@ export function useClassMembership(userId?: string) {
 }
 
 /**
- * 检查用户是否是管理员或班级审核员
+ * 检查用户是否是管理员或团队审核员
  */
 export async function checkAdminOrModerator(userId: string): Promise<{
   isAdmin: boolean;
@@ -90,7 +90,7 @@ export async function checkAdminOrModerator(userId: string): Promise<{
     return { isAdmin: true, isClassModerator: false, moderatingClasses: [] };
   }
 
-  // 检查是否是班级创建者或审核员
+  // 检查是否是团队创建者或审核员
   const { data: classMembers } = await supabase
     .from('class_members')
     .select(`

@@ -46,7 +46,7 @@ export default function UploadPage() {
   const [tags, setTags] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
 
-  // 班级选择和可见性
+  // 团队选择和可见性
   const [classes, setClasses] = useState<ClassWithRole[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [visibility, setVisibility] = useState<'class' | 'public'>('class');
@@ -90,7 +90,7 @@ export default function UploadPage() {
         console.error('获取标签失败:', err);
       }
 
-      // 获取用户的班级
+      // 获取用户的团队
       try {
         const { data: classesData } = await supabase
           .from('class_members')
@@ -113,7 +113,7 @@ export default function UploadPage() {
           })) || []);
         }
       } catch (err) {
-        console.error('获取班级失败:', err);
+        console.error('获取团队失败:', err);
         if (isMounted.current) {
           setClasses([]);
         }
@@ -218,9 +218,9 @@ export default function UploadPage() {
     setError('');
     setFileError('');
 
-    // 验证班级（仅当选择班级可见时）
+    // 验证团队（仅当选择团队可见时）
     if (visibility === 'class' && !selectedClassId) {
-      setError('请选择一个班级');
+      setError('请选择一个团队');
       return;
     }
 
@@ -314,7 +314,7 @@ export default function UploadPage() {
         visibility: visibility,
       };
 
-      // 仅当选择班级可见时添加 class_id
+      // 仅当选择团队可见时添加 class_id
       if (visibility === 'class' && selectedClassId) {
         insertData.class_id = selectedClassId;
       }
@@ -354,7 +354,7 @@ export default function UploadPage() {
         }
       }
 
-      alert('题目上传成功！等待管理员或班级审核员审核后即可在题库中查看。');
+      alert('题目上传成功！等待管理员或团队审核员审核后即可在题库中查看。');
 
       // 重置表单
       setQuestionText('');
@@ -404,11 +404,11 @@ export default function UploadPage() {
             </div>
           )}
 
-          {/* 班级选择 - 仅当选择班级可见时显示 */}
+          {/* 团队选择 - 仅当选择团队可见时显示 */}
           {visibility === 'class' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                选择班级 <span className="text-red-500">*</span>
+                选择团队 <span className="text-red-500">*</span>
               </label>
               <select
                 value={selectedClassId}
@@ -416,7 +416,7 @@ export default function UploadPage() {
                 className="w-full px-3 sm:px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none text-gray-800 text-sm"
                 disabled={loading}
               >
-                <option value="">请选择班级</option>
+                <option value="">请选择团队</option>
                 {classes.map((cls) => (
                   <option key={cls.id} value={cls.id}>
                     {cls.name}
@@ -426,7 +426,7 @@ export default function UploadPage() {
               </select>
               {classes.length === 0 && (
                 <p className="mt-1.5 text-xs sm:text-sm text-gray-500">
-                  还没有加入班级，请先 <a href="/classes" className="text-gray-600 hover:text-gray-700 underline">创建或加入班级</a>
+                  还没有加入团队，请先 <a href="/classes" className="text-gray-600 hover:text-gray-700 underline">创建或加入团队</a>
                 </p>
               )}
             </div>
@@ -450,9 +450,9 @@ export default function UploadPage() {
                 />
                 <div>
                   <span className="text-gray-800 group-hover:text-gray-900 transition-colors text-sm">
-                    <strong>仅本班级可见</strong>
+                    <strong>仅本团队可见</strong>
                   </span>
-                  <p className="text-xs text-gray-500 mt-0.5">只有该班级的成员可以看到此题目</p>
+                  <p className="text-xs text-gray-500 mt-0.5">只有该团队的成员可以看到此题目</p>
                 </div>
               </label>
               <label className="flex items-start gap-3 cursor-pointer group">
@@ -759,8 +759,8 @@ export default function UploadPage() {
         {/* 提示信息 */}
         <div className="mt-4 sm:mt-6 bg-gray-50/80 border border-gray-200 rounded-lg p-3 sm:p-4">
           <p className="text-xs sm:text-sm text-gray-600">
-            <strong>提示：</strong>上传的题目需要经过管理员或班级审核员审核后才能在题库中显示。
-            {visibility === 'class' && ' 只有该班级的成员可以看到此题目。'}
+            <strong>提示：</strong>上传的题目需要经过管理员或团队审核员审核后才能在题库中显示。
+            {visibility === 'class' && ' 只有该团队的成员可以看到此题目。'}
           </p>
         </div>
       </div>

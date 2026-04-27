@@ -49,7 +49,7 @@ export default function NotesPage() {
 
       const supabase = getSupabase();
 
-      // 获取用户加入的班级ID列表
+      // 获取用户加入的团队ID列表
       let classIds: string[] = [];
       try {
         const { data: classMembers } = await supabase
@@ -89,7 +89,7 @@ export default function NotesPage() {
           if (n.visibility === 'public' && n.status === 'approved') {
             return true;
           }
-          // 如果是班级专属笔记且已审核，检查用户是否属于该班级
+          // 如果是团队专属笔记且已审核，检查用户是否属于该团队
           if (n.visibility === 'class' && n.status === 'approved' && n.class_id) {
             return classIds.includes(n.class_id);
           }

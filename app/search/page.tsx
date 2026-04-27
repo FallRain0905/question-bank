@@ -197,7 +197,7 @@ export default function SearchPage() {
       );
     }
 
-    // 可见性过滤：只显示公开题目或用户所属班级的题目
+    // 可见性过滤：只显示公开题目或用户所属团队的题目
     // RLS 已经在数据库层面过滤了，这里只是为了兼容老数据
     filtered = filtered.filter(q => {
       // 如果没有 visibility 字段，默认显示（向后兼容老数据）
@@ -208,7 +208,7 @@ export default function SearchPage() {
       if (q.visibility === 'public' && q.status === 'approved') {
         return true;
       }
-      // 如果是班级专属题目且已审核，检查用户是否属于该班级
+      // 如果是团队专属题目且已审核，检查用户是否属于该团队
       if (q.visibility === 'class' && q.status === 'approved' && q.class_id) {
         return userClassIds.includes(q.class_id);
       }

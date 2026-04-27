@@ -350,6 +350,33 @@ input:focus, textarea:focus, select:focus {
   user-select: none;
 }
 
+/* ==================== AI 阅读器样式 ==================== */
+
+/* 高亮颜色 */
+.mark-highlight-yellow { background: rgba(255, 235, 59, 0.35); border-radius: 2px; padding: 0 1px; }
+.mark-highlight-green  { background: rgba(76, 175, 80, 0.25);  border-radius: 2px; padding: 0 1px; }
+.mark-highlight-blue   { background: rgba(33, 150, 243, 0.25);  border-radius: 2px; padding: 0 1px; }
+.mark-highlight-pink   { background: rgba(233, 30, 99, 0.2);   border-radius: 2px; padding: 0 1px; }
+
+/* 护眼模式 */
+.reader-sepia { background: #f4ecd8; color: #5b4636; }
+.reader-sepia .prose { color: #5b4636; }
+.reader-sepia .prose h1, .reader-sepia .prose h2, .reader-sepia .prose h3, .reader-sepia .prose h4 {
+  color: #3e2c1c;
+}
+.reader-sepia .prose a { color: #8b6914; }
+.reader-sepia .prose code { color: #6b4423; background: rgba(139, 105, 20, 0.1); }
+.reader-sepia .prose blockquote { border-left-color: #c4a96a; color: #7a6b52; }
+.reader-sepia .prose table th, .reader-sepia .prose table td { border-color: #d4c5a0; }
+.reader-sepia .prose pre { background: #ede4d0; color: #3e2c1c; }
+.reader-sepia .sticky { background: rgba(244, 236, 216, 0.85) !important; backdrop-filter: blur(12px); }
+.reader-sepia .border-gray-100 { border-color: #d4c5a0 !important; }
+.reader-sepia .border-gray-200 { border-color: #c4b68e !important; }
+.reader-sepia .text-gray-900 { color: #3e2c1c !important; }
+.reader-sepia .text-gray-400 { color: #9c8b6e !important; }
+.reader-sepia .text-gray-500 { color: #7a6b52 !important; }
+.reader-sepia .bg-gray-50 { background: #ede4d0 !important; }
+
 /* ==================== 深色模式覆盖 ==================== */
 
 .dark-mode body,

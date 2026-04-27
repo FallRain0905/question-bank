@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSupabase } from '@/lib/supabase';
 import NoteEditor from '@/components/NoteEditor';
@@ -15,9 +15,9 @@ export default function NewNotePage() {
   const [visibility, setVisibility] = useState<'public' | 'class'>('public');
   const [classes, setClasses] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const [drafts, setDrafts] = useState<any[]>([]);
+  const [showDrafts, setShowDrafts] = useState(false);
   const [user, setUser] = useState<any>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -37,6 +37,16 @@ export default function NewNotePage() {
           name: m.classes?.name || m.class_id,
         })));
       }
+
+      // Load drafts
+      const { data: draftData, error: draftErr } = await supabase
+        .from('notes')
+        .select('*')
+        .eq('user_id', u.id)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
+      if (draftErr) console.error('Load drafts error:', draftErr);
+      if (draftData) setDrafts(draftData);
     };
     init();
   }, []);
@@ -51,31 +61,11 @@ export default function NewNotePage() {
 
   const removeTag = (tag: string) => setTags(tags.filter((t) => t !== tag));
 
-  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPdfLoading(true);
-    try {
-      const supabase = getSupabase();
-      const { data: { session } } = await supabase.auth.getSession();
-      const form = new FormData();
-      form.append('file', file);
-      const res = await fetch('/api/mineru', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-        body: form,
-      });
-      const data = await res.json();
-      if (data.success && data.markdown) {
-        setContent((prev) => prev + '\n' + data.markdown);
-      } else {
-        alert(data.error || 'PDF 解析失败');
-      }
-    } catch {
-      alert('PDF 解析请求失败');
-    } finally {
-      setPdfLoading(false);
-    }
+  const handleImportDraft = (draft: any) => {
+    const draftContent = draft.content || draft.description || '';
+    if (!title) setTitle(draft.title || '');
+    if (draftContent) setContent((prev) => prev ? prev + '\n\n' + draftContent : draftContent);
+    setShowDrafts(false);
   };
 
   const handleSave = async (status: 'pending' | 'approved') => {
@@ -83,15 +73,44 @@ export default function NewNotePage() {
     setSaving(true);
     try {
       const supabase = getSupabase();
-      const { error } = await supabase.from('notes').insert({
+      const { data: noteData, error } = await supabase.from('notes').insert({
         user_id: user.id,
         title: title.trim(),
-        content,
-        tags,
+        description: content,
         class_id: classId || null,
         visibility: classId ? 'class' : visibility,
         status,
       }).select().single();
+
+      if (error) throw error;
+
+      // Save tags through junction table
+      if (noteData && tags.length > 0) {
+        const { data: existingTags } = await supabase
+          .from('tags')
+          .select('id, name')
+          .in('name', tags);
+
+        const tagMap = new Map((existingTags || []).map((t: any) => [t.name, t.id]));
+        const tagInserts = [];
+        for (const tagName of tags) {
+          let tagId = tagMap.get(tagName);
+          if (!tagId) {
+            const { data: newTag } = await supabase
+              .from('tags')
+              .insert({ name: tagName })
+              .select('id')
+              .single();
+            tagId = newTag?.id;
+          }
+          if (tagId) {
+            tagInserts.push({ note_id: noteData.id, tag_id: tagId });
+          }
+        }
+        if (tagInserts.length > 0) {
+          await supabase.from('note_tags').insert(tagInserts);
+        }
+      }
 
       if (error) throw error;
       router.push('/notes');
@@ -145,7 +164,7 @@ export default function NewNotePage() {
 
         {/* Class */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1.5">班级（可选）</label>
+          <label className="block text-xs font-medium text-gray-500 mb-1.5">团队（可选）</label>
           <select
             value={classId}
             onChange={(e) => setClassId(e.target.value)}
@@ -168,32 +187,47 @@ export default function NewNotePage() {
             className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs outline-none disabled:bg-gray-50"
           >
             <option value="public">公开</option>
-            <option value="class">仅班级</option>
+            <option value="class">仅团队</option>
           </select>
-          {classId && <p className="text-[10px] text-gray-400 mt-1">选择班级后自动设为仅班级可见</p>}
+          {classId && <p className="text-[10px] text-gray-400 mt-1">选择团队后自动设为仅团队可见</p>}
         </div>
       </div>
 
       {/* Actions */}
       <div className="flex items-center justify-between mt-6 pt-6 border-t border-gray-100">
-        <div className="flex items-center gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/pdf"
-            onChange={handlePdfUpload}
-            className="hidden"
-          />
+        <div className="relative">
           <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={pdfLoading}
-            className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-50 transition-colors"
+            onClick={() => setShowDrafts(!showDrafts)}
+            className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
             </svg>
-            {pdfLoading ? '解析中...' : '导入 PDF (MinerU)'}
+            导入笔记草稿
           </button>
+          {showDrafts && drafts.length > 0 && (
+            <div className="absolute bottom-full left-0 mb-2 w-72 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-64 overflow-y-auto">
+              <div className="px-3 py-2 border-b border-gray-100">
+                <span className="text-xs font-medium text-gray-500">选择草稿导入</span>
+              </div>
+              {drafts.map((draft) => (
+                <button
+                  key={draft.id}
+                  onClick={() => handleImportDraft(draft)}
+                  className="w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0"
+                >
+                  <p className="text-sm font-medium text-gray-800 truncate">{draft.title}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{new Date(draft.created_at).toLocaleString('zh-CN')}</p>
+                </button>
+              ))}
+            </div>
+          )}
+          {showDrafts && drafts.length === 0 && (
+            <div className="absolute bottom-full left-0 mb-2 w-72 bg-white border border-gray-200 rounded-xl shadow-lg z-50 p-4 text-center">
+              <p className="text-xs text-gray-400">暂无草稿</p>
+              <p className="text-[10px] text-gray-300 mt-1">在 AI 阅读器中"存至草稿箱"即可创建</p>
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           <button

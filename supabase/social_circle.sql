@@ -1,4 +1,4 @@
--- 学习圈（社区）功能数据库表
+-- 论坛（社区）功能数据库表
 
 -- 1. 帖子表
 CREATE TABLE IF NOT EXISTS posts (
