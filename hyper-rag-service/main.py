@@ -403,13 +403,7 @@ async def get_entity_names(kb_id: str, page: int = 1, page_size: int = 50):
 
     try:
         hg = instance.chunk_entity_relation_hypergraph._hg
-        # Return frequent vertices (those appearing in at least 2 edges)
-        frequent = {}
-        for e in hg._e_data:
-            e_tuple = e if isinstance(e, tuple) else tuple(e)
-            for v in e_tuple:
-                frequent[v] = frequent.get(v, 0) + 1
-        names = [v for v, count in frequent.items() if count >= 2]
+        names = list(hg._v_data.keys())
         total = len(names)
         start = (page - 1) * page_size
         end = start + page_size
