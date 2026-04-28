@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { getUserLLMConfig } from '@/lib/user-settings';
 import type { ResearchSource } from '@/types';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 const TAVILY_KEY = () => process.env.TAVILY_API_KEY || '';
 const SCHOLAR_KEY = () => process.env.SEMANTIC_SCHOLAR_API_KEY || '';
@@ -155,43 +155,46 @@ export async function POST(req: NextRequest) {
   const { apiKey, endpoint, defaultModel: model } = await getUserLLMConfig(token);
 
   const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (event: string, data: object) => {
-        controller.enqueue(encoder.encode(sseEvent(event, data)));
-      };
+  const transform = new TransformStream();
+  const writer = transform.writable.getWriter();
 
-      try {
-        // Step 1: Classify intent (skip if user specified)
-        send('status', { stage: 'analyzing' });
-        const intent = userIntent || await classifyIntent(query, apiKey, endpoint, model);
+  const send = async (event: string, data: object) => {
+    await writer.write(encoder.encode(sseEvent(event, data)));
+  };
 
-        // Step 2: Search
-        send('status', { stage: 'searching' });
-        const searchPromises: Promise<ResearchSource[]>[] = [];
-        if (intent === 'academic' || intent === 'both') {
-          searchPromises.push(searchSemanticScholar(query));
-        }
-        if (intent === 'general' || intent === 'both') {
-          searchPromises.push(searchTavily(query));
-        }
-        const results = await Promise.all(searchPromises);
-        const sources: ResearchSource[] = results.flat();
+  // Run async work in background
+  (async () => {
+    try {
+      // Step 1: Classify intent (skip if user specified)
+      await send('status', { stage: 'analyzing' });
+      const intent = userIntent || await classifyIntent(query, apiKey, endpoint, model);
 
-        if (sources.length === 0) {
-          send('done', { summary: '未找到相关结果，请尝试其他关键词。', sources: [], intent });
-          controller.close();
-          return;
-        }
+      // Step 2: Search
+      await send('status', { stage: 'searching' });
+      const searchPromises: Promise<ResearchSource[]>[] = [];
+      if (intent === 'academic' || intent === 'both') {
+        searchPromises.push(searchSemanticScholar(query));
+      }
+      if (intent === 'general' || intent === 'both') {
+        searchPromises.push(searchTavily(query));
+      }
+      const results = await Promise.all(searchPromises);
+      const sources: ResearchSource[] = results.flat();
 
-        // Step 3: Stream summary
-        send('status', { stage: 'generating' });
+      if (sources.length === 0) {
+        await send('done', { summary: '未找到相关结果，请尝试其他关键词。', sources: [], intent });
+        await writer.close();
+        return;
+      }
 
-        const sourceContext = sources
-          .map((s, i) => `[${i + 1}] ${s.title}\n${s.snippet}`)
-          .join('\n\n');
+      // Step 3: Stream summary
+      await send('status', { stage: 'generating' });
 
-        const summaryPrompt = `You are a research assistant. Based on the following sources, provide a comprehensive answer to the user's question.
+      const sourceContext = sources
+        .map((s, i) => `[${i + 1}] ${s.title}\n${s.snippet}`)
+        .join('\n\n');
+
+      const summaryPrompt = `You are a research assistant. Based on the following sources, provide a comprehensive answer to the user's question.
 
 Use inline citations like [1], [2] to reference sources. Be thorough and accurate. Respond in the same language as the user's question.
 
@@ -200,59 +203,58 @@ User question: ${query}
 Sources:
 ${sourceContext}`;
 
-        const summaryRes = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model,
-            messages: [{ role: 'user', content: summaryPrompt }],
-            temperature: 0.3,
-            max_tokens: 2000,
-            stream: true,
-          }),
-        });
+      const summaryRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: summaryPrompt }],
+          temperature: 0.3,
+          max_tokens: 2000,
+          stream: true,
+        }),
+      });
 
-        if (!summaryRes.ok || !summaryRes.body) {
-          send('done', { summary: '生成总结失败，请稍后重试。', sources, intent });
-          controller.close();
-          return;
-        }
-
-        const reader = summaryRes.body.getReader();
-        const decoder = new TextDecoder();
-        let fullSummary = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const raw = line.slice(6).trim();
-            if (raw === '[DONE]') continue;
-            try {
-              const parsed = JSON.parse(raw);
-              const content = parsed.choices?.[0]?.delta?.content || '';
-              if (content) {
-                fullSummary += content;
-                send('token', { content });
-              }
-            } catch { /* skip */ }
-          }
-        }
-
-        send('done', { summary: fullSummary, sources, intent });
-        controller.close();
-      } catch (err: any) {
-        send('done', { summary: `搜索出错: ${err.message}`, sources: [], intent: 'both' });
-        controller.close();
+      if (!summaryRes.ok || !summaryRes.body) {
+        await send('done', { summary: '生成总结失败，请稍后重试。', sources, intent });
+        await writer.close();
+        return;
       }
-    },
-  });
 
-  return new Response(stream, {
+      const reader = summaryRes.body.getReader();
+      const decoder = new TextDecoder();
+      let fullSummary = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (raw === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(raw);
+            const content = parsed.choices?.[0]?.delta?.content || '';
+            if (content) {
+              fullSummary += content;
+              await send('token', { content });
+            }
+          } catch { /* skip */ }
+        }
+      }
+
+      await send('done', { summary: fullSummary, sources, intent });
+      await writer.close();
+    } catch (err: any) {
+      await send('done', { summary: `搜索出错: ${err.message}`, sources: [], intent: 'both' });
+      await writer.close();
+    }
+  })();
+
+  return new Response(transform.readable, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',

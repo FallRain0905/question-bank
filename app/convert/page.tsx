@@ -97,7 +97,8 @@ export default function ConvertPage() {
       setStatus('processing');
 
       // 上传文件到Supabase Storage
-      const fileName = `convert-temp/${Date.now()}-${pdfFile.name}`;
+      const ext = pdfFile.name.split('.').pop() || 'pdf';
+      const fileName = `convert-temp/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from('files')
         .upload(fileName, pdfFile, {
