@@ -4,6 +4,12 @@
  * PM2: pm2 start "npx tsx scripts/arxiv-cron.ts" --name arxiv-cron --cron "0 9 * * *" --no-autorestart
  */
 
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+// Load .env.local from project root
+config({ path: resolve(__dirname, '..', '.env.local') });
+
 import { createClient } from '@supabase/supabase-js';
 
 // DeepSeek config (same as lib/user-settings.ts)
