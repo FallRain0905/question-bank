@@ -17,6 +17,7 @@ interface ArxivConfig {
   max_papers: number;
   categories: string[];
   keywords: string[];
+  exclude_keywords?: string[];
 }
 const CONFIG: ArxivConfig = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
 
@@ -31,7 +32,7 @@ const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-const { categories: CATEGORIES, keywords: KEYWORDS, max_papers: MAX_PAPERS } = CONFIG;
+const { categories: CATEGORIES, keywords: KEYWORDS, max_papers: MAX_PAPERS, exclude_keywords: EXCLUDE_KEYWORDS = [] } = CONFIG;
 
 console.log(`[Config] Categories: ${CATEGORIES.join(', ')}`);
 console.log(`[Config] Keywords: ${KEYWORDS.length} keywords`);
@@ -102,29 +103,52 @@ async function fetchArxivPapers(): Promise<ArxivEntry[]> {
   return entries;
 }
 
-function filterByKeywords(entries: ArxivEntry[]): (ArxivEntry & { matchedKeywords: string[] })[] {
+interface ScoredEntry extends ArxivEntry {
+  matchedKeywords: string[];
+  score: number;
+}
+
+function filterByKeywords(entries: ArxivEntry[]): ScoredEntry[] {
   const keywordPatterns = KEYWORDS.map(kw => ({
     regex: new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
     keyword: kw,
   }));
 
-  const results: (ArxivEntry & { matchedKeywords: string[] })[] = [];
+  const excludePatterns = EXCLUDE_KEYWORDS.map(kw => ({
+    regex: new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+    keyword: kw,
+  }));
+
+  const results: ScoredEntry[] = [];
 
   for (const entry of entries) {
-    const text = `${entry.title} ${entry.summary}`;
+    // Exclude filter
+    const fullText = `${entry.title} ${entry.summary}`;
+    const excluded = excludePatterns.some(({ regex }) => regex.test(fullText));
+    if (excluded) continue;
+
     const matched: string[] = [];
+    let score = 0;
 
     for (const { regex, keyword } of keywordPatterns) {
-      if (regex.test(text)) {
+      if (regex.test(fullText)) {
         matched.push(keyword);
+        // Title match gets bonus weight
+        if (regex.test(entry.title)) {
+          score += 2;
+        } else {
+          score += 1;
+        }
       }
     }
 
     if (matched.length > 0) {
-      results.push({ ...entry, matchedKeywords: [...new Set(matched)] });
+      results.push({ ...entry, matchedKeywords: [...new Set(matched)], score });
     }
   }
 
+  // Sort by score descending (title-weighted)
+  results.sort((a, b) => b.score - a.score);
   return results;
 }
 
