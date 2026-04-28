@@ -394,6 +394,72 @@ async def get_relationships(kb_id: str, page: int = 1, page_size: int = 20):
         logger.error(f"Get relationships failed: {e}")
         raise HTTPException(500, str(e))
 
+@app.get("/api/entity-names/{kb_id}")
+async def get_entity_names(kb_id: str, page: int = 1, page_size: int = 50):
+    db_name = f"kb-{kb_id}"
+    instance = INSTANCES.get(db_name) or try_load_instance(kb_id)
+    if instance is None:
+        raise HTTPException(404, "Knowledge base not indexed")
+
+    try:
+        hg = instance.chunk_entity_relation_hypergraph._hg
+        # Return frequent vertices (those appearing in at least 2 edges)
+        frequent = {}
+        for e in hg._e_data:
+            e_tuple = e if isinstance(e, tuple) else tuple(e)
+            for v in e_tuple:
+                frequent[v] = frequent.get(v, 0) + 1
+        names = [v for v, count in frequent.items() if count >= 2]
+        total = len(names)
+        start = (page - 1) * page_size
+        end = start + page_size
+        return {"names": names[start:end], "total": total, "page": page, "page_size": page_size}
+    except Exception as e:
+        logger.error(f"Get entity names failed: {e}")
+        raise HTTPException(500, str(e))
+
+@app.get("/api/vertex-neighbor/{kb_id}/{vertex_id:path}")
+async def get_vertex_neighbor(kb_id: str, vertex_id: str):
+    db_name = f"kb-{kb_id}"
+    instance = INSTANCES.get(db_name) or try_load_instance(kb_id)
+    if instance is None:
+        raise HTTPException(404, "Knowledge base not indexed")
+
+    try:
+        hg = instance.chunk_entity_relation_hypergraph._hg
+
+        # Get neighbor vertices and incident hyperedges
+        try:
+            neighbor_vertices = set(hg.nbr_v(vertex_id))
+        except Exception:
+            neighbor_vertices = set()
+        neighbor_vertices.add(vertex_id)
+
+        try:
+            neighbor_edges = hg.nbr_e_of_v(vertex_id)
+        except Exception:
+            neighbor_edges = []
+
+        # Build response
+        vertices = {}
+        for v in neighbor_vertices:
+            v_data = hg.v(v)
+            if v_data:
+                vertices[v] = v_data
+
+        edges = {}
+        for e in neighbor_edges:
+            e_data = hg.e(e)
+            if e_data:
+                d = dict(e_data)
+                d["keywords"] = d.get("keywords", "").replace("<SEP>", ",")
+                edges["|#|".join(str(x) for x in e)] = d
+
+        return {"vertices": vertices, "edges": edges}
+    except Exception as e:
+        logger.error(f"Get vertex neighbor failed: {e}")
+        raise HTTPException(500, str(e))
+
 # ======================== Entry ========================
 
 if __name__ == "__main__":

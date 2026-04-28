@@ -32,6 +32,7 @@ export default function KnowledgeBaseDetailPage() {
   const [indexLogs, setIndexLogs] = useState<string[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | null>(null);
+  const [authToken, setAuthToken] = useState<string>('');
 
   useEffect(() => {
     const init = async () => {
@@ -39,6 +40,8 @@ export default function KnowledgeBaseDetailPage() {
       const { data: { user: u } } = await supabase.auth.getUser();
       if (!u) { router.push('/login'); return; }
       userIdRef.current = u.id;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) setAuthToken(session.access_token);
       loadDocs(u.id);
     };
     init();
@@ -113,7 +116,7 @@ export default function KnowledgeBaseDetailPage() {
   };
 
   useEffect(() => {
-    if (activeTab === 'index' || activeTab === 'graph') {
+    if (activeTab === 'index') {
       loadEntities(1);
       loadRelationships(1);
     }
@@ -546,8 +549,8 @@ export default function KnowledgeBaseDetailPage() {
       )}
 
       {/* Graph Tab */}
-      {activeTab === 'graph' && (
-        <KnowledgeGraph entities={entities} relationships={relationships} height="calc(100vh - 320px)" />
+      {activeTab === 'graph' && authToken && (
+        <KnowledgeGraph kbId={kbId} token={authToken} height="calc(100vh - 320px)" />
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 
 const Graphin = dynamic(() => import('@antv/graphin').then(m => m.Graphin), { ssr: false });
@@ -19,65 +19,47 @@ const entityTypeColors: Record<string, string> = {
   PRODUCT: '#f056d1',
 };
 
+interface NeighborData {
+  vertices: Record<string, {
+    entity_name?: string;
+    entity_type?: string;
+    description?: string;
+    additional_properties?: string;
+    [key: string]: any;
+  }>;
+  edges: Record<string, {
+    keywords?: string;
+    summary?: string;
+    description?: string;
+    weight?: number;
+    [key: string]: any;
+  }>;
+}
+
 interface KnowledgeGraphProps {
-  entities: any[];
-  relationships: any[];
+  kbId: string;
+  token: string;
   height?: string;
 }
 
-function buildGraphOptions(entities: any[], relationships: any[], mode: 'hyper' | 'graph') {
+function buildGraphOptions(data: NeighborData, selectedVertex: string, mode: 'hyper' | 'graph') {
   const nodes: any[] = [];
   const edges: any[] = [];
   const plugins: any[] = [];
 
-  // Build vertices map
-  const vertexMap: Record<string, any> = {};
-  entities.forEach(entity => {
-    const name = String(entity.entity_name || entity.name || `Entity_${Math.random()}`);
-    vertexMap[name] = {
-      ...entity,
-      entity_type: String(entity.entity_type || '未知'),
-      description: String(entity.description || ''),
-    };
-  });
-
-  // Build edges from relationships
-  const edgeMap: Record<string, any> = {};
-  relationships.forEach((edge: any, index: number) => {
-    let edgeKey: string;
-    if (Array.isArray(edge.entity_set) && edge.entity_set.length > 0) {
-      edgeKey = edge.entity_set.map((e: any) => String(e)).join('|#|');
-    } else if (typeof edge.entity_set === 'string' && edge.entity_set.length > 0) {
-      edgeKey = edge.entity_set;
-    } else {
-      edgeKey = `edge_${index}`;
-    }
-
-    // Ensure entities in edges exist in vertexMap
-    edgeKey.split('|#|').forEach(name => {
-      if (!vertexMap[name]) {
-        vertexMap[name] = { entity_type: '未知', description: '' };
-      }
-    });
-
-    edgeMap[edgeKey] = {
-      keywords: String(edge.keywords || ''),
-      description: String(edge.description || ''),
-      weight: edge.weight || 1,
-    };
-  });
-
-  // Create nodes
-  for (const key in vertexMap) {
+  // Add vertices as nodes
+  for (const key in data.vertices) {
     nodes.push({
-      ...vertexMap[key],
       id: key,
+      ...data.vertices[key],
     });
   }
 
+  const edgeKeys = Object.keys(data.edges);
+
   if (mode === 'graph') {
     // Standard pairwise edges
-    for (const key of Object.keys(edgeMap)) {
+    for (const key of edgeKeys) {
       const nodeIds = key.split('|#|');
       for (let j = 0; j < nodeIds.length; j++) {
         for (let k = j + 1; k < nodeIds.length; k++) {
@@ -90,15 +72,13 @@ function buildGraphOptions(entities: any[], relationships: any[], mode: 'hyper' 
       }
     }
   } else {
-    // Hyper mode: bubble-sets
-    const edgeKeys = Object.keys(edgeMap);
+    // Hyper mode: bubble-sets + virtual edges for layout
     for (let i = 0; i < edgeKeys.length; i++) {
       const key = edgeKeys[i];
       const nodeIds = key.split('|#|');
       if (nodeIds.length < 2) continue;
       const color = colors[i % colors.length];
 
-      // Also create virtual edges for layout
       for (let j = 0; j < nodeIds.length; j++) {
         for (let k = j + 1; k < nodeIds.length; k++) {
           edges.push({
@@ -161,7 +141,10 @@ function buildGraphOptions(entities: any[], relationships: any[], mode: 'hyper' 
         labelText: (d: any) => d.id,
         labelFontSize: 10,
         labelPlacement: 'bottom' as const,
-        fill: (d: any) => entityTypeColors[d.entity_type] || '#8566CC',
+        fill: (d: any) => {
+          if (d.id === selectedVertex) return '#1a1a1a';
+          return entityTypeColors[d.entity_type] || '#8566CC';
+        },
         stroke: '#fff',
         lineWidth: 1,
       },
@@ -184,20 +167,101 @@ function buildGraphOptions(entities: any[], relationships: any[], mode: 'hyper' 
   };
 }
 
-export default function KnowledgeGraph({ entities, relationships, height = '500px' }: KnowledgeGraphProps) {
-  const [mode, setMode] = useState<'graph' | 'hyper'>('graph');
+export default function KnowledgeGraph({ kbId, token, height = '600px' }: KnowledgeGraphProps) {
+  const [mode, setMode] = useState<'graph' | 'hyper'>('hyper');
   const [graphKey, setGraphKey] = useState(0);
+
+  // Entity name list for dropdown
+  const [entityNames, setEntityNames] = useState<string[]>([]);
+  const [namesLoading, setNamesLoading] = useState(false);
+
+  // Selected entity
+  const [selectedEntity, setSelectedEntity] = useState<string | undefined>(undefined);
+  const [graphData, setGraphData] = useState<NeighborData | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
+
+  // Entity detail for right panel
+  const [entityDetail, setEntityDetail] = useState<{
+    entity_name: string;
+    entity_type: string;
+    descriptions: string[];
+    properties: string[];
+  }>({ entity_name: '', entity_type: '', descriptions: [], properties: [] });
+
+  // Load entity names with scroll pagination
+  const loadEntityNames = useCallback(async () => {
+    if (!token || !kbId) return;
+    setNamesLoading(true);
+    try {
+      const res = await fetch(`/api/hyperrag/entity-names?kb_id=${kbId}&page=1&page_size=200`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const list: string[] = data.names || [];
+      setEntityNames(list);
+
+      // Auto-select first entity
+      if (list.length > 0 && !selectedEntity) {
+        setSelectedEntity(list[0]);
+      }
+    } catch (err) {
+      console.error('Failed to load entity names:', err);
+    }
+    setNamesLoading(false);
+  }, [token, kbId, selectedEntity]);
+
+  // Initial load
+  useEffect(() => {
+    if (token && kbId) {
+      setEntityNames([]);
+      setSelectedEntity(undefined);
+      loadEntityNames();
+    }
+  }, [token, kbId]);
+
+  // Fetch neighbor subgraph when entity is selected
+  useEffect(() => {
+    if (!selectedEntity || !token || !kbId) return;
+
+    setGraphLoading(true);
+    fetch(`/api/hyperrag/vertex-neighbor?kb_id=${kbId}&vertex_id=${encodeURIComponent(selectedEntity)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then((data: NeighborData) => {
+        setGraphData(data);
+        setGraphKey(k => k + 1);
+
+        // Update entity detail panel
+        const vertex = data.vertices[selectedEntity];
+        if (vertex) {
+          setEntityDetail({
+            entity_name: vertex.entity_name || selectedEntity,
+            entity_type: vertex.entity_type || '',
+            descriptions: vertex.description ? vertex.description.split('<SEP>') : [],
+            properties: vertex.additional_properties ? vertex.additional_properties.split('<SEP>') : [],
+          });
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch vertex neighbor:', err);
+        setGraphData(null);
+      })
+      .finally(() => setGraphLoading(false));
+  }, [selectedEntity, token, kbId]);
 
   const switchMode = useCallback((m: 'graph' | 'hyper') => {
     setMode(m);
-    setGraphKey(k => k + 1); // Force re-mount to avoid destroyed instance error
+    setGraphKey(k => k + 1);
   }, []);
 
   const options = useMemo(() => {
-    return buildGraphOptions(entities, relationships, mode);
-  }, [entities, relationships, mode]);
+    if (!graphData || !selectedEntity) return null;
+    return buildGraphOptions(graphData, selectedEntity, mode);
+  }, [graphData, selectedEntity, mode]);
 
-  if (!entities.length && !relationships.length) {
+  // No data state
+  if (entityNames.length === 0 && !namesLoading) {
     return (
       <div className="text-center py-16 bg-white border border-gray-100 rounded-xl">
         <p className="text-gray-400 mb-2">暂无图谱数据</p>
@@ -206,25 +270,111 @@ export default function KnowledgeGraph({ entities, relationships, height = '500p
     );
   }
 
+  const vertexCount = graphData ? Object.keys(graphData.vertices).length : 0;
+  const edgeCount = graphData ? Object.keys(graphData.edges).length : 0;
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3 text-sm">
-          <span className="text-gray-500">{entities.length} 实体 · {relationships.length} 关系</span>
+      {/* Top bar: entity selector + mode switch */}
+      <div className="flex items-center justify-between mb-3 gap-4">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <span className="text-sm text-gray-500 shrink-0">选择实体</span>
+          <div className="relative flex-1 max-w-xs">
+            <select
+              value={selectedEntity || ''}
+              onChange={e => setSelectedEntity(e.target.value)}
+              className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 truncate"
+            >
+              {entityNames.map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </div>
+          {namesLoading && <span className="text-xs text-gray-400">加载中...</span>}
         </div>
-        <div className="flex bg-gray-100 rounded-lg p-0.5">
-          <button
-            onClick={() => switchMode('graph')}
-            className={`px-3 py-1 text-xs rounded-md transition-colors ${mode === 'graph' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-          >Graph</button>
-          <button
-            onClick={() => switchMode('hyper')}
-            className={`px-3 py-1 text-xs rounded-md transition-colors ${mode === 'hyper' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-          >Hyper</button>
+
+        <div className="flex items-center gap-3">
+          {selectedEntity && (
+            <span className="text-xs text-gray-400">{vertexCount} 节点 · {edgeCount} 超边</span>
+          )}
+          <div className="flex bg-gray-100 rounded-lg p-0.5">
+            <button
+              onClick={() => switchMode('graph')}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${mode === 'graph' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+            >Graph</button>
+            <button
+              onClick={() => switchMode('hyper')}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${mode === 'hyper' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+            >Hyper</button>
+          </div>
         </div>
       </div>
-      <div style={{ height, border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
-        <Graphin key={graphKey} options={options} style={{ width: '100%', height: '100%' }} />
+
+      {/* Main area: graph + detail panel */}
+      <div className="flex gap-4">
+        {/* Graph */}
+        <div className="flex-1 min-w-0">
+          <div style={{ height, border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+            {graphLoading ? (
+              <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                加载超图数据中...
+              </div>
+            ) : options ? (
+              <Graphin key={graphKey} options={options} style={{ width: '100%', height: '100%' }} />
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                {selectedEntity ? '暂无邻居数据' : '请选择一个实体'}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Detail panel */}
+        {selectedEntity && entityDetail.entity_name && (
+          <div className="w-72 shrink-0 bg-white border border-gray-100 rounded-xl p-4 overflow-auto" style={{ maxHeight: height }}>
+            <h3 className="font-medium text-sm text-gray-900 mb-3">实体详情</h3>
+
+            <div className="space-y-3 text-sm">
+              <div>
+                <span className="text-gray-500">名称：</span>
+                <span className="text-gray-900">{entityDetail.entity_name}</span>
+              </div>
+
+              {entityDetail.entity_type && (
+                <div>
+                  <span className="text-gray-500">类型：</span>
+                  <span className="inline-block px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded">{entityDetail.entity_type}</span>
+                </div>
+              )}
+
+              {entityDetail.descriptions.length > 0 && entityDetail.descriptions.some(d => d.trim()) && (
+                <div>
+                  <span className="text-gray-500 block mb-1">描述：</span>
+                  <ul className="space-y-1">
+                    {entityDetail.descriptions.filter(d => d.trim()).map((desc, idx) => (
+                      <li key={idx} className="text-xs text-gray-600 leading-relaxed pl-2 border-l-2 border-gray-200">
+                        {desc}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {entityDetail.properties.length > 0 && entityDetail.properties.some(p => p.trim()) && (
+                <div>
+                  <span className="text-gray-500 block mb-1">属性：</span>
+                  <ul className="space-y-1">
+                    {entityDetail.properties.filter(p => p.trim()).map((prop, idx) => (
+                      <li key={idx} className="text-xs text-gray-600 leading-relaxed pl-2 border-l-2 border-gray-200">
+                        {prop}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
