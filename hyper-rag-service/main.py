@@ -37,6 +37,8 @@ except ImportError as e:
     print(f"HyperRAG import failed: {e}")
     HYPERRAG_AVAILABLE = False
 
+from hyperdb import HypergraphDB
+
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hyper-rag-service")
@@ -167,27 +169,34 @@ def get_or_create_instance(kb_id: str, config: ServiceConfig):
     return instance
 
 
-def try_load_instance(kb_id: str):
-    """Try to load an instance from disk cache without requiring config."""
-    db_name = f"kb-{kb_id}"
-    if db_name in INSTANCES:
-        return INSTANCES[db_name]
+# Cache for directly loaded hypergraph instances (avoids embedding dim mismatch)
+_HG_CACHE: dict[str, HypergraphDB] = {}
 
-    working_dir = os.path.join(WORKING_DIR, db_name)
-    if not os.path.exists(working_dir) or not os.listdir(working_dir):
+def load_hypergraph(kb_id: str):
+    """Load HypergraphDB directly from disk, bypassing HyperRAG initialization."""
+    db_name = f"kb-{kb_id}"
+    if db_name in _HG_CACHE:
+        return _HG_CACHE[db_name]
+
+    hgdb_file = os.path.join(WORKING_DIR, db_name, "hypergraph_chunk_entity_relation.hgdb")
+    if not os.path.exists(hgdb_file):
         return None
 
-    # Create a minimal instance with dummy funcs - only for reading cached data
-    dummy_llm = make_llm_func(LLMConfig(api_key="dummy", model_name="dummy", base_url="https://dummy"))
-    dummy_emb = make_embedding_func(EmbeddingConfig(api_key="dummy", model_name="dummy", base_url="https://dummy"))
+    hg = HypergraphDB()
+    if hg.load(hgdb_file):
+        logger.info(f"Loaded hypergraph from {hgdb_file}: {hg.num_v} vertices, {hg.num_e} edges")
+        _HG_CACHE[db_name] = hg
+        return hg
+    return None
 
-    instance = HyperRAG(
-        working_dir=working_dir,
-        llm_model_func=dummy_llm,
-        embedding_func=dummy_emb,
-    )
-    INSTANCES[db_name] = instance
-    return instance
+def get_hg(kb_id: str):
+    """Get hypergraph from in-memory instance or load from disk."""
+    db_name = f"kb-{kb_id}"
+    # First try to get from live instance
+    if db_name in INSTANCES:
+        return INSTANCES[db_name].chunk_entity_relation_hypergraph._hg
+    # Otherwise load from disk
+    return load_hypergraph(kb_id)
 
 def get_lock(kb_id: str) -> asyncio.Lock:
     key = f"kb-{kb_id}"
@@ -303,9 +312,9 @@ async def query(req: QueryRequest):
         raise HTTPException(500, "HyperRAG library not available")
 
     db_name = f"kb-{req.kb_id}"
-    instance = INSTANCES.get(db_name) or try_load_instance(req.kb_id)
-    if instance is None:
+    if db_name not in INSTANCES:
         raise HTTPException(404, "Knowledge base not indexed. Please build index first.")
+    instance = INSTANCES[db_name]
 
     try:
         param = QueryParam(
@@ -336,17 +345,11 @@ async def get_status(kb_id: str):
 
 @app.get("/api/entities/{kb_id}")
 async def get_entities(kb_id: str, page: int = 1, page_size: int = 20):
-    db_name = f"kb-{kb_id}"
-    instance = INSTANCES.get(db_name) or try_load_instance(kb_id)
-    if instance is None:
+    hg = get_hg(kb_id)
+    if hg is None:
         raise HTTPException(404, "Knowledge base not indexed")
 
     try:
-        graph_storage = instance.chunk_entity_relation_hypergraph
-        if graph_storage is None:
-            return {"entities": [], "total": 0, "page": page, "page_size": page_size}
-
-        hg = graph_storage._hg
         vertices_list = list(hg._v_data.values())
         total = len(vertices_list)
         start = (page - 1) * page_size
@@ -366,17 +369,11 @@ async def get_entities(kb_id: str, page: int = 1, page_size: int = 20):
 
 @app.get("/api/relationships/{kb_id}")
 async def get_relationships(kb_id: str, page: int = 1, page_size: int = 20):
-    db_name = f"kb-{kb_id}"
-    instance = INSTANCES.get(db_name) or try_load_instance(kb_id)
-    if instance is None:
+    hg = get_hg(kb_id)
+    if hg is None:
         raise HTTPException(404, "Knowledge base not indexed")
 
     try:
-        graph_storage = instance.chunk_entity_relation_hypergraph
-        if graph_storage is None:
-            return {"relationships": [], "total": 0, "page": page, "page_size": page_size}
-
-        hg = graph_storage._hg
         edges_list = list(hg._e_data.values())
         total = len(edges_list)
         start = (page - 1) * page_size
@@ -396,13 +393,11 @@ async def get_relationships(kb_id: str, page: int = 1, page_size: int = 20):
 
 @app.get("/api/entity-names/{kb_id}")
 async def get_entity_names(kb_id: str, page: int = 1, page_size: int = 50):
-    db_name = f"kb-{kb_id}"
-    instance = INSTANCES.get(db_name) or try_load_instance(kb_id)
-    if instance is None:
+    hg = get_hg(kb_id)
+    if hg is None:
         raise HTTPException(404, "Knowledge base not indexed")
 
     try:
-        hg = instance.chunk_entity_relation_hypergraph._hg
         names = list(hg._v_data.keys())
         total = len(names)
         start = (page - 1) * page_size
@@ -414,13 +409,11 @@ async def get_entity_names(kb_id: str, page: int = 1, page_size: int = 50):
 
 @app.get("/api/vertex-neighbor/{kb_id}/{vertex_id:path}")
 async def get_vertex_neighbor(kb_id: str, vertex_id: str):
-    db_name = f"kb-{kb_id}"
-    instance = INSTANCES.get(db_name) or try_load_instance(kb_id)
-    if instance is None:
+    hg = get_hg(kb_id)
+    if hg is None:
         raise HTTPException(404, "Knowledge base not indexed")
 
     try:
-        hg = instance.chunk_entity_relation_hypergraph._hg
 
         # Get neighbor vertices and incident hyperedges
         try:
