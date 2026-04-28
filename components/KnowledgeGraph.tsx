@@ -188,35 +188,34 @@ export default function KnowledgeGraph({ kbId, token, height = '600px' }: Knowle
     properties: string[];
   }>({ entity_name: '', entity_type: '', descriptions: [], properties: [] });
 
-  // Load entity names with scroll pagination
-  const loadEntityNames = useCallback(async () => {
-    if (!token || !kbId) return;
-    setNamesLoading(true);
-    try {
-      const res = await fetch(`/api/hyperrag/entity-names?kb_id=${kbId}&page=1&page_size=200`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      const list: string[] = data.names || [];
-      setEntityNames(list);
-
-      // Auto-select first entity
-      if (list.length > 0 && !selectedEntity) {
-        setSelectedEntity(list[0]);
-      }
-    } catch (err) {
-      console.error('Failed to load entity names:', err);
-    }
-    setNamesLoading(false);
-  }, [token, kbId, selectedEntity]);
-
-  // Initial load
+  // Load entity names
   useEffect(() => {
-    if (token && kbId) {
-      setEntityNames([]);
-      setSelectedEntity(undefined);
-      loadEntityNames();
-    }
+    if (!token || !kbId) return;
+    let cancelled = false;
+    setNamesLoading(true);
+    setEntityNames([]);
+    setSelectedEntity(undefined);
+
+    fetch(`/api/hyperrag/entity-names?kb_id=${kbId}&page=1&page_size=200`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (cancelled) return;
+        const list: string[] = data.names || [];
+        setEntityNames(list);
+        if (list.length > 0) {
+          setSelectedEntity(list[0]);
+        }
+      })
+      .catch(err => {
+        console.error('Failed to load entity names:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setNamesLoading(false);
+      });
+
+    return () => { cancelled = true; };
   }, [token, kbId]);
 
   // Fetch neighbor subgraph when entity is selected
