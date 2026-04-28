@@ -4,7 +4,17 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
-import type { QuestionWithTags } from '@/types';
+
+interface Paper {
+  id: string;
+  arxiv_id: string;
+  title_en: string;
+  title_zh: string | null;
+  summary_zh: string | null;
+  keywords: string[];
+  arxiv_url: string | null;
+  published_at: string;
+}
 
 const QUICK_ENTRIES = [
   {
@@ -54,7 +64,7 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const [popularTags, setPopularTags] = useState<string[]>([]);
-  const [recentQuestions, setRecentQuestions] = useState<QuestionWithTags[]>([]);
+  const [recentPapers, setRecentPapers] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -63,21 +73,14 @@ export default function HomePage() {
 
   const loadData = async () => {
     const supabase = getSupabase();
-    const [tagsResult, questionsResult] = await Promise.all([
+    const [tagsResult, papersResult] = await Promise.all([
       supabase.from('tags').select('name').order('name'),
-      supabase
-        .from('questions')
-        .select('*, tags(id, name)')
-        .eq('status', 'approved')
-        .order('created_at', { ascending: false })
-        .limit(8),
+      fetch('/api/papers?page=1&page_size=6').then(r => r.json()).catch(() => ({ papers: [] })),
     ]);
     if (tagsResult.data) {
-      setPopularTags(tagsResult.data.map((t) => t.name).slice(0, 10));
+      setPopularTags(tagsResult.data.map((t: any) => t.name).slice(0, 10));
     }
-    if (questionsResult.data) {
-      setRecentQuestions(questionsResult.data as QuestionWithTags[]);
-    }
+    setRecentPapers(papersResult.papers || []);
     setLoading(false);
   };
 
@@ -157,61 +160,68 @@ export default function HomePage() {
         ))}
       </div>
 
-      {/* Recent questions */}
+      {/* Recent papers */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-medium text-gray-700">最近更新</h2>
-          <Link href="/search" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+          <h2 className="text-sm font-medium text-gray-700">最新论文推送</h2>
+          <Link href="/papers" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
             查看全部 →
           </Link>
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {Array.from({ length: 4 }).map((_, i) => (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => (
               <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 animate-pulse">
                 <div className="h-4 bg-gray-100 rounded w-3/4 mb-2" />
-                <div className="h-3 bg-gray-50 rounded w-full mb-3" />
-                <div className="flex gap-2">
-                  <div className="h-5 bg-gray-50 rounded-full w-12" />
-                  <div className="h-5 bg-gray-50 rounded-full w-16" />
-                </div>
+                <div className="h-3 bg-gray-50 rounded w-1/2 mb-2" />
+                <div className="h-3 bg-gray-50 rounded w-full" />
               </div>
             ))}
           </div>
-        ) : recentQuestions.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {recentQuestions.map((q) => (
-              <Link
-                key={q.id}
-                href={`/questions/${q.id}`}
-                className="bg-white rounded-xl border border-gray-100 p-4 hover:border-gray-200 hover:shadow-sm transition-all group"
-              >
-                <p className="text-sm text-gray-700 line-clamp-2 mb-3 group-hover:text-gray-900 transition-colors">
-                  {q.question_text || '（图片题目）'}
-                </p>
-                <div className="flex items-center justify-between">
-                  <div className="flex gap-1.5 flex-wrap">
-                    {q.tags?.slice(0, 3).map((tag) => (
-                      <span key={tag.id} className="px-2 py-0.5 bg-gray-50 text-gray-500 rounded-full text-xs">
-                        {tag.name}
+        ) : recentPapers.length > 0 ? (
+          <div className="space-y-3">
+            {recentPapers.map(paper => {
+              let points: string[] = [];
+              try { points = paper.summary_zh ? JSON.parse(paper.summary_zh) : []; } catch {}
+              return (
+                <Link
+                  key={paper.id}
+                  href={paper.arxiv_url || '#'}
+                  target="_blank"
+                  className="block bg-white rounded-xl border border-gray-100 p-4 hover:border-blue-200 transition-all group"
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-xs text-gray-400 font-mono">ArXiv</span>
+                    <span className="text-xs text-gray-300">
+                      {new Date(paper.published_at).toLocaleDateString('zh-CN')}
+                    </span>
+                  </div>
+                  <h3 className="text-sm font-medium text-slate-800 line-clamp-1 group-hover:text-blue-600 transition-colors">
+                    {paper.title_zh || paper.title_en}
+                  </h3>
+                  {paper.title_zh && (
+                    <p className="text-xs text-gray-400 line-clamp-1 mt-0.5">{paper.title_en}</p>
+                  )}
+                  {points.length > 0 && (
+                    <p className="text-xs text-gray-500 line-clamp-2 mt-2">
+                      {points[0]}
+                    </p>
+                  )}
+                  <div className="flex gap-1.5 mt-2">
+                    {paper.keywords.slice(0, 3).map(kw => (
+                      <span key={kw} className="px-1.5 py-0.5 text-xs bg-gray-50 text-gray-400 rounded">
+                        {kw}
                       </span>
                     ))}
                   </div>
-                  <span className="text-xs text-gray-300">
-                    {new Date(q.created_at).toLocaleDateString('zh-CN')}
-                  </span>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         ) : (
           <div className="text-center py-8 text-sm text-gray-400 bg-white rounded-xl border border-gray-100">
-            还没有题目，成为第一个
-            <Link href="/upload" className="text-blue-600 hover:text-blue-700 ml-1 font-medium">
-              上传题目
-            </Link>
-            的人吧
+            暂无论文推送数据
           </div>
         )}
       </div>
