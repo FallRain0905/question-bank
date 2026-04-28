@@ -1,0 +1,43 @@
+{
+  "max_papers": 15,
+  "categories": [
+    "cs.CL",
+    "cs.AI",
+    "cs.LG",
+    "cs.CV",
+    "cs.IR",
+    "cs.NE"
+  ],
+  "keywords": [
+    "RAG",
+    "Retrieval-Augmented",
+    "Knowledge Graph",
+    "Graph RAG",
+    "Hypergraph",
+    "Long Context",
+    "Document Understanding",
+    "LLM",
+    "Large Language Model",
+    "Reasoning",
+    "Agent",
+    "Multi-Agent",
+    "Embedding",
+    "Vector Search",
+    "Semantic Search",
+    "Prompt Engineering",
+    "Fine-tuning",
+    "Instruction Tuning",
+    "Chain-of-Thought",
+    "Text-to-SQL",
+    "Question Answering",
+    "Summarization",
+    "Transformer",
+    "Attention Mechanism",
+    "Pre-training",
+    "Reinforcement Learning from Human Feedback",
+    "RLHF",
+    "Constitutional AI",
+    "Tool Learning",
+    "Code Generation"
+  ]
+}

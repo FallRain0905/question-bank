@@ -6,9 +6,19 @@
 
 import { config } from 'dotenv';
 import { resolve } from 'path';
+import { readFileSync } from 'fs';
 
 // Load .env.local from project root
 config({ path: resolve(__dirname, '..', '.env.local') });
+
+// Load config from arxiv-config.json
+const CONFIG_PATH = resolve(__dirname, 'arxiv-config.json');
+interface ArxivConfig {
+  max_papers: number;
+  categories: string[];
+  keywords: string[];
+}
+const CONFIG: ArxivConfig = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -21,16 +31,11 @@ const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-// Keywords to filter papers
-const KEYWORDS = [
-  'RAG', 'Retrieval-Augmented', 'Knowledge Graph', 'Graph RAG', 'Hypergraph',
-  'Long Context', 'Document Understanding', 'LLM', 'Large Language Model',
-  'Reasoning', 'Agent', 'Multi-Agent', 'Embedding', 'Vector Search', 'Semantic Search',
-  'Prompt Engineering', 'Fine-tuning', 'Instruction Tuning', 'Chain-of-Thought',
-  'Text-to-SQL', 'Question Answering', 'Summarization',
-];
+const { categories: CATEGORIES, keywords: KEYWORDS, max_papers: MAX_PAPERS } = CONFIG;
 
-const MAX_PAPERS = 10;
+console.log(`[Config] Categories: ${CATEGORIES.join(', ')}`);
+console.log(`[Config] Keywords: ${KEYWORDS.length} keywords`);
+console.log(`[Config] Max papers: ${MAX_PAPERS}`);
 
 // ======================== ArXiv API ========================
 
@@ -45,8 +50,8 @@ interface ArxivEntry {
 }
 
 async function fetchArxivPapers(): Promise<ArxivEntry[]> {
-  const query = encodeURIComponent('cat:cs.CL OR cat:cs.AI');
-  const url = `http://export.arxiv.org/api/query?search_query=${query}&sortBy=submittedDate&sortOrder=descending&max_results=100`;
+  const catQuery = CATEGORIES.map(c => `cat:${c}`).join(' OR ');
+  const url = `http://export.arxiv.org/api/query?search_query=${encodeURIComponent(catQuery)}&sortBy=submittedDate&sortOrder=descending&max_results=200`;
 
   console.log(`[arXiv] Fetching: ${url}`);
   const res = await fetch(url);
