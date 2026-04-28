@@ -141,69 +141,7 @@ function buildHyperOptions(data: NeighborData, selectedVertex: string) {
   };
 }
 
-function buildGraphOptions(data: NeighborData, selectedVertex: string) {
-  const nodes: any[] = [];
-  const edges: any[] = [];
-  const plugins: any[] = [];
-
-  for (const key in data.vertices) {
-    nodes.push({ id: key, ...data.vertices[key] });
-  }
-
-  const edgeKeys = Object.keys(data.edges);
-  for (const key of edgeKeys) {
-    const nodeIds = key.split('|#|');
-    for (let j = 0; j < nodeIds.length; j++) {
-      for (let k = j + 1; k < nodeIds.length; k++) {
-        edges.push({ source: nodeIds[j], target: nodeIds[k], id: `e-${edges.length}` });
-      }
-    }
-  }
-
-  plugins.push({
-    type: 'tooltip',
-    getContent: (_e: any, items: any[]) => {
-      let result = '';
-      items.forEach(item => {
-        result += `<h4>${item.id}</h4>`;
-        if (item.entity_type) result += `<p><strong>类型:</strong> ${item.entity_type}</p>`;
-      });
-      return result;
-    },
-  });
-
-  return {
-    autoResize: true,
-    data: { nodes, edges },
-    node: {
-      palette: { field: 'cluster' },
-      style: {
-        size: 20,
-        labelText: (d: any) => d.id,
-        fill: (d: any) => {
-          if (d.id === selectedVertex) return '#1a1a1a';
-          return entityTypeColors[d.entity_type] || '#8566CC';
-        },
-      },
-    },
-    edge: { style: { stroke: '#a68fff', lineWidth: 2 } },
-    animate: false,
-    behaviors: ['zoom-canvas', 'drag-canvas', 'drag-element'],
-    autoFit: 'center' as const,
-    layout: {
-      type: 'force',
-      clustering: true,
-      preventOverlap: true,
-      nodeClusterBy: 'entity_type',
-      gravity: 20,
-      linkDistance: 150,
-    },
-    plugins,
-  };
-}
-
 export default function KnowledgeGraph({ kbId, token, height = '600px' }: KnowledgeGraphProps) {
-  const [mode, setMode] = useState<'graph' | 'hyper'>('hyper');
   const [entityNames, setEntityNames] = useState<string[]>([]);
   const [namesLoading, setNamesLoading] = useState(false);
   const [selectedEntity, setSelectedEntity] = useState<string | undefined>(undefined);
@@ -272,10 +210,8 @@ export default function KnowledgeGraph({ kbId, token, height = '600px' }: Knowle
 
   const options = useMemo(() => {
     if (!graphData || !selectedEntity) return null;
-    return mode === 'hyper'
-      ? buildHyperOptions(graphData, selectedEntity)
-      : buildGraphOptions(graphData, selectedEntity);
-  }, [graphData, selectedEntity, mode]);
+    return buildHyperOptions(graphData, selectedEntity);
+  }, [graphData, selectedEntity]);
 
   // No data state
   if (entityNames.length === 0 && !namesLoading) {
@@ -311,16 +247,6 @@ export default function KnowledgeGraph({ kbId, token, height = '600px' }: Knowle
           {selectedEntity && (
             <span className="text-xs text-gray-400">{vertexCount} 节点 · {edgeCount} 超边</span>
           )}
-          <div className="flex bg-gray-100 rounded-lg p-0.5">
-            <button
-              onClick={() => setMode('graph')}
-              className={`px-3 py-1 text-xs rounded-md transition-colors ${mode === 'graph' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-            >Graph</button>
-            <button
-              onClick={() => setMode('hyper')}
-              className={`px-3 py-1 text-xs rounded-md transition-colors ${mode === 'hyper' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-            >Hyper</button>
-          </div>
         </div>
       </div>
 
