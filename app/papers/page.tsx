@@ -13,6 +13,7 @@ export default function PapersPage() {
   const [keyword, setKeyword] = useState<string>('');
   const [token, setToken] = useState('');
   const [kbs, setKbs] = useState<{ id: string; name: string }[]>([]);
+  const [importKbId, setImportKbId] = useState<string>('');
 
   useEffect(() => {
     const init = async () => {
@@ -71,7 +72,8 @@ export default function PapersPage() {
       alert('请先创建知识库');
       return;
     }
-    const kb = kbs[0]; // Import to first KB
+    const kbId = importKbId || kbs[0].id;
+    const kb = kbs.find(k => k.id === kbId) || kbs[0];
     try {
       const res = await fetch('/api/papers/import', {
         method: 'POST',
@@ -105,7 +107,7 @@ export default function PapersPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <input
           type="date"
           value={date}
@@ -125,6 +127,18 @@ export default function PapersPage() {
           <option value="Reasoning">Reasoning</option>
           <option value="Embedding">Embedding</option>
         </select>
+        {kbs.length > 0 && (
+          <select
+            value={importKbId}
+            onChange={e => setImportKbId(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-blue-200 rounded-lg bg-blue-50 text-blue-700"
+          >
+            <option value="">导入到: {kbs[0].name}</option>
+            {kbs.map(kb => (
+              <option key={kb.id} value={kb.id}>{kb.name}</option>
+            ))}
+          </select>
+        )}
         {(date || keyword) && (
           <button
             onClick={() => { setDate(''); setKeyword(''); setPage(1); }}

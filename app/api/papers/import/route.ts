@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '论文不存在' }, { status: 404 });
   }
 
-  // Build markdown content for knowledge base
+  // Build markdown content
   const content = [
     `# ${paper.title_zh || paper.title_en}`,
     paper.title_zh ? `*${paper.title_en}*` : '',
@@ -44,8 +44,29 @@ export async function POST(req: NextRequest) {
     paper.abstract_en || '',
   ].filter(Boolean).join('\n');
 
-  // Call the existing sync API to index this document
-  const syncRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/hyperrag/sync`, {
+  // Insert as a document in kb_documents first
+  const { data: doc, error: insertError } = await supabase
+    .from('kb_documents')
+    .insert({
+      kb_id,
+      user_id: user.id,
+      title: `[论文] ${paper.title_zh || paper.title_en}`,
+      content_md: content,
+      file_type: 'md',
+    })
+    .select('id')
+    .single();
+
+  if (insertError) {
+    return NextResponse.json({ error: `创建文档失败: ${insertError.message}` }, { status: 500 });
+  }
+
+  // Call sync API to index this document
+  const baseUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+
+  const syncRes = await fetch(`${baseUrl}/api/hyperrag/sync`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -53,8 +74,8 @@ export async function POST(req: NextRequest) {
     },
     body: JSON.stringify({
       kb_id,
-      doc_id: `paper-${paper.arxiv_id}`,
-      title: paper.title_zh || paper.title_en,
+      doc_id: doc.id,
+      title: `[论文] ${paper.title_zh || paper.title_en}`,
       content_md: content,
     }),
   });
@@ -64,5 +85,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.error || '同步失败' }, { status: syncRes.status });
   }
 
-  return NextResponse.json({ success: true, message: '已导入知识库' });
+  return NextResponse.json({ success: true, message: '已导入知识库并开始索引' });
 }
