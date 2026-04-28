@@ -109,7 +109,7 @@ const Icons = {
 
 const mainNavItems: NavItem[] = [
   { href: '/', label: '首页', icon: Icons.home },
-  { href: '/search', label: '题库', icon: Icons.search },
+  { href: '/questions', label: '题库', icon: Icons.search },
   { href: '/notes', label: '笔记', icon: Icons.notes },
   { href: '/papers', label: '论文推送', icon: Icons.papers },
   { href: '/classes', label: '团队', icon: Icons.classes },

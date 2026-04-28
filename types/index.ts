@@ -278,6 +278,19 @@ export interface UserSettings {
   hyperrag_service_url: string;
 }
 
+// 研究搜索相关类型
+export interface ResearchSource {
+  id: string;
+  title: string;
+  snippet: string;
+  url: string;
+  type: 'web' | 'paper';
+  authors?: string[];
+  year?: number;
+  venue?: string;
+  citationCount?: number;
+}
+
 // AI 阅读器相关类型
 export interface DocumentHighlight {
   id: string;

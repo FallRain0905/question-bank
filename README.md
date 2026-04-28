@@ -7,7 +7,20 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-black?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 
 ## 功能概览
+SynapFlow 功能一览：
 
+| 模块 | 说明 |
+|------|------|
+| 📄 论文推送 | 每日自动从 arXiv 抓取 AI 领域精选论文，AI 生成中文摘要，可一键导入知识库 |
+| 🧠 知识库 | 上传文档，自动构建超图索引，支持超图可视化探索和 AI 问答 |
+| 📖 AI 阅读 | 文档阅读器 + 侧边 AI 分析面板，高亮批注 |
+| 📝 智能出题 | 输入文本或上传文档，AI 自动生成多种题型 |
+| ❓ 题库 | 多格式上传题目，标签分类，全文搜索 |
+| 📓 笔记 | Markdown 编辑器，上传附件，标签和收藏 |
+| 🗣️ 英语训练 | AI 对话练习，多场景，实时纠错 |
+| 🔄 文档转换 | PDF/DOCX 转 Markdown（MinerU） |
+| 👥 团队 | 创建学习小组，成员管理 |
+| 🤖 AI 助手 | 悬浮按钮，任意页面随时对话 |
 ### 论文推送
 每天自动从 arXiv 抓取 AI/NLP 领域最新论文，DeepSeek 生成中文标题 + 三要点摘要，支持收藏和一键导入知识库。
 - 关键词 + 分类可配置（`scripts/arxiv-config.json`）
