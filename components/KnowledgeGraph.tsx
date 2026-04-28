@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 
 const Graphin = dynamic(() => import('@antv/graphin').then(m => m.Graphin), { ssr: false });
@@ -42,7 +42,8 @@ interface KnowledgeGraphProps {
   height?: string;
 }
 
-function buildGraphOptions(data: NeighborData, selectedVertex: string, mode: 'hyper' | 'graph') {
+function buildHyperOptions(data: NeighborData, selectedVertex: string) {
+  // Ported directly from _hyper_rag_reference/web-ui/frontend/src/components/HyperGraph/index.tsx
   const nodes: any[] = [];
   const edges: any[] = [];
   const plugins: any[] = [];
@@ -55,62 +56,107 @@ function buildGraphOptions(data: NeighborData, selectedVertex: string, mode: 'hy
     });
   }
 
+  // Create style helper for bubble-sets
+  const createStyle = (baseColor: string) => ({
+    fill: baseColor,
+    stroke: baseColor,
+    maxRoutingIterations: 100,
+    maxMarchingIterations: 20,
+    pixelGroup: 4,
+    edgeR0: 10,
+    edgeR1: 60,
+    nodeR0: 15,
+    nodeR1: 50,
+    morphBuffer: 10,
+    threshold: 4,
+    memberInfluenceFactor: 1,
+    edgeInfluenceFactor: 4,
+    nonMemberInfluenceFactor: -0.8,
+    virtualEdges: true,
+  });
+
+  // Add hyperedges as bubble-sets (NO edges array in hyper mode)
   const edgeKeys = Object.keys(data.edges);
+  for (let i = 0; i < edgeKeys.length; i++) {
+    const key = edgeKeys[i];
+    const nodeIds = key.split('|#|');
+    if (nodeIds.length < 2) continue;
+    plugins.push({
+      key: `bubble-sets-${key}`,
+      type: 'bubble-sets',
+      members: nodeIds,
+      ...createStyle(colors[i % colors.length]),
+    });
+  }
 
-  if (mode === 'graph') {
-    // Standard pairwise edges
-    for (const key of edgeKeys) {
-      const nodeIds = key.split('|#|');
-      for (let j = 0; j < nodeIds.length; j++) {
-        for (let k = j + 1; k < nodeIds.length; k++) {
-          edges.push({
-            source: nodeIds[j],
-            target: nodeIds[k],
-            id: `e-${edges.length}`,
-          });
+  // Tooltip plugin
+  plugins.push({
+    type: 'tooltip',
+    getContent: (_e: any, items: any[]) => {
+      let result = '';
+      items.forEach(item => {
+        result += `<h4>${item.id}</h4>`;
+        if (item.entity_type) {
+          result += `<p><strong>类型:</strong> ${item.entity_type}</p>`;
         }
-      }
-    }
-  } else {
-    // Hyper mode: bubble-sets + virtual edges for layout
-    for (let i = 0; i < edgeKeys.length; i++) {
-      const key = edgeKeys[i];
-      const nodeIds = key.split('|#|');
-      if (nodeIds.length < 2) continue;
-      const color = colors[i % colors.length];
-
-      for (let j = 0; j < nodeIds.length; j++) {
-        for (let k = j + 1; k < nodeIds.length; k++) {
-          edges.push({
-            source: nodeIds[j],
-            target: nodeIds[k],
-            id: `e-${edges.length}`,
-            style: { stroke: color, lineWidth: 1, opacity: 0.3 },
-          });
+        if (item.description) {
+          const desc = String(item.description).split('<SEP>').slice(0, 2).join('；');
+          if (desc) result += `<p>${desc.slice(0, 100)}</p>`;
         }
-      }
-
-      plugins.push({
-        key: `bubble-sets-${i}`,
-        type: 'bubble-sets',
-        members: nodeIds,
-        fill: color,
-        stroke: color,
-        fillOpacity: 0.15,
-        maxRoutingIterations: 100,
-        maxMarchingIterations: 20,
-        pixelGroup: 4,
-        edgeR0: 10,
-        edgeR1: 60,
-        nodeR0: 15,
-        nodeR1: 50,
-        morphBuffer: 10,
-        threshold: 4,
-        memberInfluenceFactor: 1,
-        edgeInfluenceFactor: 4,
-        nonMemberInfluenceFactor: -0.8,
-        virtualEdges: true,
       });
+      return result;
+    },
+  });
+
+  return {
+    autoResize: true,
+    data: { nodes, edges }, // edges is EMPTY in hyper mode — exactly like the original
+    node: {
+      palette: { field: 'cluster' },
+      style: {
+        size: 25,
+        labelText: (d: any) => d.id,
+        fill: (d: any) => {
+          if (d.id === selectedVertex) return '#1a1a1a';
+          if (d.entity_type) return entityTypeColors[d.entity_type] || '#8566CC';
+          return '#8566CC';
+        },
+      },
+    },
+    edge: {
+      style: { size: 2 },
+    },
+    animate: false,
+    behaviors: ['zoom-canvas', 'drag-canvas', 'drag-element'],
+    autoFit: 'center' as const,
+    layout: {
+      type: 'force',
+      clustering: true,
+      preventOverlap: true,
+      nodeClusterBy: 'entity_type',
+      gravity: 20,
+      linkDistance: 150,
+    },
+    plugins,
+  };
+}
+
+function buildGraphOptions(data: NeighborData, selectedVertex: string) {
+  const nodes: any[] = [];
+  const edges: any[] = [];
+  const plugins: any[] = [];
+
+  for (const key in data.vertices) {
+    nodes.push({ id: key, ...data.vertices[key] });
+  }
+
+  const edgeKeys = Object.keys(data.edges);
+  for (const key of edgeKeys) {
+    const nodeIds = key.split('|#|');
+    for (let j = 0; j < nodeIds.length; j++) {
+      for (let k = j + 1; k < nodeIds.length; k++) {
+        edges.push({ source: nodeIds[j], target: nodeIds[k], id: `e-${edges.length}` });
+      }
     }
   }
 
@@ -119,13 +165,8 @@ function buildGraphOptions(data: NeighborData, selectedVertex: string, mode: 'hy
     getContent: (_e: any, items: any[]) => {
       let result = '';
       items.forEach(item => {
-        result += `<div style="padding:2px 0"><strong>${String(item.id)}</strong>`;
-        if (item.entity_type) result += `<br/><span style="color:#888;font-size:11px">${item.entity_type}</span>`;
-        if (item.description) {
-          const desc = String(item.description).split('<SEP>').slice(0, 2).join('; ');
-          if (desc) result += `<br/><span style="color:#666;font-size:11px">${desc.slice(0, 100)}</span>`;
-        }
-        result += '</div>';
+        result += `<h4>${item.id}</h4>`;
+        if (item.entity_type) result += `<p><strong>类型:</strong> ${item.entity_type}</p>`;
       });
       return result;
     },
@@ -137,31 +178,25 @@ function buildGraphOptions(data: NeighborData, selectedVertex: string, mode: 'hy
     node: {
       palette: { field: 'cluster' },
       style: {
-        size: mode === 'graph' ? 20 : 25,
+        size: 20,
         labelText: (d: any) => d.id,
-        labelFontSize: 10,
-        labelPlacement: 'bottom' as const,
         fill: (d: any) => {
           if (d.id === selectedVertex) return '#1a1a1a';
           return entityTypeColors[d.entity_type] || '#8566CC';
         },
-        stroke: '#fff',
-        lineWidth: 1,
       },
     },
-    edge: {
-      style: { stroke: '#a68fff', lineWidth: 1.5, endArrow: false },
-    },
+    edge: { style: { stroke: '#a68fff', lineWidth: 2 } },
     animate: false,
     behaviors: ['zoom-canvas', 'drag-canvas', 'drag-element'],
-    autoFit: { type: 'view' as const },
+    autoFit: 'center' as const,
     layout: {
       type: 'force',
+      clustering: true,
       preventOverlap: true,
       nodeClusterBy: 'entity_type',
-      gravity: 10,
-      linkDistance: 120,
-      nodeStrength: -200,
+      gravity: 20,
+      linkDistance: 150,
     },
     plugins,
   };
@@ -169,18 +204,13 @@ function buildGraphOptions(data: NeighborData, selectedVertex: string, mode: 'hy
 
 export default function KnowledgeGraph({ kbId, token, height = '600px' }: KnowledgeGraphProps) {
   const [mode, setMode] = useState<'graph' | 'hyper'>('hyper');
-  const [graphKey, setGraphKey] = useState(0);
-
-  // Entity name list for dropdown
   const [entityNames, setEntityNames] = useState<string[]>([]);
   const [namesLoading, setNamesLoading] = useState(false);
-
-  // Selected entity
   const [selectedEntity, setSelectedEntity] = useState<string | undefined>(undefined);
   const [graphData, setGraphData] = useState<NeighborData | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
+  const graphRef = useRef<HTMLDivElement>(null);
 
-  // Entity detail for right panel
   const [entityDetail, setEntityDetail] = useState<{
     entity_name: string;
     entity_type: string;
@@ -204,16 +234,10 @@ export default function KnowledgeGraph({ kbId, token, height = '600px' }: Knowle
         if (cancelled) return;
         const list: string[] = data.names || [];
         setEntityNames(list);
-        if (list.length > 0) {
-          setSelectedEntity(list[0]);
-        }
+        if (list.length > 0) setSelectedEntity(list[0]);
       })
-      .catch(err => {
-        console.error('Failed to load entity names:', err);
-      })
-      .finally(() => {
-        if (!cancelled) setNamesLoading(false);
-      });
+      .catch(err => console.error('Failed to load entity names:', err))
+      .finally(() => { if (!cancelled) setNamesLoading(false); });
 
     return () => { cancelled = true; };
   }, [token, kbId]);
@@ -229,9 +253,6 @@ export default function KnowledgeGraph({ kbId, token, height = '600px' }: Knowle
       .then(res => res.json())
       .then((data: NeighborData) => {
         setGraphData(data);
-        setGraphKey(k => k + 1);
-
-        // Update entity detail panel
         const vertex = data.vertices[selectedEntity];
         if (vertex) {
           setEntityDetail({
@@ -249,14 +270,11 @@ export default function KnowledgeGraph({ kbId, token, height = '600px' }: Knowle
       .finally(() => setGraphLoading(false));
   }, [selectedEntity, token, kbId]);
 
-  const switchMode = useCallback((m: 'graph' | 'hyper') => {
-    setMode(m);
-    setGraphKey(k => k + 1);
-  }, []);
-
   const options = useMemo(() => {
     if (!graphData || !selectedEntity) return null;
-    return buildGraphOptions(graphData, selectedEntity, mode);
+    return mode === 'hyper'
+      ? buildHyperOptions(graphData, selectedEntity)
+      : buildGraphOptions(graphData, selectedEntity);
   }, [graphData, selectedEntity, mode]);
 
   // No data state
@@ -274,35 +292,32 @@ export default function KnowledgeGraph({ kbId, token, height = '600px' }: Knowle
 
   return (
     <div>
-      {/* Top bar: entity selector + mode switch */}
+      {/* Top bar */}
       <div className="flex items-center justify-between mb-3 gap-4">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <span className="text-sm text-gray-500 shrink-0">选择实体</span>
-          <div className="relative flex-1 max-w-xs">
-            <select
-              value={selectedEntity || ''}
-              onChange={e => setSelectedEntity(e.target.value)}
-              className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 truncate"
-            >
-              {entityNames.map(name => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </select>
-          </div>
+          <select
+            value={selectedEntity || ''}
+            onChange={e => setSelectedEntity(e.target.value)}
+            className="flex-1 max-w-xs px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+          >
+            {entityNames.map(name => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
           {namesLoading && <span className="text-xs text-gray-400">加载中...</span>}
         </div>
-
         <div className="flex items-center gap-3">
           {selectedEntity && (
             <span className="text-xs text-gray-400">{vertexCount} 节点 · {edgeCount} 超边</span>
           )}
           <div className="flex bg-gray-100 rounded-lg p-0.5">
             <button
-              onClick={() => switchMode('graph')}
+              onClick={() => setMode('graph')}
               className={`px-3 py-1 text-xs rounded-md transition-colors ${mode === 'graph' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
             >Graph</button>
             <button
-              onClick={() => switchMode('hyper')}
+              onClick={() => setMode('hyper')}
               className={`px-3 py-1 text-xs rounded-md transition-colors ${mode === 'hyper' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
             >Hyper</button>
           </div>
@@ -313,13 +328,13 @@ export default function KnowledgeGraph({ kbId, token, height = '600px' }: Knowle
       <div className="flex gap-4">
         {/* Graph */}
         <div className="flex-1 min-w-0">
-          <div style={{ height, border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+          <div style={{ height, border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }} ref={graphRef}>
             {graphLoading ? (
               <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                 加载超图数据中...
               </div>
             ) : options ? (
-              <Graphin key={graphKey} options={options} style={{ width: '100%', height: '100%' }} />
+              <Graphin options={options} style={{ width: '100%', height: '100%' }} />
             ) : (
               <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                 {selectedEntity ? '暂无邻居数据' : '请选择一个实体'}
@@ -332,41 +347,33 @@ export default function KnowledgeGraph({ kbId, token, height = '600px' }: Knowle
         {selectedEntity && entityDetail.entity_name && (
           <div className="w-72 shrink-0 bg-white border border-gray-100 rounded-xl p-4 overflow-auto" style={{ maxHeight: height }}>
             <h3 className="font-medium text-sm text-gray-900 mb-3">实体详情</h3>
-
             <div className="space-y-3 text-sm">
               <div>
                 <span className="text-gray-500">名称：</span>
                 <span className="text-gray-900">{entityDetail.entity_name}</span>
               </div>
-
               {entityDetail.entity_type && (
                 <div>
                   <span className="text-gray-500">类型：</span>
                   <span className="inline-block px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded">{entityDetail.entity_type}</span>
                 </div>
               )}
-
-              {entityDetail.descriptions.length > 0 && entityDetail.descriptions.some(d => d.trim()) && (
+              {entityDetail.descriptions.filter(d => d.trim()).length > 0 && (
                 <div>
                   <span className="text-gray-500 block mb-1">描述：</span>
                   <ul className="space-y-1">
                     {entityDetail.descriptions.filter(d => d.trim()).map((desc, idx) => (
-                      <li key={idx} className="text-xs text-gray-600 leading-relaxed pl-2 border-l-2 border-gray-200">
-                        {desc}
-                      </li>
+                      <li key={idx} className="text-xs text-gray-600 leading-relaxed pl-2 border-l-2 border-gray-200">{desc}</li>
                     ))}
                   </ul>
                 </div>
               )}
-
-              {entityDetail.properties.length > 0 && entityDetail.properties.some(p => p.trim()) && (
+              {entityDetail.properties.filter(p => p.trim()).length > 0 && (
                 <div>
                   <span className="text-gray-500 block mb-1">属性：</span>
                   <ul className="space-y-1">
                     {entityDetail.properties.filter(p => p.trim()).map((prop, idx) => (
-                      <li key={idx} className="text-xs text-gray-600 leading-relaxed pl-2 border-l-2 border-gray-200">
-                        {prop}
-                      </li>
+                      <li key={idx} className="text-xs text-gray-600 leading-relaxed pl-2 border-l-2 border-gray-200">{prop}</li>
                     ))}
                   </ul>
                 </div>
