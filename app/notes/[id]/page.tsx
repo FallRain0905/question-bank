@@ -7,6 +7,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import Link from 'next/link';
 import { getFileIcon, formatFileSize } from '@/lib/upload';
+import { renderMarkdown } from '@/lib/render-markdown';
 import type { NoteWithTags, CommentWithUser } from '@/types';
 import { UserAvatar, UserTag } from '@/components/UserAvatar';
 
@@ -473,7 +474,10 @@ export default function NoteDetailPage() {
                 </div>
               </div>
               {note.description && (
-                <p className="text-gray-600 mt-2">{note.description}</p>
+                <div
+                  className="prose prose-sm max-w-none mt-2 prose-p:text-gray-600 prose-headings:text-gray-800 prose-a:text-blue-600"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(note.description) }}
+                />
               )}
               {/* 待审核提示 */}
               {note.status === 'pending' && isOwner && (
