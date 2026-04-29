@@ -52,7 +52,7 @@ interface ArxivEntry {
 
 async function fetchArxivPapers(): Promise<ArxivEntry[]> {
   const catQuery = CATEGORIES.map(c => `cat:${c}`).join(' OR ');
-  const url = `http://export.arxiv.org/api/query?search_query=${encodeURIComponent(catQuery)}&sortBy=submittedDate&sortOrder=descending&max_results=200`;
+  const url = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(catQuery)}&sortBy=submittedDate&sortOrder=descending&max_results=200`;
 
   console.log(`[arXiv] Fetching: ${url}`);
   const res = await fetch(url);
