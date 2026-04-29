@@ -47,6 +47,8 @@ export default function QAPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -154,6 +156,24 @@ export default function QAPage() {
     } catch {}
   };
 
+  const handleRenameConversation = async (convId: string) => {
+    if (!renameText.trim() || !token) {
+      setRenamingId(null);
+      return;
+    }
+    try {
+      await fetch('/api/hyperrag/conversations', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: convId, title: renameText.trim() }),
+      });
+      setConversations(prev =>
+        prev.map(c => c.id === convId ? { ...c, title: renameText.trim() } : c)
+      );
+    } catch {}
+    setRenamingId(null);
+  };
+
   const handleAsk = async () => {
     if (!input.trim() || loading || !selectedKb || !token) return;
     const question = input.trim();
@@ -255,17 +275,49 @@ export default function QAPage() {
                     activeConvId === conv.id ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''
                   }`}
                 >
+                  {renamingId === conv.id ? (
+                    <input
+                      value={renameText}
+                      onChange={(e) => setRenameText(e.target.value)}
+                      onBlur={() => handleRenameConversation(conv.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRenameConversation(conv.id);
+                        if (e.key === 'Escape') setRenamingId(null);
+                        e.stopPropagation();
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      autoFocus
+                      className="w-full px-1.5 py-0.5 text-sm border border-blue-300 rounded outline-none focus:ring-1 focus:ring-blue-400"
+                    />
+                  ) : (
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-gray-700 truncate flex-1">{conv.title}</span>
-                    <button
-                      onClick={(e) => handleDeleteConversation(conv.id, e)}
-                      className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all ml-1 flex-shrink-0"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingId(conv.id);
+                          setRenameText(conv.title);
+                        }}
+                        className="text-gray-300 hover:text-blue-500 transition-colors"
+                        title="重命名"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={(e) => handleDeleteConversation(conv.id, e)}
+                        className="text-gray-300 hover:text-red-500 transition-colors"
+                        title="删除"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
+                  )}
                   <p className="text-[10px] text-gray-400 mt-0.5">
                     {new Date(conv.updated_at || conv.created_at).toLocaleDateString()}
                   </p>
