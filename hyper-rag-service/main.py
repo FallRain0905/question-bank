@@ -55,6 +55,7 @@ app.add_middleware(
 
 WORKING_DIR = os.environ.get("HYPERRAG_WORKING_DIR", os.path.join(os.path.dirname(__file__), "hyperrag_cache"))
 INSTANCES: dict = {}
+INSTANCE_CONFIG_HASHES: dict = {}
 INDEXING_LOCKS: dict[str, asyncio.Lock] = {}
 SYNC_PROGRESS: dict[str, dict] = {}  # kb_id -> {status, progress, entities, relations, ...}
 
@@ -152,10 +153,23 @@ def make_embedding_func(cfg: EmbeddingConfig):
 
     return EmbeddingFunc(embedding_dim=cfg.dimensions, max_token_size=8192, func=func)
 
+def config_hash(config: ServiceConfig) -> str:
+    if hasattr(config, "model_dump"):
+        raw_config = config.model_dump()
+    else:
+        raw_config = config.dict()
+    serialized = json.dumps(raw_config, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
 def get_or_create_instance(kb_id: str, config: ServiceConfig):
     db_name = f"kb-{kb_id}"
-    if db_name in INSTANCES:
+    current_hash = config_hash(config)
+    if db_name in INSTANCES and INSTANCE_CONFIG_HASHES.get(db_name) == current_hash:
         return INSTANCES[db_name]
+    if db_name in INSTANCES:
+        logger.info(f"Config changed for {db_name}; recreating HyperRAG instance")
+        INSTANCES.pop(db_name, None)
+        INSTANCE_CONFIG_HASHES.pop(db_name, None)
 
     working_dir = os.path.join(WORKING_DIR, db_name)
     Path(working_dir).mkdir(parents=True, exist_ok=True)
@@ -166,6 +180,7 @@ def get_or_create_instance(kb_id: str, config: ServiceConfig):
         embedding_func=make_embedding_func(config.embedding),
     )
     INSTANCES[db_name] = instance
+    INSTANCE_CONFIG_HASHES[db_name] = current_hash
     return instance
 
 
@@ -312,9 +327,10 @@ async def query(req: QueryRequest):
         raise HTTPException(500, "HyperRAG library not available")
 
     db_name = f"kb-{req.kb_id}"
-    if db_name not in INSTANCES:
+    working_dir = os.path.join(WORKING_DIR, db_name)
+    if db_name not in INSTANCES and not os.path.exists(working_dir):
         raise HTTPException(404, "Knowledge base not indexed. Please build index first.")
-    instance = INSTANCES[db_name]
+    instance = get_or_create_instance(req.kb_id, req.config)
 
     try:
         param = QueryParam(
