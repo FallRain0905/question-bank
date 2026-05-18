@@ -1,19 +1,51 @@
 import { createClient } from '@supabase/supabase-js';
 
-// DeepSeek 官方 API 配置
-const DEFAULT_KEY = 'sk-bb3c52688dbc43b3864f8fb07ede67dd';
 const DEFAULT_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
 const DEFAULT_MODEL = 'deepseek-v4-flash';
+
+const PROVIDER_ENDPOINTS: Record<string, string> = {
+  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+  kimi: 'https://api.moonshot.cn/v1/chat/completions',
+  deepseek: DEFAULT_ENDPOINT,
+};
+
+const PROVIDER_MODELS: Record<string, string> = {
+  qwen: 'qwen-plus',
+  kimi: 'moonshot-v1-8k',
+  deepseek: DEFAULT_MODEL,
+};
+
+function getSystemLLMKey(provider: string) {
+  switch (provider) {
+    case 'qwen':
+      return process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || '';
+    case 'kimi':
+      return process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY || '';
+    case 'custom':
+      return process.env.OPENAI_API_KEY || '';
+    case 'deepseek':
+    default:
+      return process.env.DEEPSEEK_API_KEY || '';
+  }
+}
+
+function getSystemLLMConfig(provider = 'deepseek') {
+  const normalizedProvider = provider || 'deepseek';
+  return {
+    apiKey: getSystemLLMKey(normalizedProvider),
+    endpoint: PROVIDER_ENDPOINTS[normalizedProvider] || DEFAULT_ENDPOINT,
+    provider: normalizedProvider,
+    defaultModel: PROVIDER_MODELS[normalizedProvider] || DEFAULT_MODEL,
+  };
+}
 
 export async function getUserLLMConfig(token: string) {
   console.log('Getting LLM config, has token:', !!token);
 
-  // 优先使用 DeepSeek API Key（硬编码）
-  const deepseekKey = process.env.DEEPSEEK_API_KEY || DEFAULT_KEY;
-
   if (!token) {
-    console.log('Using default config (no token):', { hasKey: !!deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek' });
-    return { apiKey: deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek', defaultModel: DEFAULT_MODEL };
+    const config = getSystemLLMConfig();
+    console.log('Using system config (no token):', { hasKey: !!config.apiKey, endpoint: config.endpoint, provider: config.provider });
+    return config;
   }
 
   try {
@@ -25,8 +57,9 @@ export async function getUserLLMConfig(token: string) {
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      console.log('Using default config (no user):', { hasKey: !!deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek' });
-      return { apiKey: deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek', defaultModel: DEFAULT_MODEL };
+      const config = getSystemLLMConfig();
+      console.log('Using system config (no user):', { hasKey: !!config.apiKey, endpoint: config.endpoint, provider: config.provider });
+      return config;
     }
 
     const { data: settings } = await supabase
@@ -37,36 +70,20 @@ export async function getUserLLMConfig(token: string) {
 
     console.log('User settings:', settings ? 'found' : 'not found');
 
-    if (!settings?.llm_api_key) {
-      console.log('Using default config (no user settings):', { hasKey: !!deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek' });
-      return { apiKey: deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek', defaultModel: DEFAULT_MODEL };
-    }
-
     const provider = settings.llm_provider || 'deepseek';
-    const endpoints: Record<string, string> = {
-      qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-      kimi: 'https://api.moonshot.cn/v1/chat/completions',
-      deepseek: 'https://api.deepseek.com/v1/chat/completions',
-    };
-
-    const defaultModels: Record<string, string> = {
-      qwen: 'qwen-plus',
-      kimi: 'moonshot-v1-8k',
-      deepseek: 'deepseek-v4-flash',
-    };
 
     const config = {
-      apiKey: settings.llm_api_key,
-      endpoint: settings.llm_api_url || endpoints[provider] || endpoints.deepseek,
+      apiKey: settings.llm_api_key || getSystemLLMKey(provider),
+      endpoint: settings.llm_api_url || PROVIDER_ENDPOINTS[provider] || DEFAULT_ENDPOINT,
       provider,
-      defaultModel: settings.llm_model || defaultModels[provider] || DEFAULT_MODEL,
+      defaultModel: settings.llm_model || PROVIDER_MODELS[provider] || DEFAULT_MODEL,
     };
 
     console.log('Using user config:', { provider, endpoint: config.endpoint, hasKey: !!config.apiKey });
     return config;
   } catch (error) {
     console.error('Error getting LLM config:', error);
-    return { apiKey: deepseekKey, endpoint: DEFAULT_ENDPOINT, provider: 'deepseek', defaultModel: DEFAULT_MODEL };
+    return getSystemLLMConfig();
   }
 }
 
@@ -131,11 +148,14 @@ export async function getUserMineruConfig(token: string) {
   }
 }
 
-// Default embedding config for immediate use without user setup
-const DEFAULT_EMBEDDING_KEY = 'sk-ocgudjeychnfratpdlpupcorjnawqorjqgiqventdbksglsk';
+// Default embedding config. API keys must come from user settings or environment variables.
 const DEFAULT_EMBEDDING_URL = 'https://api.siliconflow.cn/v1/embeddings';
 const DEFAULT_EMBEDDING_MODEL = 'Qwen/Qwen3-Embedding-4B';
 const DEFAULT_EMBEDDING_DIMENSIONS = 2560;
+
+function getSystemEmbeddingKey() {
+  return process.env.EMBEDDING_API_KEY || process.env.SILICONFLOW_API_KEY || '';
+}
 
 export async function getUserEmbeddingConfig(token: string) {
   if (!token) return null;
@@ -156,8 +176,8 @@ export async function getUserEmbeddingConfig(token: string) {
       .eq('user_id', user.id)
       .maybeSingle();
 
-    // Use user config if available, otherwise fallback to defaults
-    const apiKey = settings?.embedding_api_key || DEFAULT_EMBEDDING_KEY;
+    // Use user config if available, otherwise fallback to environment defaults.
+    const apiKey = settings?.embedding_api_key || getSystemEmbeddingKey();
     const model = settings?.embedding_model || DEFAULT_EMBEDDING_MODEL;
 
     return {

@@ -52,8 +52,14 @@ export default function SettingsPage() {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
       body: JSON.stringify(settings),
     });
-    if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 3000); }
-    else alert('保存失败');
+    if (res.ok) {
+      setSettings(await res.json());
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } else {
+      const data = await res.json().catch(() => null);
+      alert(data?.hint || data?.error || '保存失败');
+    }
     setSaving(false);
   };
 
