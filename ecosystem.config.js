@@ -16,7 +16,8 @@ module.exports = {
     },
     {
       name: 'arxiv-cron',
-      script: 'npx tsx scripts/arxiv-cron.ts',
+      script: './node_modules/.bin/tsx',
+      args: 'scripts/arxiv-cron.ts',
       cwd: '/root/projects/question-bank',
       cron_restart: '0 9 * * *',
       autorestart: false,

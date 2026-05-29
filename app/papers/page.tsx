@@ -11,6 +11,7 @@ export default function PapersPage() {
   const [page, setPage] = useState(1);
   const [date, setDate] = useState<string>('');
   const [keyword, setKeyword] = useState<string>('');
+  const [search, setSearch] = useState<string>('');
   const [token, setToken] = useState('');
   const [kbs, setKbs] = useState<{ id: string; name: string }[]>([]);
   const [importKbId, setImportKbId] = useState<string>('');
@@ -31,7 +32,7 @@ export default function PapersPage() {
 
   useEffect(() => {
     loadPapers();
-  }, [token, page, date, keyword]);
+  }, [token, page, date, keyword, search]);
 
   const loadPapers = async () => {
     setLoading(true);
@@ -39,6 +40,7 @@ export default function PapersPage() {
       const params = new URLSearchParams({ page: String(page), page_size: '20' });
       if (date) params.set('date', date);
       if (keyword) params.set('keyword', keyword);
+      if (search.trim()) params.set('q', search.trim());
 
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;
@@ -97,27 +99,34 @@ export default function PapersPage() {
   const today = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6">
+    <div className="max-w-3xl mx-auto px-4 py-4 sm:py-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between gap-3 mb-5 sm:mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">论文推送</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-800">论文推送</h1>
           <p className="text-sm text-gray-400 mt-1">{today} · {total} 篇精选论文</p>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
+      <div className="grid grid-cols-1 gap-3 mb-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+        <input
+          type="search"
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
+          placeholder="搜索标题、摘要"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white outline-none focus:border-blue-300"
+        />
         <input
           type="date"
           value={date}
           onChange={e => { setDate(e.target.value); setPage(1); }}
-          className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white"
+          className="w-full sm:w-auto px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
         />
         <select
           value={keyword}
           onChange={e => { setKeyword(e.target.value); setPage(1); }}
-          className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white"
+          className="w-full sm:w-auto px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
         >
           <option value="">全部关键词</option>
           <option value="RAG">RAG</option>
@@ -131,7 +140,7 @@ export default function PapersPage() {
           <select
             value={importKbId}
             onChange={e => setImportKbId(e.target.value)}
-            className="px-3 py-1.5 text-sm border border-blue-200 rounded-lg bg-blue-50 text-blue-700"
+            className="w-full sm:col-span-3 px-3 py-2 text-sm border border-blue-200 rounded-lg bg-blue-50 text-blue-700"
           >
             <option value="">导入到: {kbs[0].name}</option>
             {kbs.map(kb => (
@@ -139,10 +148,10 @@ export default function PapersPage() {
             ))}
           </select>
         )}
-        {(date || keyword) && (
+        {(date || keyword || search) && (
           <button
-            onClick={() => { setDate(''); setKeyword(''); setPage(1); }}
-            className="text-xs text-gray-400 hover:text-gray-600"
+            onClick={() => { setDate(''); setKeyword(''); setSearch(''); setPage(1); }}
+            className="justify-self-start text-xs text-gray-400 hover:text-gray-600 sm:col-span-3"
           >清除筛选</button>
         )}
       </div>

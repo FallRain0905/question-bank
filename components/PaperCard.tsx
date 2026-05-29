@@ -44,7 +44,7 @@ export default function PaperCard({ paper, onFavorite, onImport }: PaperCardProp
   const mainCategory = paper.categories[0] || 'cs.AI';
 
   return (
-    <div className="bg-white border border-gray-100 rounded-xl p-5 hover:border-blue-200 transition-colors">
+    <div className="bg-white border border-gray-100 rounded-xl p-4 sm:p-5 hover:border-blue-200 transition-colors">
       {/* Zone A: Source & Time */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs text-gray-400 font-mono">ArXiv {mainCategory}</span>
@@ -52,7 +52,7 @@ export default function PaperCard({ paper, onFavorite, onImport }: PaperCardProp
       </div>
 
       {/* Zone B: Title */}
-      <h3 className="text-lg font-semibold text-slate-800 leading-snug mb-0.5">
+      <h3 className="text-base sm:text-lg font-semibold text-slate-800 leading-snug mb-0.5">
         {paper.title_zh || paper.title_en}
       </h3>
       {paper.title_zh && (
@@ -84,8 +84,8 @@ export default function PaperCard({ paper, onFavorite, onImport }: PaperCardProp
       )}
 
       {/* Zone D: Keywords & Actions */}
-      <div className="flex items-center justify-between">
-        <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-1.5 min-w-0">
           {paper.keywords.slice(0, 4).map(kw => (
             <span key={kw} className="px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded-full">
               {kw}
@@ -93,7 +93,7 @@ export default function PaperCard({ paper, onFavorite, onImport }: PaperCardProp
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2 sm:justify-end">
           {paper.arxiv_url && (
             <a
               href={paper.arxiv_url}

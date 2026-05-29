@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
 
   const date = req.nextUrl.searchParams.get('date');
   const keyword = req.nextUrl.searchParams.get('keyword');
+  const search = req.nextUrl.searchParams.get('q')?.trim();
   const page = parseInt(req.nextUrl.searchParams.get('page') || '1');
   const pageSize = parseInt(req.nextUrl.searchParams.get('page_size') || '20');
 
@@ -33,6 +34,16 @@ export async function GET(req: NextRequest) {
 
   if (keyword) {
     query = query.contains('keywords', [keyword]);
+  }
+
+  if (search) {
+    const normalizedSearch = search.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+    const escapedSearch = normalizedSearch.replace(/[%_]/g, '\\$&');
+    query = query.or([
+      `title_en.ilike.%${escapedSearch}%`,
+      `title_zh.ilike.%${escapedSearch}%`,
+      `abstract_en.ilike.%${escapedSearch}%`,
+    ].join(','));
   }
 
   const { data: papers, count, error } = await query;

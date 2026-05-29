@@ -140,7 +140,7 @@ npm run build && npm start
 pm2 start ecosystem.config.js --only arxiv-cron
 
 # 手动执行
-npx tsx scripts/arxiv-cron.ts
+npm run arxiv:cron
 ```
 
 抓取配置见 `scripts/arxiv-config.json`，可自定义分类、关键词、排除词和每日数量。

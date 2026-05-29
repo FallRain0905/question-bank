@@ -1,7 +1,7 @@
 /**
  * arXiv 论文每日抓取 + DeepSeek 总结脚本
- * 用法: npx tsx scripts/arxiv-cron.ts
- * PM2: pm2 start "npx tsx scripts/arxiv-cron.ts" --name arxiv-cron --cron "0 9 * * *" --no-autorestart
+ * 用法: npm run arxiv:cron
+ * PM2: pm2 start ecosystem.config.js --only arxiv-cron
  */
 
 import { config } from 'dotenv';
@@ -23,8 +23,8 @@ const CONFIG: ArxivConfig = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
 
 import { createClient } from '@supabase/supabase-js';
 
-// DeepSeek config (same as lib/user-settings.ts)
-const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY || 'sk-bb3c52688dbc43b3864f8fb07ede67dd';
+// DeepSeek config
+const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY || '';
 const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
@@ -55,7 +55,12 @@ async function fetchArxivPapers(): Promise<ArxivEntry[]> {
   const url = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(catQuery)}&sortBy=submittedDate&sortOrder=descending&max_results=200`;
 
   console.log(`[arXiv] Fetching: ${url}`);
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'question-bank-arxiv-crawler/1.0' },
+  });
+  if (!res.ok) {
+    throw new Error(`arXiv API error ${res.status}: ${await res.text()}`);
+  }
   const xml = await res.text();
 
   // Parse Atom XML
@@ -214,6 +219,10 @@ async function main() {
     console.error('Missing Supabase env vars');
     process.exit(1);
   }
+  if (!DEEPSEEK_KEY) {
+    console.error('Missing DEEPSEEK_API_KEY');
+    process.exit(1);
+  }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -241,7 +250,7 @@ async function main() {
       .from('daily_papers')
       .select('id')
       .eq('arxiv_id', paper.id)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       console.log(`  Already exists, skipping`);
