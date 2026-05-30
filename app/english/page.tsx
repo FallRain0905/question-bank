@@ -161,12 +161,12 @@ export default function EnglishPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-1px)]">
+    <div className="relative flex h-[calc(100dvh-6rem)] overflow-hidden lg:h-[calc(100vh-1px)]">
       {/* Left Panel - Conversation */}
       <div className="flex flex-col flex-1 min-w-0 border-r border-gray-200">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white shrink-0">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 border-b border-gray-100 bg-white px-3 py-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
             <h1 className="text-sm font-semibold text-gray-900 shrink-0">英语对话</h1>
 
             {/* Session selector */}
@@ -226,12 +226,12 @@ export default function EnglishPage() {
             </div>
 
             {/* Scenario tabs */}
-            <div className="flex gap-1 overflow-x-auto">
+            <div className="flex max-w-full gap-1 overflow-x-auto scrollbar-hide">
               {SCENARIOS.map(sc => (
                 <button
                   key={sc.id}
                   onClick={() => newSession(sc.id)}
-                  className={`px-2.5 py-1 text-xs rounded-md whitespace-nowrap transition-colors ${
+                className={`touch-target px-2.5 py-1 text-xs rounded-md whitespace-nowrap transition-colors ${
                     session?.scenario === sc.id ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'
                   }`}
                 >
@@ -243,7 +243,7 @@ export default function EnglishPage() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4 bg-gray-50/50">
+        <div className="flex-1 overflow-y-auto bg-gray-50/50 px-3 py-4 sm:px-4 sm:py-6 space-y-4">
           {!session || session.messages.length === 0 ? (
             <div className="text-center py-20">
               <p className="text-3xl mb-3">🗣️</p>
@@ -260,7 +260,7 @@ export default function EnglishPage() {
                   transition={{ duration: 0.2 }}
                   className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div className="flex items-start gap-2.5 max-w-[75%]">
+                  <div className="flex max-w-[92%] items-start gap-2.5 sm:max-w-[75%]">
                     <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0 ${
                       m.role === 'user' ? 'bg-gray-900 text-white order-2' : 'bg-blue-100 text-blue-600'
                     }`}>
@@ -289,7 +289,7 @@ export default function EnglishPage() {
         </div>
 
         {/* Input */}
-        <div className="p-3 border-t border-gray-100 bg-white shrink-0">
+        <div className="shrink-0 border-t border-gray-100 bg-white p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:pb-3">
           <div className="flex gap-2">
             <input
               type="text"
@@ -303,7 +303,7 @@ export default function EnglishPage() {
             <button
               onClick={handleSend}
               disabled={chatLoading || !input.trim() || !session}
-              className="px-5 py-2.5 bg-gray-900 text-white text-sm rounded-xl hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              className="touch-target px-4 py-2.5 bg-gray-900 text-white text-sm rounded-xl hover:bg-gray-800 disabled:opacity-50 transition-colors sm:px-5"
             >
               发送
             </button>
@@ -312,10 +312,10 @@ export default function EnglishPage() {
       </div>
 
       {/* Right Panel - Assistant */}
-      <div className={`${assistOpen ? 'w-80' : 'w-0'} transition-all duration-200 flex flex-col bg-white shrink-0 overflow-hidden`}>
+      <div className={`${assistOpen ? 'fixed inset-x-3 bottom-24 top-20 z-40 rounded-2xl border border-gray-200 shadow-xl lg:static lg:w-80 lg:rounded-none lg:border-0 lg:border-l lg:shadow-none' : 'hidden lg:flex lg:w-0'} transition-all duration-200 flex flex-col bg-white shrink-0 overflow-hidden`}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
           <span className="text-sm font-medium text-gray-700">语言助手</span>
-          <button onClick={() => setAssistOpen(!assistOpen)} className="text-gray-400 hover:text-gray-600">
+          <button onClick={() => setAssistOpen(!assistOpen)} className="touch-target flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d={assistOpen ? 'M15 19l-7-7 7-7' : 'M9 5l7 7-7 7'} />
             </svg>
@@ -390,7 +390,7 @@ export default function EnglishPage() {
       {!assistOpen && (
         <button
           onClick={() => setAssistOpen(true)}
-          className="fixed right-4 top-1/2 -translate-y-1/2 z-40 w-8 h-20 bg-white border border-gray-200 rounded-l-lg flex items-center justify-center hover:bg-gray-50 shadow-sm"
+          className="fixed bottom-24 right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full border border-gray-200 bg-white shadow-sm hover:bg-gray-50 lg:top-1/2 lg:h-20 lg:w-8 lg:-translate-y-1/2 lg:rounded-l-lg"
         >
           <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />

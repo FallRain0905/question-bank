@@ -274,8 +274,8 @@ export default function KnowledgeBaseDetailPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 sm:py-10">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
+      <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <Link href="/kb" className="text-sm text-gray-400 hover:text-gray-600 transition-colors mb-1 inline-block">← 知识库</Link>
           <h1 className="text-2xl font-bold text-gray-900">{kbName || '加载中...'}</h1>
         </div>
@@ -287,12 +287,12 @@ export default function KnowledgeBaseDetailPage() {
       </div>
 
       {/* Tab Bar */}
-      <div className="flex border-b border-gray-200 mb-6">
+      <div className="flex overflow-x-auto scrollbar-hide border-b border-gray-200 mb-6">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            className={`shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors sm:px-5 ${
               activeTab === tab.key
                 ? 'border-gray-900 text-gray-900'
                 : 'border-transparent text-gray-400 hover:text-gray-600'
@@ -306,9 +306,9 @@ export default function KnowledgeBaseDetailPage() {
       {/* Docs Tab */}
       {activeTab === 'docs' && (
         <div>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-gray-500">{docs.length} 个文档</p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input ref={fileInputRef} type="file" accept=".md,.docx,.txt" onChange={handleUpload} className="hidden" />
               <button
                 onClick={() => handleBuildIndex()}
@@ -337,7 +337,7 @@ export default function KnowledgeBaseDetailPage() {
           ) : (
             <div className="grid gap-3">
               {docs.map((doc) => (
-                <div key={doc.id} className="bg-white border border-gray-100 rounded-xl p-4 hover:border-gray-200 hover:shadow-sm transition-all flex items-center justify-between">
+                <div key={doc.id} className="bg-white border border-gray-100 rounded-xl p-4 hover:border-gray-200 hover:shadow-sm transition-all flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <Link href={`/kb/${kbId}/doc/${doc.id}`} className="flex-1 min-w-0">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500 text-xs font-medium uppercase">
@@ -352,7 +352,7 @@ export default function KnowledgeBaseDetailPage() {
                       </div>
                     </div>
                   </Link>
-                  <div className="flex items-center gap-2 ml-3">
+                  <div className="flex flex-wrap items-center gap-2 sm:ml-3">
                     <span className="text-[10px]">{indexStatusLabel((doc as any).index_status)}</span>
                     <Link href={`/generator?doc=${doc.id}`} className="text-xs text-blue-600 hover:text-blue-700 px-2 py-1">出题</Link>
                     <button onClick={() => handleDelete(doc.id)} className="text-gray-300 hover:text-red-500 transition-colors">
@@ -374,7 +374,7 @@ export default function KnowledgeBaseDetailPage() {
           {/* Status Overview */}
           <div className="bg-white border border-gray-100 rounded-xl p-5">
             <h3 className="text-sm font-medium text-gray-700 mb-3">索引状态概览</h3>
-            <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-1 gap-3 mb-4 sm:grid-cols-3 sm:gap-4">
               <div className="text-center p-3 bg-gray-50 rounded-lg">
                 <div className="text-2xl font-bold text-gray-900">{docs.length}</div>
                 <div className="text-xs text-gray-500">总文档</div>
@@ -389,7 +389,7 @@ export default function KnowledgeBaseDetailPage() {
               </div>
             </div>
             {docs.length > 0 && (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-green-500 rounded-full transition-all"
@@ -400,7 +400,7 @@ export default function KnowledgeBaseDetailPage() {
                 <button
                   onClick={() => handleBuildIndex(notIndexedDocIds.length > 0 ? notIndexedDocIds : undefined)}
                   disabled={indexing || docs.length === 0}
-                  className="px-4 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
+                  className="shrink-0 px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
                 >
                   {indexing ? '索引中...' : notIndexedDocIds.length > 0 ? `构建未索引 (${notIndexedDocIds.length})` : '重新构建全部'}
                 </button>
@@ -411,7 +411,7 @@ export default function KnowledgeBaseDetailPage() {
           {/* Index Log */}
           {(indexing || indexLogs.length > 0) && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex flex-col gap-2 mb-2 sm:flex-row sm:items-center sm:justify-between">
                 <h3 className="text-sm font-medium text-gray-300">索引日志</h3>
                 {indexing && (
                   <span className="text-xs text-amber-400 flex items-center gap-1.5">

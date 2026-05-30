@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "katex/dist/katex.min.css";
 import Sidebar, { SidebarProvider } from "@/components/Sidebar";
@@ -12,12 +12,13 @@ export const metadata: Metadata = {
   icons: {
     icon: "/favicon.png",
   },
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({
@@ -33,7 +34,7 @@ export default function RootLayout({
             <div className="flex min-h-screen">
               <Sidebar />
               <SidebarSpacer>
-                <main className="pb-16 sm:pb-0">
+                <main className="min-h-screen pb-24 lg:pb-0">
                   {children}
                 </main>
               </SidebarSpacer>

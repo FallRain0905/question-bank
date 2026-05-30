@@ -1,7 +1,5 @@
 'use client';
 
-'use client';
-
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createContext, useContext, useEffect, useState } from 'react';
@@ -30,7 +28,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 export function SidebarSpacer({ children }: { children: React.ReactNode }) {
   const { collapsed } = useSidebar();
   return (
-    <div className={`flex-1 transition-all duration-200 ${collapsed ? 'lg:ml-16' : 'lg:ml-60'}`}>
+    <div className={`min-w-0 flex-1 transition-all duration-200 ${collapsed ? 'lg:ml-16' : 'lg:ml-60'}`}>
       {children}
     </div>
   );
@@ -105,6 +103,28 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
     </svg>
   ),
+  kb: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+    </svg>
+  ),
+  qa: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 9.75a.375.375 0 11-.75 0 .375.375 0 01.75 0zm3.75 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm3.75 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12c0 4.418-4.03 8-9 8a9.77 9.77 0 01-3.64-.68L3 21l1.68-4.48A7.39 7.39 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    </svg>
+  ),
+  settings: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  ),
+  more: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm6 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm6 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+    </svg>
+  ),
 };
 
 const mainNavItems: NavItem[] = [
@@ -122,6 +142,7 @@ export default function Sidebar() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isClassModerator, setIsClassModerator] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [currentTheme, setCurrentThemeState] = useState<Theme>(getCurrentTheme());
   const [isMobile, setIsMobile] = useState(false);
 
@@ -217,18 +238,149 @@ export default function Sidebar() {
   const isActive = (href: string) =>
     pathname === href || (href !== '/' && pathname.startsWith(href));
 
+  useEffect(() => {
+    setMoreMenuOpen(false);
+    setUserMenuOpen(false);
+  }, [pathname]);
+
+  const mobileNavItems: NavItem[] = [
+    { href: '/kb', label: '知识库', icon: Icons.kb },
+    { href: '/qa', label: '问答', icon: Icons.qa },
+    { href: '/papers', label: '论文', icon: Icons.papers },
+    { href: '/notes', label: '笔记', icon: Icons.notes },
+    { href: '/settings', label: '设置', icon: Icons.settings },
+  ];
+
+  const mobileMoreItems: NavItem[] = [
+    { href: '/', label: '首页', icon: Icons.home },
+    { href: '/questions', label: '题库', icon: Icons.search },
+    { href: '/upload', label: '上传题目', icon: Icons.upload },
+    { href: '/convert', label: '文档转换', icon: Icons.parse },
+    { href: '/english', label: '英语训练', icon: Icons.qa },
+    { href: '/generator', label: '智能出题', icon: Icons.admin },
+    { href: '/classes', label: '团队', icon: Icons.classes },
+    { href: '/me', label: '个人中心', icon: Icons.user },
+    { href: '/notifications', label: '通知', icon: Icons.notifications },
+    ...(user?.is_admin || isClassModerator ? [{ href: '/admin', label: '管理后台', icon: Icons.admin }] : []),
+  ];
+
   return (
     <>
-      {/* Mobile overlay */}
-      {isMobile && !collapsed && (
-        <div
-          className="fixed inset-0 bg-black/30 z-40 lg:hidden"
-          onClick={() => setCollapsed(true)}
-        />
+      {/* Mobile bottom navigation */}
+      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white/95 backdrop-blur lg:hidden">
+        <div className="grid grid-cols-6 pb-[env(safe-area-inset-bottom)]">
+          {mobileNavItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`touch-target flex flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] transition-colors ${
+                isActive(item.href)
+                  ? 'text-blue-600'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              {item.icon}
+              <span className="leading-none">{item.label}</span>
+            </Link>
+          ))}
+          <button
+            type="button"
+            onClick={() => setMoreMenuOpen(true)}
+            className={`touch-target flex flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] transition-colors ${
+              moreMenuOpen ? 'text-blue-600' : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            {Icons.more}
+            <span className="leading-none">更多</span>
+          </button>
+        </div>
+      </nav>
+
+      {moreMenuOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            type="button"
+            aria-label="关闭菜单"
+            className="absolute inset-0 bg-black/30"
+            onClick={() => setMoreMenuOpen(false)}
+          />
+          <div className="absolute inset-x-0 bottom-0 max-h-[82vh] overflow-hidden rounded-t-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <img src="/logo.png" alt="" className="h-7 w-7 rounded-md" />
+                <span className="text-sm font-semibold text-gray-900">SynapFlow</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMoreMenuOpen(false)}
+                className="touch-target flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+                aria-label="关闭"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="max-h-[calc(82vh-7rem)] overflow-y-auto px-3 py-3">
+              <div className="grid grid-cols-2 gap-2">
+                {mobileMoreItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`touch-target flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-colors ${
+                      isActive(item.href)
+                        ? 'bg-blue-50 text-blue-600 font-medium'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="min-w-0 truncate">{item.label}</span>
+                  </Link>
+                ))}
+              </div>
+              <div className="mt-3 border-t border-gray-100 pt-3">
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className="touch-target flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-gray-600 hover:bg-gray-50"
+                >
+                  {currentTheme.id === 'light' ? (
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                  )}
+                  <span>{currentTheme.id === 'light' ? '深色模式' : '浅色模式'}</span>
+                </button>
+                {user ? (
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="touch-target mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-gray-500 hover:bg-red-50 hover:text-red-600"
+                  >
+                    {Icons.logout}
+                    <span>退出登录</span>
+                  </button>
+                ) : (
+                  <Link
+                    href="/login"
+                    className="touch-target mt-1 flex items-center gap-3 rounded-xl bg-gray-900 px-3 py-3 text-sm font-medium text-white"
+                  >
+                    {Icons.user}
+                    <span>登录</span>
+                  </Link>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       <aside
-        className={`fixed left-0 top-0 h-full bg-white border-r border-gray-100 transition-all duration-200 z-50 flex flex-col ${
+        className={`fixed left-0 top-0 z-50 hidden h-full flex-col border-r border-gray-100 bg-white transition-all duration-200 lg:flex ${
           collapsed ? 'w-16' : 'w-60'
         }`}
       >

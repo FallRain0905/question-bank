@@ -28,6 +28,7 @@ export default function ConvertPage() {
   const [zipUrl, setZipUrl] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isDragging, setIsDragging] = useState(false);
+  const [mobilePane, setMobilePane] = useState<'upload' | 'preview' | 'markdown'>('upload');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -289,11 +290,29 @@ ZIP文件已准备就绪，您可以下载后解压获取所需的格式。`);
   };
 
   return (
-    <div className="flex h-[calc(100vh-1px)]">
+    <div className="flex h-[calc(100dvh-6rem)] flex-col overflow-hidden lg:h-[calc(100vh-1px)] lg:flex-row">
+      <div className="flex border-b border-gray-100 bg-white p-2 lg:hidden">
+        {[
+          { key: 'upload', label: '上传' },
+          { key: 'preview', label: '预览' },
+          { key: 'markdown', label: 'Markdown' },
+        ].map((pane) => (
+          <button
+            key={pane.key}
+            type="button"
+            onClick={() => setMobilePane(pane.key as typeof mobilePane)}
+            className={`touch-target flex-1 rounded-lg px-3 py-2 text-sm transition-colors ${
+              mobilePane === pane.key ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            {pane.label}
+          </button>
+        ))}
+      </div>
       {/* 左侧：PDF预览和上传区域 */}
-      <div className="w-1/2 border-r border-gray-100 bg-white overflow-y-auto">
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
+      <div className={`${mobilePane === 'markdown' ? 'hidden lg:block' : ''} w-full flex-1 overflow-y-auto border-r border-gray-100 bg-white lg:w-1/2`}>
+        <div className="p-4 sm:p-6">
+          <div className={`${mobilePane === 'preview' ? 'hidden lg:flex' : 'flex'} items-center justify-between mb-6`}>
             <div>
               <Link href="/" className="text-sm text-gray-400 hover:text-gray-600 transition-colors mb-1 inline-block">← 返回首页</Link>
               <h1 className="text-2xl font-bold text-gray-900 mt-1">文档转换</h1>
@@ -302,9 +321,9 @@ ZIP文件已准备就绪，您可以下载后解压获取所需的格式。`);
           </div>
 
           {/* 文件上传区域 */}
-          {!file && (
+          {!file && mobilePane !== 'preview' && (
             <div
-              className={`border-2 border-dashed rounded-xl p-12 text-center transition-colors cursor-pointer ${
+              className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer sm:p-12 ${
                 isDragging ? 'border-gray-900 bg-gray-50' : 'border-gray-300 hover:border-gray-400'
               }`}
               onDragOver={handleDragOver}
@@ -330,14 +349,14 @@ ZIP文件已准备就绪，您可以下载后解压获取所需的格式。`);
           {file && (
             <div className="space-y-4">
               {/* 文件信息 */}
-              <div className="bg-gray-50 rounded-xl p-4">
-                <div className="flex items-center justify-between">
+              <div className={`${mobilePane === 'preview' ? 'hidden lg:block' : ''} bg-gray-50 rounded-xl p-4`}>
+                <div className="flex items-start justify-between gap-3 sm:items-center">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center text-gray-600 text-xs font-medium uppercase">
                       {file.name.split('.').pop()}
                     </div>
-                    <div>
-                      <h4 className="font-medium text-gray-900">{file.name}</h4>
+                    <div className="min-w-0">
+                      <h4 className="truncate font-medium text-gray-900">{file.name}</h4>
                       <p className="text-xs text-gray-500">
                         {(file.size / 1024 / 1024).toFixed(2)} MB
                       </p>
@@ -362,7 +381,7 @@ ZIP文件已准备就绪，您可以下载后解压获取所需的格式。`);
               </div>
 
               {/* 进度显示 */}
-              {status !== 'idle' && status !== 'completed' && (
+              {status !== 'idle' && status !== 'completed' && mobilePane !== 'preview' && (
                 <div className="bg-white border border-gray-100 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-gray-700">{getStatusText()}</span>
@@ -386,14 +405,14 @@ ZIP文件已准备就绪，您可以下载后解压获取所需的格式。`);
 
               {/* PDF预览 */}
               {file.type === 'application/pdf' && fileUrl && (
-                <div className="bg-gray-50 rounded-xl p-4">
+                <div className={`${mobilePane === 'upload' ? 'hidden lg:block' : ''} bg-gray-50 rounded-xl p-3 sm:p-4`}>
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="font-medium text-gray-900">PDF 预览</h4>
                   </div>
                   <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
                     <iframe
                       src={fileUrl}
-                      className="w-full h-[600px] border-0"
+                      className="h-[calc(100dvh-15rem)] w-full border-0 lg:h-[600px]"
                       title="PDF预览"
                     />
                   </div>
@@ -405,12 +424,12 @@ ZIP文件已准备就绪，您可以下载后解压获取所需的格式。`);
       </div>
 
       {/* 右侧：Markdown预览区域 */}
-      <div className="w-1/2 bg-white overflow-y-auto">
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
+      <div className={`${mobilePane === 'markdown' ? 'block' : 'hidden lg:block'} w-full flex-1 overflow-y-auto bg-white lg:w-1/2`}>
+        <div className="p-4 sm:p-6">
+          <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-xl font-bold text-gray-900">Markdown 预览</h2>
             {markdown && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {zipUrl && (
                   <button
                     onClick={handleDownloadZip}
@@ -438,7 +457,7 @@ ZIP文件已准备就绪，您可以下载后解压获取所需的格式。`);
           {/* Markdown内容 */}
           {markdown ? (
             <div className="prose prose-sm max-w-none bg-gray-50 rounded-xl p-6 min-h-[400px]">
-              <pre className="whitespace-pre-wrap text-sm text-gray-700">{markdown}</pre>
+              <pre className="whitespace-pre-wrap break-words text-sm text-gray-700">{markdown}</pre>
             </div>
           ) : (
             <div className="text-center py-16 bg-gray-50 rounded-xl">

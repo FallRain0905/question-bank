@@ -136,6 +136,7 @@ export default function QAPage() {
     setActiveConvId(conv.id);
     setSelectedKb(conv.kb_id);
     setMode(conv.mode);
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) setSidebarOpen(false);
     await loadMessages(conv.id);
   };
 
@@ -253,10 +254,17 @@ export default function QAPage() {
   const filteredConvs = conversations.filter(c => c.kb_id === selectedKb);
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] max-w-7xl mx-auto">
+    <div className="relative mx-auto flex h-[calc(100dvh-6rem)] max-w-7xl overflow-hidden lg:h-[calc(100vh-4rem)]">
       {/* Sidebar */}
       {sidebarOpen && (
-        <div className="w-64 flex-shrink-0 border-r border-gray-200 flex flex-col bg-white">
+        <>
+        <button
+          type="button"
+          aria-label="关闭会话列表"
+          className="fixed inset-0 z-30 bg-black/30 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+        <div className="fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-shrink-0 flex-col border-r border-gray-200 bg-white shadow-xl lg:static lg:z-auto lg:w-64 lg:max-w-none lg:shadow-none">
           <div className="p-3 border-b border-gray-100">
             <button onClick={handleNewConversation}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-700">
@@ -326,19 +334,20 @@ export default function QAPage() {
             )}
           </div>
         </div>
+        </>
       )}
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 bg-white">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-400 hover:text-gray-600">
+        <div className="flex flex-col gap-3 border-b border-gray-100 bg-white px-3 py-3 sm:px-4 lg:flex-row lg:items-center">
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="touch-target flex items-center justify-center self-start rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600 lg:self-auto">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
             </svg>
           </button>
-          <div className="flex-1 flex flex-wrap items-center gap-3">
-            <div className="min-w-[160px]">
+          <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="min-w-0 sm:min-w-[160px]">
               <select value={selectedKb} onChange={(e) => setSelectedKb(e.target.value)}
                 className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm outline-none">
                 {kbs.map((kb) => (
@@ -346,9 +355,9 @@ export default function QAPage() {
                 ))}
               </select>
             </div>
-            <div>
+            <div className="sm:w-auto">
               <select value={mode} onChange={(e) => setMode(e.target.value)}
-                className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm outline-none">
+                className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm outline-none sm:w-auto">
                 {modeOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
@@ -356,7 +365,7 @@ export default function QAPage() {
             </div>
             {selectedKb && (
               <Link href={`/kb/${selectedKb}`}
-                className="text-xs text-blue-600 hover:text-blue-700">
+                className="touch-target inline-flex items-center text-xs text-blue-600 hover:text-blue-700">
                 管理文档 →
               </Link>
             )}
@@ -364,7 +373,7 @@ export default function QAPage() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-4">
           {kbs.length === 0 ? (
             <div className="text-center py-16">
               <p className="text-gray-400 mb-2">请先创建知识库并上传文档</p>
@@ -381,7 +390,7 @@ export default function QAPage() {
               )}
               {messages.map((msg) => (
                 <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] rounded-xl px-4 py-3 ${
+                  <div className={`max-w-[92%] rounded-xl px-4 py-3 sm:max-w-[85%] ${
                     msg.role === 'user' ? 'bg-gray-900 text-white' : 'bg-white border border-gray-100'
                   }`}>
                     <div className={`text-sm whitespace-pre-wrap ${msg.role === 'assistant' ? 'text-gray-800 prose prose-sm max-w-none' : ''}`}
@@ -500,7 +509,7 @@ export default function QAPage() {
         </div>
 
         {/* Input */}
-        <div className="border-t border-gray-100 bg-white px-4 py-3">
+        <div className="border-t border-gray-100 bg-white px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4 lg:pb-3">
           <div className="max-w-3xl mx-auto flex gap-2">
             <input
               type="text"
@@ -514,7 +523,7 @@ export default function QAPage() {
             <button
               onClick={handleAsk}
               disabled={loading || !input.trim() || !selectedKb}
-              className="px-6 py-3 bg-gray-900 text-white text-sm rounded-xl hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              className="touch-target px-4 py-3 bg-gray-900 text-white text-sm rounded-xl hover:bg-gray-800 disabled:opacity-50 transition-colors sm:px-6"
             >
               发送
             </button>

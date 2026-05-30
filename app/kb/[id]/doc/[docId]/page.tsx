@@ -23,6 +23,7 @@ export default function DocumentViewerPage() {
   const [outlineMd, setOutlineMd] = useState('');
   const [outlineSummary, setOutlineSummary] = useState('');
   const [showOutline, setShowOutline] = useState(true);
+  const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false);
 
   useEffect(() => { loadDoc(); }, [docId]);
 
@@ -126,33 +127,36 @@ export default function DocumentViewerPage() {
   if (!doc) return <div className="max-w-4xl mx-auto px-4 py-10 text-center text-gray-400">加载中...</div>;
 
   return (
-    <div className="flex h-[calc(100vh-1px)]">
+    <div className="flex h-[calc(100dvh-6rem)] overflow-hidden lg:h-[calc(100vh-1px)]">
       {/* Document Content */}
       <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
+        <div className="max-w-3xl mx-auto px-4 py-5 sm:px-6 sm:py-6">
+          <div className="flex flex-col gap-4 mb-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
               <Link href={`/kb/${kbId}`} className="text-sm text-gray-400 hover:text-gray-600">← 返回</Link>
               <h1 className="text-xl font-bold text-gray-900 mt-1">{doc.title}</h1>
               <p className="text-xs text-gray-400">{doc.file_type?.toUpperCase()} · {doc.content_md?.length || 0} 字符</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex max-w-full items-center gap-2 overflow-x-auto scrollbar-hide pb-1 lg:pb-0">
               <button onClick={handleGenerateOutline} disabled={outlineLoading} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">
                 {outlineLoading ? '生成中...' : 'AI 分析'}
               </button>
-              <button onClick={() => setShowOutline(!showOutline)} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+              <button onClick={() => setMobileOutlineOpen(true)} className="shrink-0 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 lg:hidden">
+                目录
+              </button>
+              <button onClick={() => setShowOutline(!showOutline)} className="hidden shrink-0 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 lg:inline-flex">
                 {showOutline ? '隐藏目录' : '显示目录'}
               </button>
-              <button onClick={() => handleDownloadMarkdown()} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+              <button onClick={() => handleDownloadMarkdown()} className="shrink-0 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
                 下载 Markdown
               </button>
               {doc.file_url && (
-                <a href={doc.file_url} download={doc.file_name || 'document'} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+                <a href={doc.file_url} download={doc.file_name || 'document'} className="shrink-0 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
                   下载原文
                 </a>
               )}
-              <Link href={`/generator?doc=${doc.id}`} className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800">出题</Link>
-              <Link href={`/reader/${doc.id}`} className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 flex items-center gap-1">
+              <Link href={`/generator?doc=${doc.id}`} className="shrink-0 px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800">出题</Link>
+              <Link href={`/reader/${doc.id}`} className="shrink-0 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 flex items-center gap-1">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
                 </svg>
@@ -162,12 +166,12 @@ export default function DocumentViewerPage() {
           </div>
 
           {/* Content */}
-          <div onMouseUp={handleTextSelect} className="bg-white border border-gray-100 rounded-xl p-6 prose prose-sm max-w-none min-h-[400px]" dangerouslySetInnerHTML={renderContent(doc.content_md || '')} />
+          <div onMouseUp={handleTextSelect} className="bg-white border border-gray-100 rounded-xl p-4 prose prose-sm max-w-none min-h-[400px] sm:p-6" dangerouslySetInnerHTML={renderContent(doc.content_md || '')} />
 
           {/* AI Q&A */}
           <div className="mt-6 bg-white border border-gray-100 rounded-xl p-4">
             <h3 className="text-sm font-medium text-gray-700 mb-3">AI 文档问答</h3>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input type="text" value={aiQuestion} onChange={(e) => setAiQuestion(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAskAI()} placeholder="基于文档提问..." className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-gray-400" />
               <button onClick={handleAskAI} disabled={aiLoading} className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50">{aiLoading ? '...' : '提问'}</button>
             </div>
@@ -178,7 +182,7 @@ export default function DocumentViewerPage() {
 
       {/* Outline Sidebar */}
       {showOutline && (
-        <div className="w-60 border-l border-gray-100 bg-white overflow-y-auto shrink-0">
+        <div className="hidden w-60 border-l border-gray-100 bg-white overflow-y-auto shrink-0 lg:block">
           <div className="px-4 py-3 border-b border-gray-100">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">📑 文档目录</span>
@@ -191,9 +195,38 @@ export default function DocumentViewerPage() {
         </div>
       )}
 
+      {mobileOutlineOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            type="button"
+            aria-label="关闭目录"
+            className="absolute inset-0 bg-black/30"
+            onClick={() => setMobileOutlineOpen(false)}
+          />
+          <div className="absolute inset-x-3 bottom-24 top-20 overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+              <span className="text-sm font-medium text-gray-700">文档目录</span>
+              <button
+                type="button"
+                onClick={() => setMobileOutlineOpen(false)}
+                className="touch-target flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            {outlineSummary && <p className="px-4 py-3 text-xs text-gray-400 leading-relaxed">{outlineSummary}</p>}
+            <div className="h-[calc(100%-3.5rem)] overflow-y-auto p-3">
+              <DocumentOutline markdown={outlineMd} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Selected text */}
       {selectedText && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-white border border-gray-200 rounded-xl shadow-lg p-3 max-w-lg">
+        <div className="fixed bottom-24 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 rounded-xl border border-gray-200 bg-white p-3 shadow-lg lg:bottom-6">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-medium text-gray-500">已选中文本</span>
             <button onClick={() => setSelectedText('')} className="text-gray-300 hover:text-gray-500">&times;</button>

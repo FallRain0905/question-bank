@@ -38,6 +38,7 @@ export default function ReaderPage() {
   const [readerTheme, setReaderTheme] = useState<'light' | 'dark' | 'sepia'>('light');
   const [fontSize, setFontSize] = useState(16);
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState<'outline' | 'ai' | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { init(); }, [docId]);
@@ -265,7 +266,7 @@ export default function ReaderPage() {
     <div className="fixed inset-0 z-50 flex bg-white">
       {/* Left: Document Outline */}
       {!outlineCollapsed && (
-        <aside className="w-56 border-r border-gray-100 bg-white shrink-0 flex flex-col">
+        <aside className="hidden w-56 border-r border-gray-100 bg-white shrink-0 flex-col lg:flex">
           <div className="px-4 py-3 border-b border-gray-100">
             <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">文档目录</span>
           </div>
@@ -289,11 +290,11 @@ export default function ReaderPage() {
         />
 
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-8 py-8">
+          <div className="max-w-3xl mx-auto px-4 py-5 sm:px-8 sm:py-8">
             {/* Outline toggle */}
             <button
               onClick={() => setOutlineCollapsed(!outlineCollapsed)}
-              className="fixed left-0 top-1/2 -translate-y-1/2 z-10 w-5 h-10 bg-gray-100 hover:bg-gray-200 rounded-r flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors"
+              className="fixed left-0 top-1/2 z-10 hidden h-10 w-5 -translate-y-1/2 items-center justify-center rounded-r bg-gray-100 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 lg:flex"
               style={{ left: outlineCollapsed ? 0 : '13.5rem' }}
             >
               <svg className={`w-3 h-3 transition-transform ${outlineCollapsed ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -323,7 +324,7 @@ export default function ReaderPage() {
       </main>
 
       {/* Right: AI Panel */}
-      <aside className="w-96 border-l border-gray-100 bg-white shrink-0 flex flex-col">
+      <aside className="hidden w-96 border-l border-gray-100 bg-white shrink-0 flex-col lg:flex">
         <div className="px-4 py-3 border-b border-gray-100">
           <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">AI 阅读助手</span>
         </div>
@@ -339,6 +340,63 @@ export default function ReaderPage() {
           />
         </div>
       </aside>
+
+      <div className="fixed bottom-4 left-1/2 z-20 flex -translate-x-1/2 gap-2 rounded-full border border-gray-200 bg-white/95 p-1 shadow-lg backdrop-blur lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMobilePanel('outline')}
+          className="touch-target rounded-full px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50"
+        >
+          目录
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobilePanel('ai')}
+          className="touch-target rounded-full bg-gray-900 px-4 py-2 text-xs font-medium text-white"
+        >
+          AI
+        </button>
+      </div>
+
+      {mobilePanel && (
+        <div className="fixed inset-0 z-30 lg:hidden">
+          <button
+            type="button"
+            aria-label="关闭面板"
+            className="absolute inset-0 bg-black/30"
+            onClick={() => setMobilePanel(null)}
+          />
+          <div className="absolute inset-x-3 bottom-20 top-20 flex flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+              <span className="text-sm font-medium text-gray-700">{mobilePanel === 'outline' ? '文档目录' : 'AI 阅读助手'}</span>
+              <button
+                type="button"
+                onClick={() => setMobilePanel(null)}
+                className="touch-target flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto p-3">
+              {mobilePanel === 'outline' ? (
+                <DocumentOutline markdown={doc.outline_md || doc.content_md || ''} />
+              ) : (
+                <AIPanel
+                  documentId={docId}
+                  documentContent={doc.content_md || ''}
+                  docTitle={doc.title}
+                  annotations={annotations}
+                  onAnnotationSaved={handleAnnotationSaved}
+                  onAnnotationDeleted={handleAnnotationDeleted}
+                  onNoteSaved={handleNoteSaved}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

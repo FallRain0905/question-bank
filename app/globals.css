@@ -317,8 +317,9 @@ a:hover {
 /* 移动端触摸优化 */
 @media (max-width: 640px) {
   /* 增大触摸区域 */
-  button, a {
+  .touch-target {
     min-height: 44px;
+    min-width: 44px;
   }
 
   /* 优化输入框 */

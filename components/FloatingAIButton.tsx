@@ -253,7 +253,7 @@ export default function FloatingAIButton() {
       {/* 浮动按钮 */}
       <motion.button
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-gray-900 rounded-2xl shadow-lg hover:shadow-xl flex items-center justify-center"
+        className="fixed bottom-24 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-900 shadow-lg hover:shadow-xl lg:bottom-6 lg:right-6 lg:z-50"
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         title="AI 助手"
@@ -290,8 +290,7 @@ export default function FloatingAIButton() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            className="fixed z-40 bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden flex flex-col"
-            style={{ bottom: '6rem', right: '1.5rem', width: '480px', maxWidth: 'calc(100vw - 2rem)', height: '600px', maxHeight: 'calc(100vh - 10rem)' }}
+            className="fixed inset-x-3 bottom-24 top-6 z-40 flex flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl sm:left-auto sm:right-6 sm:top-auto sm:h-[600px] sm:w-[480px] sm:max-w-[calc(100vw-2rem)] sm:max-h-[calc(100vh-10rem)] lg:bottom-24"
           >
             {/* 标题栏 + 会话选择器 */}
             <div className="bg-gray-900 px-4 py-3 flex items-center justify-between shrink-0">
