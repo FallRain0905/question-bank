@@ -8,6 +8,19 @@ import type { KBDocument, KnowledgeBase } from '@/types';
 
 type ImportMode = 'upload' | 'kb';
 
+async function readJsonOrThrow(res: Response) {
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return res.json();
+  }
+
+  const text = await res.text();
+  const message = text.trim().startsWith('<')
+    ? '服务器返回了 HTML 错误页。常见原因是上传文件超过反向代理/Next.js 限制，或部署尚未更新到新的 /api/reader/import 接口。'
+    : text.slice(0, 300) || '服务器返回了非 JSON 响应';
+  throw new Error(message);
+}
+
 export default function ReaderEntryPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,7 +96,7 @@ export default function ReaderEntryPage() {
         headers: { Authorization: `Bearer ${session?.access_token}` },
         body: formData,
       });
-      const data = await res.json();
+      const data = await readJsonOrThrow(res);
       if (!res.ok) throw new Error(data.error || 'Import failed');
       router.push(`/reader/${data.document.id}`);
     } catch (err: any) {

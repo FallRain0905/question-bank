@@ -119,6 +119,79 @@ function parseToolJson(text: string): ToolRequest[] {
   }
 }
 
+function uniqueItems<T>(items: T[], keyFn: (item: T) => string) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = keyFn(item).toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function enrichResearchQuery(query: string, body: AgentBody) {
+  const q = query.trim() || body.question;
+  const lower = q.toLowerCase();
+  const title = (body.documentTitle || '').trim();
+  const refersToCurrentPaper = [
+    'this paper',
+    'current paper',
+    'the paper',
+    '\u8fd9\u7bc7',
+    '\u5f53\u524d',
+    '\u8be5\u8bba\u6587',
+    '\u672c\u6587',
+  ].some(term => lower.includes(term));
+
+  if (title && (refersToCurrentPaper || q.length < 32) && !lower.includes(title.toLowerCase())) {
+    return `${title} ${q}`;
+  }
+  return q;
+}
+
+function parseQueryList(text: string) {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return [];
+  try {
+    const parsed = JSON.parse(match[0]);
+    return Array.isArray(parsed.queries)
+      ? parsed.queries.filter((q: any) => typeof q === 'string' && q.trim()).slice(0, 4)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function buildSearchQueries(
+  rawQuery: string,
+  body: AgentBody,
+  llm: { endpoint: string; apiKey: string; model: string }
+) {
+  const baseQuery = enrichResearchQuery(rawQuery, body);
+  if (!llm.apiKey) return [baseQuery];
+
+  const prompt = `Create precise search queries for academic/web search.
+
+Return only JSON: {"queries":["query 1","query 2","query 3"]}
+
+Rules:
+- Include the current paper title when the user says "this paper" or asks for background/progress.
+- Add an English query when the title or question is Chinese.
+- Keep each query under 14 words.
+
+User request: ${rawQuery}
+Current paper title: ${body.documentTitle || ''}
+Selected text: ${(body.selection || '').slice(0, 500)}
+Document excerpt: ${(body.documentContent || '').slice(0, 800)}`;
+
+  try {
+    const content = await callLLM(llm.endpoint, llm.apiKey, llm.model, [{ role: 'user', content: prompt }], 220);
+    return uniqueItems([baseQuery, ...parseQueryList(content)], q => q).slice(0, 4);
+  } catch {
+    return [baseQuery];
+  }
+}
+
 function heuristicTools(body: AgentBody): ToolRequest[] {
   const q = `${body.question} ${body.selection || ''}`.toLowerCase();
   const tools: ToolRequest[] = [];
@@ -260,25 +333,47 @@ export async function POST(req: NextRequest) {
         try {
           if (tool.name === 'webSearch') {
             const query = tool.args.query || body.question;
-            const [webResults, scholarResults] = await Promise.all([
-              searchTavily(query, researchTools.tavilyApiKey),
-              searchSemanticScholar(query, researchTools.semanticScholarApiKey),
-            ]);
-            const found = [...webResults, ...scholarResults];
+            const queries = await buildSearchQueries(query, body, {
+              endpoint: llmConfig.endpoint,
+              apiKey: llmConfig.apiKey,
+              model: llmConfig.defaultModel,
+            });
+            const batches = await Promise.all(queries.map(async (searchQuery) => {
+              const [webResults, scholarResults] = await Promise.all([
+                searchTavily(searchQuery, researchTools.tavilyApiKey),
+                searchSemanticScholar(searchQuery, researchTools.semanticScholarApiKey),
+              ]);
+              return [...webResults, ...scholarResults];
+            }));
+            const found = uniqueItems(
+              batches.flat(),
+              source => source.url || source.title
+            ).slice(0, 10);
             sources.push(...found);
-            toolSummaries.push(`webSearch("${query}"):\n${found.map((s, i) => `[${i + 1}] ${s.title}: ${s.snippet}`).join('\n') || 'No results.'}`);
-            await send('tool', { id: callId, name: tool.name, args: tool.args, status: 'done', result: `${found.length} sources` });
+            toolSummaries.push(`webSearch queries: ${queries.join(' | ')}\n${found.map((s, i) => `[${i + 1}] ${s.title}: ${s.snippet}`).join('\n') || 'No results.'}`);
+            await send('tool', { id: callId, name: tool.name, args: { ...tool.args, queries }, status: 'done', result: `${found.length} sources` });
           }
 
           if (tool.name === 'searchPapers') {
             const query = String(tool.args.query || body.question).replace(/[%,]/g, ' ').trim();
-            const { data } = await supabase
-              .from('daily_papers')
-              .select('id,title_en,title_zh,abstract_en,summary_zh,arxiv_url,pdf_url,published_at')
-              .or(`title_en.ilike.%${query}%,title_zh.ilike.%${query}%,abstract_en.ilike.%${query}%,summary_zh.ilike.%${query}%`)
-              .order('published_at', { ascending: false })
-              .limit(5);
-            const paperSources = (data || []).map((p: any) => ({
+            const queries = await buildSearchQueries(query, body, {
+              endpoint: llmConfig.endpoint,
+              apiKey: llmConfig.apiKey,
+              model: llmConfig.defaultModel,
+            });
+            const rows: any[] = [];
+            for (const searchQuery of queries) {
+              const safeQuery = searchQuery.replace(/[%,().]/g, ' ').replace(/\s+/g, ' ').trim();
+              if (!safeQuery) continue;
+              const { data } = await supabase
+                .from('daily_papers')
+                .select('id,title_en,title_zh,abstract_en,summary_zh,arxiv_url,pdf_url,published_at')
+                .or(`title_en.ilike.%${safeQuery}%,title_zh.ilike.%${safeQuery}%,abstract_en.ilike.%${safeQuery}%,summary_zh.ilike.%${safeQuery}%`)
+                .order('published_at', { ascending: false })
+                .limit(5);
+              rows.push(...(data || []));
+            }
+            const paperSources = uniqueItems(rows, p => String(p.id)).slice(0, 8).map((p: any) => ({
               id: `local-paper-${p.id}`,
               title: p.title_zh || p.title_en,
               snippet: (p.abstract_en || p.summary_zh || '').slice(0, 500),
@@ -286,8 +381,8 @@ export async function POST(req: NextRequest) {
               type: 'paper' as const,
             }));
             sources.push(...paperSources);
-            toolSummaries.push(`searchPapers("${query}"):\n${paperSources.map((s, i) => `[${i + 1}] ${s.title}: ${s.snippet}`).join('\n') || 'No local papers found.'}`);
-            await send('tool', { id: callId, name: tool.name, args: tool.args, status: 'done', result: `${paperSources.length} papers` });
+            toolSummaries.push(`searchPapers queries: ${queries.join(' | ')}\n${paperSources.map((s, i) => `[${i + 1}] ${s.title}: ${s.snippet}`).join('\n') || 'No local papers found.'}`);
+            await send('tool', { id: callId, name: tool.name, args: { ...tool.args, queries }, status: 'done', result: `${paperSources.length} papers` });
           }
 
           if (tool.name === 'searchMyKB') {

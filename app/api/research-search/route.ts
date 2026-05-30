@@ -49,6 +49,74 @@ Rules:
   return 'both';
 }
 
+function uniqueItems<T>(items: T[], keyFn: (item: T) => string) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = keyFn(item).toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function parseQueryList(text: string) {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return [];
+  try {
+    const parsed = JSON.parse(match[0]);
+    return Array.isArray(parsed.queries)
+      ? parsed.queries.filter((q: any) => typeof q === 'string' && q.trim()).slice(0, 4)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function buildSearchQueries(query: string, apiKey: string, endpoint: string, model: string) {
+  const baseQuery = query.trim();
+  if (!apiKey || !endpoint || !model) return [baseQuery];
+
+  const prompt = `Create precise search queries for academic/web search.
+
+Return only JSON: {"queries":["query 1","query 2","query 3"]}
+
+Rules:
+- Add an English query when the user query is Chinese.
+- Keep each query under 14 words.
+- Preserve important domain terms.
+
+User query: ${baseQuery}`;
+
+  try {
+    const content = await classifyLikeCompletion(prompt, apiKey, endpoint, model, 220);
+    return uniqueItems([baseQuery, ...parseQueryList(content)], q => q).slice(0, 4);
+  } catch {
+    return [baseQuery];
+  }
+}
+
+async function classifyLikeCompletion(
+  prompt: string,
+  apiKey: string,
+  endpoint: string,
+  model: string,
+  maxTokens: number
+) {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0,
+      max_tokens: maxTokens,
+    }),
+  });
+  if (!res.ok) throw new Error(`LLM error ${res.status}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
 // ======================== Tavily Search ========================
 
 interface TavilyResult {
@@ -169,15 +237,21 @@ export async function POST(req: NextRequest) {
 
       // Step 2: Search
       await send('status', { stage: 'searching' });
+      const searchQueries = await buildSearchQueries(query, apiKey, endpoint, model);
       const searchPromises: Promise<ResearchSource[]>[] = [];
-      if (intent === 'academic' || intent === 'both') {
-        searchPromises.push(searchSemanticScholar(query, toolConfig.semanticScholarApiKey));
-      }
-      if (intent === 'general' || intent === 'both') {
-        searchPromises.push(searchTavily(query, toolConfig.tavilyApiKey));
+      for (const searchQuery of searchQueries) {
+        if (intent === 'academic' || intent === 'both') {
+          searchPromises.push(searchSemanticScholar(searchQuery, toolConfig.semanticScholarApiKey));
+        }
+        if (intent === 'general' || intent === 'both') {
+          searchPromises.push(searchTavily(searchQuery, toolConfig.tavilyApiKey));
+        }
       }
       const results = await Promise.all(searchPromises);
-      const sources: ResearchSource[] = results.flat();
+      const sources: ResearchSource[] = uniqueItems(
+        results.flat(),
+        source => source.url || source.title
+      ).slice(0, 10);
 
       if (sources.length === 0) {
         await send('done', { summary: '未找到相关结果，请尝试其他关键词。', sources: [], intent });
@@ -197,6 +271,7 @@ export async function POST(req: NextRequest) {
 Use inline citations like [1], [2] to reference sources. Be thorough and accurate. Respond in the same language as the user's question.
 
 User question: ${query}
+Search queries used: ${searchQueries.join(' | ')}
 
 Sources:
 ${sourceContext}`;

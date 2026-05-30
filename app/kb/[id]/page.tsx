@@ -9,6 +9,19 @@ import KnowledgeGraph from '@/components/KnowledgeGraph';
 
 type TabKey = 'docs' | 'index' | 'graph';
 
+async function readJsonOrThrow(res: Response) {
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return res.json();
+  }
+
+  const text = await res.text();
+  const message = text.trim().startsWith('<')
+    ? '服务器返回了 HTML 错误页。常见原因是上传文件过大、反向代理限制，或服务端路由没有部署成功。'
+    : text.slice(0, 300) || '服务器返回了非 JSON 响应';
+  throw new Error(message);
+}
+
 export default function KnowledgeBaseDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -144,10 +157,14 @@ export default function KnowledgeBaseDetailPage() {
       if (res.ok) {
         loadDocs(userIdRef.current || undefined);
       } else {
-        const err = await res.json();
+        const err = await readJsonOrThrow(res);
         alert(err.error || '上传失败');
       }
-    } catch {
+    } catch (err: any) {
+      if (err?.message) {
+        alert(err.message);
+        return;
+      }
       alert('上传失败');
     } finally {
       setUploading(false);
