@@ -291,6 +291,45 @@ export interface ResearchSource {
   citationCount?: number;
 }
 
+export interface ReadingNote {
+  id: string;
+  user_id: string;
+  document_id: string | null;
+  paper_id: string | null;
+  title: string;
+  content: string;
+  selected_text: string | null;
+  source_url: string | null;
+  metadata: Record<string, any> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResearchAgentToolCall {
+  id: string;
+  name: 'webSearch' | 'searchMyKB' | 'searchPapers' | 'saveNote' | 'summarizeCurrentPaper';
+  args: Record<string, any>;
+  status: 'running' | 'done' | 'error';
+  result?: string;
+}
+
+export interface ResearchAgentSource {
+  id: string;
+  title: string;
+  snippet?: string;
+  url?: string;
+  type: 'web' | 'paper' | 'kb' | 'note' | 'document';
+}
+
+export interface ResearchAgentMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  toolCalls?: ResearchAgentToolCall[];
+  sources?: ResearchAgentSource[];
+  created_at: string;
+}
+
 // AI 阅读器相关类型
 export interface DocumentHighlight {
   id: string;
