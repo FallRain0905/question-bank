@@ -264,6 +264,12 @@ export interface Database {
           llm_api_url: string | null
           llm_model: string | null
           mineru_api_key: string | null
+          embedding_api_key: string | null
+          embedding_api_url: string | null
+          embedding_model: string | null
+          embedding_dimensions: number | null
+          hyperrag_service_url: string | null
+          semantic_scholar_api_key: string | null
           created_at: string
           updated_at: string
         }
@@ -274,6 +280,12 @@ export interface Database {
           llm_api_url?: string | null
           llm_model?: string | null
           mineru_api_key?: string | null
+          embedding_api_key?: string | null
+          embedding_api_url?: string | null
+          embedding_model?: string | null
+          embedding_dimensions?: number | null
+          hyperrag_service_url?: string | null
+          semantic_scholar_api_key?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -284,6 +296,12 @@ export interface Database {
           llm_api_url?: string | null
           llm_model?: string | null
           mineru_api_key?: string | null
+          embedding_api_key?: string | null
+          embedding_api_url?: string | null
+          embedding_model?: string | null
+          embedding_dimensions?: number | null
+          hyperrag_service_url?: string | null
+          semantic_scholar_api_key?: string | null
           created_at?: string
           updated_at?: string
         }

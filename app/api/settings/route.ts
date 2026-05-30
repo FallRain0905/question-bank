@@ -21,6 +21,7 @@ const defaultSettings = {
   embedding_model: '',
   embedding_dimensions: 1024,
   hyperrag_service_url: '',
+  semantic_scholar_api_key: '',
 };
 
 function normalizeSettings(settings: Record<string, any> | null) {
@@ -55,6 +56,7 @@ export async function PUT(req: NextRequest) {
   const {
     llm_provider, llm_api_key, llm_api_url, llm_model, mineru_api_key,
     embedding_api_key, embedding_api_url, embedding_model, embedding_dimensions, hyperrag_service_url,
+    semantic_scholar_api_key,
   } = body;
 
   const parsedEmbeddingDimensions = Number(embedding_dimensions);
@@ -75,6 +77,7 @@ export async function PUT(req: NextRequest) {
         ? parsedEmbeddingDimensions
         : defaultSettings.embedding_dimensions,
       hyperrag_service_url: hyperrag_service_url || '',
+      semantic_scholar_api_key: semantic_scholar_api_key || '',
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id' })
     .select()

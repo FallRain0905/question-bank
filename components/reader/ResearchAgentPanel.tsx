@@ -23,6 +23,12 @@ interface ResearchAgentPanelProps {
   onNoteSaved?: (note: ReadingNote) => void;
 }
 
+interface ToolStatus {
+  name: string;
+  enabled: boolean;
+  detail: string;
+}
+
 const quickActions = [
   { label: '总结论文', prompt: '请总结当前论文的核心问题、方法、结论和我应该重点关注的概念。' },
   { label: '解释选区', prompt: '请解释我选中的这段内容，并补充必要背景。' },
@@ -42,12 +48,33 @@ export default function ResearchAgentPanel({
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [toolStatus, setToolStatus] = useState<ToolStatus[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
   const selectedTextRef = useRef(selectedText);
 
   useEffect(() => {
     selectedTextRef.current = selectedText;
   }, [selectedText]);
+
+  useEffect(() => {
+    const loadToolStatus = async () => {
+      try {
+        const supabase = getSupabase();
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch('/api/research-agent', {
+          headers: { Authorization: `Bearer ${session?.access_token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setToolStatus(data.tools || []);
+        }
+      } catch {
+        setToolStatus([]);
+      }
+    };
+
+    loadToolStatus();
+  }, []);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -152,6 +179,21 @@ export default function ResearchAgentPanel({
       </div>
 
       <div className="border-b border-gray-100 px-3 py-2">
+        {toolStatus.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {toolStatus.map((tool) => (
+              <span
+                key={tool.name}
+                title={tool.detail}
+                className={`rounded-full px-2 py-0.5 text-[10px] ${
+                  tool.enabled ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
+                }`}
+              >
+                {tool.enabled ? 'on' : 'needs config'} · {tool.name}
+              </span>
+            ))}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2">
           {quickActions.map((action) => (
             <button
@@ -250,4 +292,3 @@ export default function ResearchAgentPanel({
     </div>
   );
 }
-

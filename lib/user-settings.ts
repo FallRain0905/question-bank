@@ -196,3 +196,48 @@ export async function getUserEmbeddingConfig(token: string) {
 export function getHyperRagServiceUrl(settings?: { hyperrag_service_url?: string } | null): string {
   return settings?.hyperrag_service_url || process.env.HYPERRAG_SERVICE_URL || 'http://localhost:8001';
 }
+
+export async function getUserResearchToolConfig(token: string) {
+  const envSemanticScholarKey = process.env.SEMANTIC_SCHOLAR_API_KEY || '';
+  const envTavilyKey = process.env.TAVILY_API_KEY || '';
+
+  if (!token) {
+    return {
+      semanticScholarApiKey: envSemanticScholarKey,
+      tavilyApiKey: envTavilyKey,
+    };
+  }
+
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${token}` } } }
+    );
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return {
+        semanticScholarApiKey: envSemanticScholarKey,
+        tavilyApiKey: envTavilyKey,
+      };
+    }
+
+    const { data: settings } = await supabase
+      .from('user_settings')
+      .select('semantic_scholar_api_key')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    return {
+      semanticScholarApiKey: settings?.semantic_scholar_api_key || envSemanticScholarKey,
+      tavilyApiKey: envTavilyKey,
+    };
+  } catch (error) {
+    console.error('Error getting research tool config:', error);
+    return {
+      semanticScholarApiKey: envSemanticScholarKey,
+      tavilyApiKey: envTavilyKey,
+    };
+  }
+}

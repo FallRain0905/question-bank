@@ -276,6 +276,7 @@ export interface UserSettings {
   embedding_model: string;
   embedding_dimensions: number;
   hyperrag_service_url: string;
+  semantic_scholar_api_key: string;
 }
 
 // 研究搜索相关类型

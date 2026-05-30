@@ -309,7 +309,7 @@ export default function KnowledgeBaseDetailPage() {
           <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-gray-500">{docs.length} 个文档</p>
             <div className="flex flex-wrap gap-2">
-              <input ref={fileInputRef} type="file" accept=".md,.docx,.txt" onChange={handleUpload} className="hidden" />
+              <input ref={fileInputRef} type="file" accept=".pdf,.md,.markdown,.docx,.txt" onChange={handleUpload} className="hidden" />
               <button
                 onClick={() => handleBuildIndex()}
                 disabled={indexing || docs.length === 0}
@@ -354,6 +354,7 @@ export default function KnowledgeBaseDetailPage() {
                   </Link>
                   <div className="flex flex-wrap items-center gap-2 sm:ml-3">
                     <span className="text-[10px]">{indexStatusLabel((doc as any).index_status)}</span>
+                    <Link href={`/reader/${doc.id}`} className="text-xs text-purple-600 hover:text-purple-700 px-2 py-1">AI 阅读</Link>
                     <Link href={`/generator?doc=${doc.id}`} className="text-xs text-blue-600 hover:text-blue-700 px-2 py-1">出题</Link>
                     <button onClick={() => handleDelete(doc.id)} className="text-gray-300 hover:text-red-500 transition-colors">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">

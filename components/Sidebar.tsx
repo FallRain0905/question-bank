@@ -520,7 +520,7 @@ export default function Sidebar() {
               </Link>
 
               <Link
-                href="/kb"
+                href="/reader"
                 className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
                   isActive('/reader') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 } ${collapsed ? 'justify-center' : ''}`}

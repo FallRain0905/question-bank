@@ -1,13 +1,14 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getUserEmbeddingConfig, getUserLLMConfig } from '@/lib/user-settings';
+import {
+  getUserEmbeddingConfig,
+  getUserLLMConfig,
+  getUserResearchToolConfig,
+} from '@/lib/user-settings';
 import type { ResearchAgentSource, ResearchAgentToolCall } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const TAVILY_KEY = () => process.env.TAVILY_API_KEY || '';
-const SCHOLAR_KEY = () => process.env.SEMANTIC_SCHOLAR_API_KEY || '';
 
 type ToolName = ResearchAgentToolCall['name'];
 
@@ -38,16 +39,15 @@ function sseEvent(event: string, data: object): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
-async function searchTavily(query: string): Promise<ResearchAgentSource[]> {
-  const key = TAVILY_KEY();
-  if (!key) return [];
+async function searchTavily(query: string, apiKey: string): Promise<ResearchAgentSource[]> {
+  if (!apiKey) return [];
 
   try {
     const res = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        api_key: key,
+        api_key: apiKey,
         query,
         search_depth: 'advanced',
         include_answer: false,
@@ -68,11 +68,10 @@ async function searchTavily(query: string): Promise<ResearchAgentSource[]> {
   }
 }
 
-async function searchSemanticScholar(query: string): Promise<ResearchAgentSource[]> {
+async function searchSemanticScholar(query: string, apiKey: string): Promise<ResearchAgentSource[]> {
   try {
     const headers: Record<string, string> = {};
-    const key = SCHOLAR_KEY();
-    if (key) headers['x-api-key'] = key;
+    if (apiKey) headers['x-api-key'] = apiKey;
 
     const url = `https://api.semanticscholar.org/graph/v1/paper/search?${new URLSearchParams({
       query,
@@ -126,12 +125,21 @@ function heuristicTools(body: AgentBody): ToolRequest[] {
   const add = (name: ToolName, args: Record<string, any>) => {
     if (!tools.some(t => t.name === name)) tools.push({ name, args });
   };
+  const hasAny = (keywords: string[]) => keywords.some(keyword => q.includes(keyword.toLowerCase()));
 
-  if (/web|search|联网|网上|最新|recent|current|资料/.test(q)) add('webSearch', { query: body.question });
-  if (/知识库|我的|资料库|kb|库里/.test(q)) add('searchMyKB', { query: body.question });
-  if (/paper|论文|arxiv|文献|citation|相关研究/.test(q)) add('searchPapers', { query: body.question });
-  if (/总结|summary|summarize|概括|摘要/.test(q)) add('summarizeCurrentPaper', { selection: body.selection || '' });
-  if (/保存|记录|记一下|save note|save/.test(q)) {
+  if (hasAny(['web', 'search', 'internet', 'recent', 'current', '\u8054\u7f51', '\u7f51\u4e0a', '\u6700\u65b0', '\u8d44\u6599', '\u641c\u7d22'])) {
+    add('webSearch', { query: body.question });
+  }
+  if (hasAny(['kb', '\u77e5\u8bc6\u5e93', '\u6211\u7684\u8d44\u6599', '\u8d44\u6599\u5e93', '\u5e93\u91cc'])) {
+    add('searchMyKB', { query: body.question });
+  }
+  if (hasAny(['paper', 'arxiv', 'citation', 'literature', '\u8bba\u6587', '\u6587\u732e', '\u76f8\u5173\u7814\u7a76', '\u5f15\u7528'])) {
+    add('searchPapers', { query: body.question });
+  }
+  if (hasAny(['summary', 'summarize', 'abstract', '\u603b\u7ed3', '\u6982\u62ec', '\u6458\u8981'])) {
+    add('summarizeCurrentPaper', { selection: body.selection || '' });
+  }
+  if (hasAny(['save note', 'save', '\u4fdd\u5b58', '\u8bb0\u5f55', '\u8bb0\u4e00\u4e0b'])) {
     add('saveNote', {
       title: body.selection ? body.selection.slice(0, 40) : body.question.slice(0, 40),
       content: body.selection || body.question,
@@ -148,7 +156,7 @@ async function chooseTools(body: AgentBody, llm: { endpoint: string; apiKey: str
   const prompt = `Choose tools for a research reading assistant.
 
 Available tools:
-- webSearch(query): search the public web and Semantic Scholar.
+- webSearch(query): search Tavily web results and Semantic Scholar papers.
 - searchMyKB(query): search the user's current knowledge base.
 - searchPapers(query): search local arXiv/daily papers.
 - saveNote(title, content, selected_text): save a private reading note, only when the user explicitly asks to record/save.
@@ -171,6 +179,43 @@ Excerpt: ${(body.documentContent || '').slice(0, 1200)}`;
   }
 }
 
+export async function GET(req: NextRequest) {
+  const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
+  if (!token) return NextResponse.json({ error: 'Please log in first' }, { status: 401 });
+
+  const supabase = supabaseForToken(token);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Please log in first' }, { status: 401 });
+
+  const [toolConfig, embeddingConfig] = await Promise.all([
+    getUserResearchToolConfig(token),
+    getUserEmbeddingConfig(token),
+  ]);
+
+  return NextResponse.json({
+    tools: [
+      {
+        name: 'webSearch',
+        enabled: !!toolConfig.tavilyApiKey || !!toolConfig.semanticScholarApiKey,
+        detail: toolConfig.tavilyApiKey ? 'Tavily configured' : 'Tavily missing; Semantic Scholar only',
+      },
+      {
+        name: 'Semantic Scholar',
+        enabled: true,
+        detail: toolConfig.semanticScholarApiKey ? 'API key configured' : 'No API key; using public low-rate access',
+      },
+      {
+        name: 'searchMyKB',
+        enabled: !!embeddingConfig?.apiKey && !!embeddingConfig?.hyperragServiceUrl,
+        detail: embeddingConfig?.apiKey ? 'Embedding and HyperRAG config found' : 'Missing embedding config',
+      },
+      { name: 'searchPapers', enabled: true, detail: 'Local daily_papers table' },
+      { name: 'saveNote', enabled: true, detail: 'Private reading_notes table' },
+      { name: 'summarizeCurrentPaper', enabled: true, detail: 'Uses current document context' },
+    ],
+  });
+}
+
 export async function POST(req: NextRequest) {
   const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
   if (!token) return new Response(JSON.stringify({ error: 'Please log in first' }), { status: 401 });
@@ -182,7 +227,10 @@ export async function POST(req: NextRequest) {
   const body = await req.json() as AgentBody;
   if (!body.question?.trim()) return new Response(JSON.stringify({ error: 'Missing question' }), { status: 400 });
 
-  const llmConfig = await getUserLLMConfig(token);
+  const [llmConfig, researchTools] = await Promise.all([
+    getUserLLMConfig(token),
+    getUserResearchToolConfig(token),
+  ]);
   if (!llmConfig.apiKey || !llmConfig.endpoint) {
     return new Response(JSON.stringify({ error: 'Missing LLM configuration' }), { status: 400 });
   }
@@ -212,18 +260,22 @@ export async function POST(req: NextRequest) {
         try {
           if (tool.name === 'webSearch') {
             const query = tool.args.query || body.question;
-            const found = [...await searchTavily(query), ...await searchSemanticScholar(query)];
+            const [webResults, scholarResults] = await Promise.all([
+              searchTavily(query, researchTools.tavilyApiKey),
+              searchSemanticScholar(query, researchTools.semanticScholarApiKey),
+            ]);
+            const found = [...webResults, ...scholarResults];
             sources.push(...found);
             toolSummaries.push(`webSearch("${query}"):\n${found.map((s, i) => `[${i + 1}] ${s.title}: ${s.snippet}`).join('\n') || 'No results.'}`);
             await send('tool', { id: callId, name: tool.name, args: tool.args, status: 'done', result: `${found.length} sources` });
           }
 
           if (tool.name === 'searchPapers') {
-            const query = (tool.args.query || body.question).replace(/[%_]/g, '\\$&');
+            const query = String(tool.args.query || body.question).replace(/[%,]/g, ' ').trim();
             const { data } = await supabase
               .from('daily_papers')
               .select('id,title_en,title_zh,abstract_en,summary_zh,arxiv_url,pdf_url,published_at')
-              .or(`title_en.ilike.%${query}%,title_zh.ilike.%${query}%,abstract_en.ilike.%${query}%`)
+              .or(`title_en.ilike.%${query}%,title_zh.ilike.%${query}%,abstract_en.ilike.%${query}%,summary_zh.ilike.%${query}%`)
               .order('published_at', { ascending: false })
               .limit(5);
             const paperSources = (data || []).map((p: any) => ({
@@ -268,6 +320,7 @@ export async function POST(req: NextRequest) {
                   },
                 }),
               });
+              if (!ragRes.ok) throw new Error(`HyperRAG error ${ragRes.status}`);
               const rag = await ragRes.json();
               const textUnits = rag.text_units || [];
               const kbSources = textUnits.slice(0, 5).map((u: any, i: number) => ({
@@ -378,7 +431,9 @@ ${sourceContext}`,
                 finalAnswer += content;
                 await send('token', { content });
               }
-            } catch { /* ignore malformed stream lines */ }
+            } catch {
+              // Ignore malformed stream lines.
+            }
           }
         }
       } else {

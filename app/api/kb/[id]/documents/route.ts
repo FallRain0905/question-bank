@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import mammoth from 'mammoth';
+import { getUserMineruConfig } from '@/lib/user-settings';
 
-// 注意：PDF文件使用MinerU API解析，不在服务端使用pdf-parse（避免DOMMatrix错误）
+export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest, { params }: any) {
   const { id } = await params;
@@ -14,11 +15,11 @@ export async function POST(req: NextRequest, { params }: any) {
   );
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: '请先登录' }, { status: 401 });
+  if (!user) return NextResponse.json({ error: 'Please log in first' }, { status: 401 });
 
   const formData = await req.formData();
   const file = formData.get('file') as File | null;
-  if (!file) return NextResponse.json({ error: '请上传文件' }, { status: 400 });
+  if (!file) return NextResponse.json({ error: 'Missing file' }, { status: 400 });
 
   const fileName = file.name;
   const fileType = fileName.split('.').pop()?.toLowerCase() || '';
@@ -29,51 +30,52 @@ export async function POST(req: NextRequest, { params }: any) {
     const buffer = Buffer.from(bytes);
 
     if (fileType === 'pdf') {
-      // Use MinerU v1 agent API (direct file upload, no auth needed)
       try {
         const minerForm = new FormData();
-        minerForm.append('file', new Blob([buffer], { type: 'application/pdf' }), fileName);
+        const pdfBytes = new Uint8Array(buffer.length);
+        pdfBytes.set(buffer);
+        minerForm.append('file', new Blob([pdfBytes.buffer], { type: 'application/pdf' }), fileName);
         minerForm.append('return_md', 'true');
+
+        const mineru = await getUserMineruConfig(token);
+        const headers: Record<string, string> = {};
+        if (mineru.token) headers.Authorization = `Bearer ${mineru.token}`;
 
         const minerRes = await fetch('https://mineru.net/api/v1/agent/parse/file', {
           method: 'POST',
+          headers,
           body: minerForm,
         });
 
         if (minerRes.ok) {
           const data = await minerRes.json();
           contentMd = data.content || data.markdown || '';
-        } else {
-          throw new Error('PDF解析失败');
         }
       } catch (pdfError) {
-        console.error('PDF解析错误:', pdfError);
-        throw new Error('PDF文件解析失败，请尝试使用其他格式');
+        console.warn('PDF parse failed; storing original PDF only.', pdfError);
       }
     } else if (fileType === 'docx') {
       const result = await mammoth.extractRawText({ buffer });
       contentMd = result.value || '';
-    } else if (fileType === 'md' || fileType === 'markdown') {
+    } else if (fileType === 'md' || fileType === 'markdown' || fileType === 'txt') {
       contentMd = new TextDecoder().decode(buffer);
     } else {
-      // Plain text
       contentMd = new TextDecoder().decode(buffer);
     }
 
-    if (!contentMd.trim()) {
-      return NextResponse.json({ error: '无法解析文件内容' }, { status: 400 });
+    if (!contentMd.trim() && fileType !== 'pdf') {
+      return NextResponse.json({ error: 'Unable to parse file content' }, { status: 400 });
     }
 
-    // Upload file to Supabase Storage
     const filePath = `kb/${user.id}/${Date.now()}-${fileName}`;
-    await supabase.storage.from('files').upload(filePath, buffer, {
-      contentType: file.type,
+    const { error: uploadError } = await supabase.storage.from('files').upload(filePath, buffer, {
+      contentType: file.type || 'application/octet-stream',
       upsert: false,
     });
+    if (uploadError) throw uploadError;
 
     const { data: publicData } = supabase.storage.from('files').getPublicUrl(filePath);
 
-    // Save document record
     const { data: doc, error } = await supabase
       .from('kb_documents')
       .insert({
@@ -85,7 +87,7 @@ export async function POST(req: NextRequest, { params }: any) {
         file_name: fileName,
         file_type: fileType,
         file_size: file.size,
-        status: 'ready',
+        status: contentMd.trim() ? 'ready' : 'file_only',
       })
       .select()
       .single();
@@ -95,6 +97,6 @@ export async function POST(req: NextRequest, { params }: any) {
     return NextResponse.json({ success: true, document: doc });
   } catch (error: any) {
     console.error('Document upload error:', error);
-    return NextResponse.json({ error: error.message || '上传失败' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Upload failed' }, { status: 500 });
   }
 }

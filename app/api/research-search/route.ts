@@ -1,11 +1,8 @@
 import { NextRequest } from 'next/server';
-import { getUserLLMConfig } from '@/lib/user-settings';
+import { getUserLLMConfig, getUserResearchToolConfig } from '@/lib/user-settings';
 import type { ResearchSource } from '@/types';
 
 export const runtime = 'nodejs';
-
-const TAVILY_KEY = () => process.env.TAVILY_API_KEY || '';
-const SCHOLAR_KEY = () => process.env.SEMANTIC_SCHOLAR_API_KEY || '';
 
 // ======================== Intent Classification ========================
 
@@ -61,16 +58,15 @@ interface TavilyResult {
   raw_content?: string;
 }
 
-async function searchTavily(query: string): Promise<ResearchSource[]> {
-  const key = TAVILY_KEY();
-  if (!key) return [];
+async function searchTavily(query: string, apiKey: string): Promise<ResearchSource[]> {
+  if (!apiKey) return [];
 
   try {
     const res = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        api_key: key,
+        api_key: apiKey,
         query,
         search_depth: 'advanced',
         include_answer: false,
@@ -104,11 +100,10 @@ interface ScholarPaper {
   venue?: string;
 }
 
-async function searchSemanticScholar(query: string): Promise<ResearchSource[]> {
+async function searchSemanticScholar(query: string, apiKey: string): Promise<ResearchSource[]> {
   try {
     const headers: Record<string, string> = {};
-    const key = SCHOLAR_KEY();
-    if (key) headers['x-api-key'] = key;
+    if (apiKey) headers['x-api-key'] = apiKey;
 
     const url = `https://api.semanticscholar.org/graph/v1/paper/search?${new URLSearchParams({
       query,
@@ -152,7 +147,10 @@ export async function POST(req: NextRequest) {
   const userIntent = (mode === 'academic' || mode === 'general' || mode === 'both') ? mode : null;
 
   const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
-  const { apiKey, endpoint, defaultModel: model } = await getUserLLMConfig(token);
+  const [{ apiKey, endpoint, defaultModel: model }, toolConfig] = await Promise.all([
+    getUserLLMConfig(token),
+    getUserResearchToolConfig(token),
+  ]);
 
   const encoder = new TextEncoder();
   const transform = new TransformStream();
@@ -173,10 +171,10 @@ export async function POST(req: NextRequest) {
       await send('status', { stage: 'searching' });
       const searchPromises: Promise<ResearchSource[]>[] = [];
       if (intent === 'academic' || intent === 'both') {
-        searchPromises.push(searchSemanticScholar(query));
+        searchPromises.push(searchSemanticScholar(query, toolConfig.semanticScholarApiKey));
       }
       if (intent === 'general' || intent === 'both') {
-        searchPromises.push(searchTavily(query));
+        searchPromises.push(searchTavily(query, toolConfig.tavilyApiKey));
       }
       const results = await Promise.all(searchPromises);
       const sources: ResearchSource[] = results.flat();
