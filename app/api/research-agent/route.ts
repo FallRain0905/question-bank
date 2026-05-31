@@ -93,6 +93,43 @@ async function searchSemanticScholar(query: string, apiKey: string): Promise<Res
   }
 }
 
+function extractScholarIds(sources: ResearchAgentSource[]) {
+  return sources
+    .map(source => source.id.match(/scholar-(.+)$/)?.[1])
+    .filter(Boolean)
+    .slice(0, 3) as string[];
+}
+
+async function recommendSemanticScholar(seedPaperIds: string[], apiKey: string): Promise<ResearchAgentSource[]> {
+  if (seedPaperIds.length === 0) return [];
+
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['x-api-key'] = apiKey;
+
+    const url = `https://api.semanticscholar.org/recommendations/v1/papers?${new URLSearchParams({
+      limit: '5',
+      fields: 'title,abstract,url,year,authors,citationCount,venue',
+    })}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ positivePaperIds: seedPaperIds }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.recommendedPapers || []).map((p: any) => ({
+      id: `scholar-rec-${p.paperId}`,
+      title: p.title || 'Recommended paper',
+      snippet: (p.abstract || '').slice(0, 500),
+      url: p.url,
+      type: 'paper' as const,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 async function callLLM(endpoint: string, apiKey: string, model: string, messages: any[], maxTokens = 800) {
   const res = await fetch(endpoint, {
     method: 'POST',
@@ -154,8 +191,11 @@ function parseQueryList(text: string) {
   if (!match) return [];
   try {
     const parsed = JSON.parse(match[0]);
+    if (typeof parsed.english_query === 'string' && parsed.english_query.trim()) {
+      return [parsed.english_query.trim()];
+    }
     return Array.isArray(parsed.queries)
-      ? parsed.queries.filter((q: any) => typeof q === 'string' && q.trim()).slice(0, 4)
+      ? parsed.queries.filter((q: any) => typeof q === 'string' && q.trim()).slice(0, 1)
       : [];
   } catch {
     return [];
@@ -170,13 +210,13 @@ async function buildSearchQueries(
   const baseQuery = enrichResearchQuery(rawQuery, body);
   if (!llm.apiKey) return [baseQuery];
 
-  const prompt = `Create precise search queries for academic/web search.
+  const prompt = `Translate or rewrite this query into one concise English academic/web search query.
 
-Return only JSON: {"queries":["query 1","query 2","query 3"]}
+Return only JSON: {"english_query":"..."}
 
 Rules:
 - Include the current paper title when the user says "this paper" or asks for background/progress.
-- Add an English query when the title or question is Chinese.
+- If the query is already English, return a cleaned English version.
 - Keep each query under 14 words.
 
 User request: ${rawQuery}
@@ -186,7 +226,7 @@ Document excerpt: ${(body.documentContent || '').slice(0, 800)}`;
 
   try {
     const content = await callLLM(llm.endpoint, llm.apiKey, llm.model, [{ role: 'user', content: prompt }], 220);
-    return uniqueItems([baseQuery, ...parseQueryList(content)], q => q).slice(0, 4);
+    return uniqueItems([baseQuery, ...parseQueryList(content)], q => q).slice(0, 2);
   } catch {
     return [baseQuery];
   }
@@ -345,8 +385,16 @@ export async function POST(req: NextRequest) {
               ]);
               return [...webResults, ...scholarResults];
             }));
-            const found = uniqueItems(
+            const initialFound = uniqueItems(
               batches.flat(),
+              source => source.url || source.title
+            );
+            const recommended = await recommendSemanticScholar(
+              extractScholarIds(initialFound),
+              researchTools.semanticScholarApiKey
+            );
+            const found = uniqueItems(
+              [...initialFound, ...recommended],
               source => source.url || source.title
             ).slice(0, 10);
             sources.push(...found);

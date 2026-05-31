@@ -7,8 +7,14 @@ import { getSupabase } from '@/lib/supabase';
 import { renderMarkdown } from '@/lib/render-markdown';
 import type { ResearchSource } from '@/types';
 
-type Stage = 'idle' | 'analyzing' | 'searching' | 'generating' | 'done' | 'error';
-type SearchMode = 'auto' | 'academic' | 'general' | 'both';
+type Stage = 'idle' | 'searching' | 'generating' | 'done' | 'error';
+type SearchMode = 'academic' | 'general' | 'both';
+
+const SEARCH_MODES: { value: SearchMode; label: string; hint: string; color: string }[] = [
+  { value: 'academic', label: '学术搜索', hint: 'Semantic Scholar', color: 'text-purple-600 bg-purple-50 hover:bg-purple-100' },
+  { value: 'general', label: '全网搜索', hint: 'Tavily', color: 'text-green-600 bg-green-50 hover:bg-green-100' },
+  { value: 'both', label: '综合搜索', hint: '两者都搜索', color: 'text-blue-600 bg-blue-50 hover:bg-blue-100' },
+];
 
 export default function ResearchSearchPage() {
   const router = useRouter();
@@ -17,8 +23,8 @@ export default function ResearchSearchPage() {
   const [summary, setSummary] = useState('');
   const [sources, setSources] = useState<ResearchSource[]>([]);
   const [stage, setStage] = useState<Stage>('idle');
-  const [intent, setIntent] = useState<string>('');
-  const [searchMode, setSearchMode] = useState<SearchMode>('auto');
+  const [resultMode, setResultMode] = useState<SearchMode>('both');
+  const [searchMode, setSearchMode] = useState<SearchMode>('both');
   const inputRef = useRef<HTMLInputElement>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
 
@@ -27,16 +33,17 @@ export default function ResearchSearchPage() {
     const m = searchParams.get('mode') as SearchMode | null;
     if (q) {
       setQuery(q);
-      if (m && m !== 'auto') setSearchMode(m);
-      performSearch(q, m && m !== 'auto' ? m : undefined);
+      const nextMode = m && ['academic', 'general', 'both'].includes(m) ? m : 'both';
+      setSearchMode(nextMode);
+      performSearch(q, nextMode);
     }
   }, [searchParams]);
 
   const performSearch = useCallback(async (q: string, mode?: SearchMode) => {
-    setStage('analyzing');
+    setStage('searching');
     setSummary('');
     setSources([]);
-    setIntent('');
+    setResultMode(mode || searchMode);
 
     const effectiveMode = mode || searchMode;
 
@@ -50,7 +57,7 @@ export default function ResearchSearchPage() {
           'Content-Type': 'application/json',
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ query: q, mode: effectiveMode === 'auto' ? undefined : effectiveMode }),
+        body: JSON.stringify({ query: q, mode: effectiveMode }),
       });
 
       if (!res.ok) {
@@ -93,7 +100,7 @@ export default function ResearchSearchPage() {
               setSummary(prev => prev + data.content);
             } else if (eventType === 'done') {
               setSources(data.sources || []);
-              setIntent(data.intent || '');
+              setResultMode(data.mode || effectiveMode);
               setStage('done');
               if (data.summary && data.summary !== summary) {
                 setSummary(data.summary);
@@ -112,11 +119,10 @@ export default function ResearchSearchPage() {
     e.preventDefault();
     const q = query.trim();
     if (!q) return;
-    router.push(`/search?q=${encodeURIComponent(q)}`);
+    router.push(`/search?q=${encodeURIComponent(q)}&mode=${searchMode}`);
   };
 
   const stageLabel: Record<string, string> = {
-    analyzing: '分析查询意图...',
     searching: '搜索相关来源...',
     generating: '生成总结...',
   };
@@ -161,27 +167,25 @@ export default function ResearchSearchPage() {
         </div>
         {/* Mode selector */}
         <div className="max-w-3xl mx-auto mt-2 flex items-center gap-1">
-          {([
-            { value: 'auto' as const, label: '自动', color: 'text-gray-500 bg-gray-50 hover:bg-gray-100' },
-            { value: 'academic' as const, label: '学术论文', color: 'text-purple-600 bg-purple-50 hover:bg-purple-100' },
-            { value: 'general' as const, label: '全网搜索', color: 'text-green-600 bg-green-50 hover:bg-green-100' },
-            { value: 'both' as const, label: '综合', color: 'text-blue-600 bg-blue-50 hover:bg-blue-100' },
-          ]).map(opt => (
+          {SEARCH_MODES.map(opt => (
             <button
               key={opt.value}
               onClick={() => setSearchMode(opt.value)}
-              className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full transition-colors ${
                 searchMode === opt.value
                   ? `${opt.color.split(' ').slice(0, 2).join(' ')} ring-1 ring-current font-medium`
                   : 'text-gray-400 bg-white hover:bg-gray-50'
               }`}
             >
+              <span className={`h-3 w-3 rounded border ${
+                searchMode === opt.value ? 'border-current bg-current' : 'border-gray-300'
+              }`} />
               {opt.label}
             </button>
           ))}
-          {searchMode !== 'auto' && (
-            <span className="text-[10px] text-gray-400 ml-1">已锁定: {searchMode === 'academic' ? 'Semantic Scholar' : searchMode === 'general' ? 'Tavily' : '两者'}</span>
-          )}
+          <span className="text-[10px] text-gray-400 ml-1">
+            {SEARCH_MODES.find(item => item.value === searchMode)?.hint}
+          </span>
         </div>
       </div>
 
@@ -206,13 +210,13 @@ export default function ResearchSearchPage() {
                   </svg>
                 </div>
                 <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">AI 总结</span>
-                {intent && (
+                {resultMode && (
                   <span className={`ml-auto px-2 py-0.5 text-xs rounded-full ${
-                    intent === 'academic' ? 'bg-purple-50 text-purple-600' :
-                    intent === 'general' ? 'bg-green-50 text-green-600' :
+                    resultMode === 'academic' ? 'bg-purple-50 text-purple-600' :
+                    resultMode === 'general' ? 'bg-green-50 text-green-600' :
                     'bg-gray-100 text-gray-500'
                   }`}>
-                    {intent === 'academic' ? '学术论文' : intent === 'general' ? '全网搜索' : '综合搜索'}
+                    {resultMode === 'academic' ? '学术搜索' : resultMode === 'general' ? '全网搜索' : '综合搜索'}
                   </span>
                 )}
               </div>

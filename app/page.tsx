@@ -16,6 +16,14 @@ interface Paper {
   published_at: string;
 }
 
+type SearchMode = 'academic' | 'general' | 'both';
+
+const SEARCH_MODES: { value: SearchMode; label: string }[] = [
+  { value: 'academic', label: '学术搜索' },
+  { value: 'general', label: '全网搜索' },
+  { value: 'both', label: '综合搜索' },
+];
+
 const QUICK_ENTRIES = [
   {
     href: '/questions',
@@ -62,6 +70,7 @@ const QUICK_ENTRIES = [
 export default function HomePage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<SearchMode>('both');
   const [focused, setFocused] = useState(false);
   const [popularTags, setPopularTags] = useState<string[]>([]);
   const [recentPapers, setRecentPapers] = useState<Paper[]>([]);
@@ -87,7 +96,7 @@ export default function HomePage() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+      router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}&mode=${searchMode}`);
     }
   };
 
@@ -123,6 +132,30 @@ export default function HomePage() {
           >
             搜索
           </button>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {SEARCH_MODES.map((mode) => (
+            <button
+              key={mode.value}
+              type="button"
+              onClick={() => setSearchMode(mode.value)}
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                searchMode === mode.value
+                  ? 'border-gray-900 bg-gray-900 text-white'
+                  : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300 hover:text-gray-800'
+              }`}
+            >
+              <span className={`h-3 w-3 rounded border ${
+                searchMode === mode.value ? 'border-white bg-white' : 'border-gray-300'
+              }`}>
+                {searchMode === mode.value && (
+                  <span className="block h-full w-full rounded-[2px] bg-gray-900 scale-50" />
+                )}
+              </span>
+              {mode.label}
+            </button>
+          ))}
         </div>
 
         {/* Hot tags */}
