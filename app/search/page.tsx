@@ -31,6 +31,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   openalex: 'OpenAlex',
   arxiv: 'arXiv',
   local_papers: '本地论文',
+  github: 'GitHub',
+  local_kb: '本地知识库',
 };
 
 export default function ResearchSearchPage() {

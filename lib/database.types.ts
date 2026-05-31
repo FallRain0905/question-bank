@@ -306,6 +306,82 @@ export interface Database {
           updated_at?: string
         }
       }
+      research_sessions: {
+        Row: {
+          id: string
+          user_id: string
+          topic: string
+          status: string
+          scope: Json | null
+          graph_template: Json | null
+          depth: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          topic: string
+          status?: string
+          scope?: Json | null
+          graph_template?: Json | null
+          depth?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          topic?: string
+          status?: string
+          scope?: Json | null
+          graph_template?: Json | null
+          depth?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      research_evidence: {
+        Row: {
+          id: string
+          session_id: string
+          user_id: string
+          source_id: string
+          claim: string
+          snippet: string
+          node_refs: string[] | null
+          edge_refs: string[] | null
+          confidence: number | null
+          metadata: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          user_id: string
+          source_id: string
+          claim?: string
+          snippet?: string
+          node_refs?: string[] | null
+          edge_refs?: string[] | null
+          confidence?: number | null
+          metadata?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          session_id?: string
+          user_id?: string
+          source_id?: string
+          claim?: string
+          snippet?: string
+          node_refs?: string[] | null
+          edge_refs?: string[] | null
+          confidence?: number | null
+          metadata?: Json | null
+          created_at?: string
+        }
+      }
       generated_questions: {
         Row: {
           id: string

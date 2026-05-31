@@ -286,7 +286,7 @@ export interface ResearchSource {
   snippet: string;
   url: string;
   type: 'web' | 'paper';
-  sourceProvider?: 'tavily' | 'semantic_scholar' | 'semantic_scholar_recommendation' | 'openalex' | 'arxiv' | 'local_papers' | 'crawled_web';
+  sourceProvider?: 'tavily' | 'semantic_scholar' | 'semantic_scholar_recommendation' | 'openalex' | 'arxiv' | 'local_papers' | 'crawled_web' | 'github' | 'local_kb';
   perspective?: string;
   query?: string;
   fullTextExcerpt?: string;
@@ -303,6 +303,122 @@ export interface PlannedResearchQuery {
   reason: string;
   queries: string[];
   preferredSources: string[];
+}
+
+export type ResearchSessionStatus =
+  | 'CREATED'
+  | 'SCOPING'
+  | 'WAITING_USER_CONFIRMATION'
+  | 'PLANNING_GRAPH'
+  | 'SEARCHING'
+  | 'EXTRACTING_EVIDENCE'
+  | 'UPDATING_GRAPH'
+  | 'ANALYZING_GAPS'
+  | 'WAITING_USER_ADJUSTMENT'
+  | 'SYNTHESIZING'
+  | 'DRAFT_READY'
+  | 'ARCHIVED';
+
+export type ResearchSessionDepth = 'fast' | 'standard' | 'deep';
+export type ResearchSourcePreference = 'papers' | 'web' | 'github' | 'local_kb';
+export type ResearchOutputType = 'concise_answer' | 'technical_report' | 'literature_review' | 'system_design' | 'comparison_table';
+
+export interface ResearchDirectionCard {
+  id: string;
+  title: string;
+  description: string;
+  recommended: boolean;
+  graphFocus: string[];
+  sourceHints: ResearchSourcePreference[];
+}
+
+export interface ResearchScope {
+  topic: string;
+  focus: string[];
+  sources: ResearchSourcePreference[];
+  outputType: ResearchOutputType;
+  timeRange: 'any' | 'recent_1_year' | 'recent_3_years' | 'recent_5_years';
+  depth: ResearchSessionDepth;
+  constraints: string[];
+}
+
+export interface ResearchGraphNode {
+  id: string;
+  type: string;
+  label: string;
+  status: 'seed' | 'empty' | 'partial' | 'filled';
+  metadata?: Record<string, any>;
+}
+
+export interface ResearchHyperedge {
+  id: string;
+  type: string;
+  label: string;
+  nodeIds: string[];
+  evidenceIds?: string[];
+  confidence?: number;
+  metadata?: Record<string, any>;
+}
+
+export interface ResearchGap {
+  id: string;
+  label: string;
+  reason: string;
+  priority: 'high' | 'medium' | 'low';
+  targetNodeTypes: string[];
+  suggestedQueries: string[];
+  preferredSources: ResearchSourcePreference[];
+  status: 'open' | 'partial' | 'filled';
+}
+
+export interface ResearchGraphTemplate {
+  nodeTypes: string[];
+  hyperedgeTypes: string[];
+  requiredSlots: string[];
+  nodes: ResearchGraphNode[];
+  edges: ResearchHyperedge[];
+  gaps: ResearchGap[];
+  nextSearchTasks: string[];
+  rounds?: ResearchRound[];
+  reportDraft?: string;
+  updatedAt?: string;
+}
+
+export interface ResearchEvidence {
+  id: string;
+  session_id: string;
+  source_id: string;
+  claim: string;
+  snippet: string;
+  node_refs: string[];
+  edge_refs: string[];
+  confidence: number;
+  metadata: Record<string, any> | null;
+  created_at: string;
+}
+
+export interface ResearchRound {
+  id: string;
+  index: number;
+  status: 'running' | 'completed' | 'failed';
+  query: string;
+  searchTasks: string[];
+  sourcesAdded: number;
+  evidenceAdded: number;
+  gapsOpen: number;
+  createdAt: string;
+}
+
+export interface ResearchSession {
+  id: string;
+  user_id: string;
+  topic: string;
+  status: ResearchSessionStatus;
+  scope: ResearchScope | null;
+  graph_template: ResearchGraphTemplate | null;
+  depth: ResearchSessionDepth;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ReadingNote {

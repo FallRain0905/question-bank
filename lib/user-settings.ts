@@ -200,11 +200,13 @@ export function getHyperRagServiceUrl(settings?: { hyperrag_service_url?: string
 export async function getUserResearchToolConfig(token: string) {
   const envSemanticScholarKey = process.env.SEMANTIC_SCHOLAR_API_KEY || '';
   const envTavilyKey = process.env.TAVILY_API_KEY || '';
+  const envGithubToken = process.env.GITHUB_TOKEN || '';
 
   if (!token) {
     return {
       semanticScholarApiKey: envSemanticScholarKey,
       tavilyApiKey: envTavilyKey,
+      githubToken: envGithubToken,
     };
   }
 
@@ -220,6 +222,7 @@ export async function getUserResearchToolConfig(token: string) {
       return {
         semanticScholarApiKey: envSemanticScholarKey,
         tavilyApiKey: envTavilyKey,
+        githubToken: envGithubToken,
       };
     }
 
@@ -232,12 +235,14 @@ export async function getUserResearchToolConfig(token: string) {
     return {
       semanticScholarApiKey: settings?.semantic_scholar_api_key || envSemanticScholarKey,
       tavilyApiKey: envTavilyKey,
+      githubToken: envGithubToken,
     };
   } catch (error) {
     console.error('Error getting research tool config:', error);
     return {
       semanticScholarApiKey: envSemanticScholarKey,
       tavilyApiKey: envTavilyKey,
+      githubToken: envGithubToken,
     };
   }
 }

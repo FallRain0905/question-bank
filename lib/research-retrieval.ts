@@ -16,6 +16,7 @@ interface LLMConfig {
 interface ToolConfig {
   tavilyApiKey: string;
   semanticScholarApiKey: string;
+  githubToken?: string;
 }
 
 interface RetrievalOptions {
@@ -25,6 +26,7 @@ interface RetrievalOptions {
   llmConfig: LLMConfig;
   toolConfig: ToolConfig;
   supabase?: SupabaseLike;
+  includeGithub?: boolean;
 }
 
 interface DepthConfig {
@@ -399,6 +401,41 @@ async function searchLocalPapers(query: string, supabase: SupabaseLike | undefin
   }
 }
 
+async function searchGitHub(query: string, token: string | undefined, limit: number): Promise<ResearchSource[]> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'SynapFlow research search',
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const res = await fetch(`https://api.github.com/search/repositories?${new URLSearchParams({
+      q: query,
+      sort: 'stars',
+      order: 'desc',
+      per_page: String(Math.min(limit, 10)),
+    })}`, { headers });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.items || []).map((repo: any) => ({
+      id: `github-${repo.id}`,
+      title: repo.full_name || repo.name || 'GitHub repository',
+      snippet: [
+        repo.description || '',
+        repo.language ? `Language: ${repo.language}` : '',
+        Number.isFinite(repo.stargazers_count) ? `Stars: ${repo.stargazers_count}` : '',
+        repo.updated_at ? `Updated: ${String(repo.updated_at).slice(0, 10)}` : '',
+      ].filter(Boolean).join(' · ').slice(0, 700),
+      url: repo.html_url || '',
+      type: 'web' as const,
+      sourceProvider: 'github' as const,
+      score: Math.log10(Number(repo.stargazers_count || 0) + 1),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 async function crawlSource(source: ResearchSource, query: string, maxChars: number): Promise<ResearchSource> {
   if (!source.url) return source;
   const serviceUrl = process.env.CRAWL_SERVICE_URL || 'http://localhost:8002';
@@ -440,6 +477,8 @@ function rankSources(sources: ResearchSource[], userQuery: string) {
     openalex: 2,
     arxiv: 1.8,
     local_papers: 1.8,
+    github: 1.7,
+    local_kb: 1.6,
     tavily: 1.5,
   };
   return sources
@@ -455,7 +494,7 @@ function rankSources(sources: ResearchSource[], userQuery: string) {
 }
 
 export async function retrieveResearchSources(options: RetrievalOptions & { plan: PlannedResearchQuery[] }) {
-  const { query, mode, depth, toolConfig, supabase, plan } = options;
+  const { query, mode, depth, toolConfig, supabase, plan, includeGithub } = options;
   const config = DEPTH_CONFIG[depth];
   const academic = mode === 'academic' || mode === 'both';
   const web = mode === 'general' || mode === 'both';
@@ -465,6 +504,7 @@ export async function retrieveResearchSources(options: RetrievalOptions & { plan
     for (const plannedQuery of item.queries.slice(0, 2)) {
       const searches: Promise<ResearchSource[]>[] = [];
       if (web) searches.push(searchTavily(plannedQuery, toolConfig.tavilyApiKey, config.perSourceLimit));
+      if (includeGithub) searches.push(searchGitHub(plannedQuery, toolConfig.githubToken, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
       if (academic) {
         searches.push(searchSemanticScholar(plannedQuery, toolConfig.semanticScholarApiKey, config.perSourceLimit));
         searches.push(searchOpenAlex(plannedQuery, config.perSourceLimit));

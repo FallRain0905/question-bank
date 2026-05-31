@@ -47,6 +47,12 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
     </svg>
   ),
+  research: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 4.5l7.5 3.75-7.5 3.75-7.5-3.75 7.5-3.75z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12l7.5 3.75 7.5-3.75M3.75 15.75l7.5 3.75 7.5-3.75" />
+    </svg>
+  ),
   search: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
@@ -108,6 +114,11 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
     </svg>
   ),
+  graph: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 7.5a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5zM18 21a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5zM18 7.5a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5zM6 7.5v3.75A2.25 2.25 0 008.25 13.5h7.5A2.25 2.25 0 0118 15.75v.75M18 7.5v3.75a2.25 2.25 0 01-2.25 2.25H12" />
+    </svg>
+  ),
   qa: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 9.75a.375.375 0 11-.75 0 .375.375 0 01.75 0zm3.75 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm3.75 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
@@ -128,11 +139,11 @@ const Icons = {
 };
 
 const mainNavItems: NavItem[] = [
-  { href: '/', label: '首页', icon: Icons.home },
-  { href: '/questions', label: '题库', icon: Icons.search },
-  { href: '/notes', label: '笔记', icon: Icons.notes },
-  { href: '/papers', label: '论文推送', icon: Icons.papers },
-  { href: '/classes', label: '团队', icon: Icons.classes },
+  { href: '/research', label: '研究', icon: Icons.research },
+  { href: '/search', label: '搜索', icon: Icons.search },
+  { href: '/reader', label: 'AI 阅读', icon: Icons.papers },
+  { href: '/papers', label: '论文库', icon: Icons.papers },
+  { href: '/graph', label: '研究图谱', icon: Icons.graph },
 ];
 
 export default function Sidebar() {
@@ -244,19 +255,22 @@ export default function Sidebar() {
   }, [pathname]);
 
   const mobileNavItems: NavItem[] = [
-    { href: '/kb', label: '知识库', icon: Icons.kb },
-    { href: '/qa', label: '问答', icon: Icons.qa },
+    { href: '/research', label: '研究', icon: Icons.research },
+    { href: '/search', label: '搜索', icon: Icons.search },
+    { href: '/reader', label: '阅读', icon: Icons.papers },
     { href: '/papers', label: '论文', icon: Icons.papers },
-    { href: '/notes', label: '笔记', icon: Icons.notes },
     { href: '/settings', label: '设置', icon: Icons.settings },
   ];
 
   const mobileMoreItems: NavItem[] = [
     { href: '/', label: '首页', icon: Icons.home },
-    { href: '/questions', label: '题库', icon: Icons.search },
-    { href: '/upload', label: '上传题目', icon: Icons.upload },
+    { href: '/graph', label: '研究图谱', icon: Icons.graph },
+    { href: '/kb', label: '知识库', icon: Icons.kb },
+    { href: '/qa', label: '知识问答', icon: Icons.qa },
     { href: '/convert', label: '文档转换', icon: Icons.parse },
     { href: '/english', label: '英语训练', icon: Icons.qa },
+    { href: '/notes', label: '旧笔记', icon: Icons.notes },
+    { href: '/questions', label: '旧题库', icon: Icons.search },
     { href: '/generator', label: '智能出题', icon: Icons.admin },
     { href: '/classes', label: '团队', icon: Icons.classes },
     { href: '/me', label: '个人中心', icon: Icons.user },
@@ -437,40 +451,7 @@ export default function Sidebar() {
             <>
               {!collapsed && (
                 <div className="px-2 mt-4 mb-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
-                  创作
-                </div>
-              )}
-              <Link
-                href="/upload"
-                className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                  isActive('/upload') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } ${collapsed ? 'justify-center' : ''}`}
-              >
-                {Icons.upload}
-                {!collapsed && <span>上传题目</span>}
-              </Link>
-              <Link
-                href="/notes/new"
-                className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                  isActive('/notes/new') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } ${collapsed ? 'justify-center' : ''}`}
-              >
-                {Icons.notes}
-                {!collapsed && <span>写笔记</span>}
-              </Link>
-              <Link
-                href="/notes/upload"
-                className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                  isActive('/notes/upload') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } ${collapsed ? 'justify-center' : ''}`}
-              >
-                {Icons.upload}
-                {!collapsed && <span>上传文件</span>}
-              </Link>
-
-              {!collapsed && (
-                <div className="px-2 mt-4 mb-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
-                  知识
+                  资料
                 </div>
               )}
               <Link
@@ -496,18 +477,6 @@ export default function Sidebar() {
                 {!collapsed && <span>文档转换</span>}
               </Link>
               <Link
-                href="/generator"
-                className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                  isActive('/generator') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } ${collapsed ? 'justify-center' : ''}`}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
-                </svg>
-                {!collapsed && <span>出题机</span>}
-              </Link>
-
-              <Link
                 href="/english"
                 className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
                   isActive('/english') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
@@ -517,30 +486,6 @@ export default function Sidebar() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
                 </svg>
                 {!collapsed && <span>英语训练</span>}
-              </Link>
-
-              <Link
-                href="/reader"
-                className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                  isActive('/reader') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } ${collapsed ? 'justify-center' : ''}`}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-                </svg>
-                {!collapsed && <span>AI 阅读</span>}
-              </Link>
-
-              <Link
-                href="/qa"
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                  pathname === '/qa' ? 'bg-gray-100 text-gray-900 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } ${collapsed ? 'justify-center' : ''}`}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
-                </svg>
-                {!collapsed && <span>知识问答</span>}
               </Link>
 
               {(user.is_admin || isClassModerator) && (
