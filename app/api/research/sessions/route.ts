@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfig, getUserResearchToolConfig } from '@/lib/user-settings';
 import { runResearchRetrieval } from '@/lib/research-retrieval';
+import { researchDbErrorResponse } from '@/lib/research-api-errors';
 import {
   buildResearchScope,
   getDirectionCards,
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
     .order('updated_at', { ascending: false })
     .limit(20);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return researchDbErrorResponse(error);
   return NextResponse.json(data || []);
 }
 
@@ -89,12 +90,7 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) {
-    return NextResponse.json({
-      error: error.message,
-      hint: 'Please run supabase/migration_research_sessions.sql before using /research.',
-    }, { status: 500 });
-  }
+  if (error) return researchDbErrorResponse(error);
 
   return NextResponse.json({
     session: data,

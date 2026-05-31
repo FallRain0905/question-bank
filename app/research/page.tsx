@@ -46,6 +46,10 @@ function mergeEvidenceItems(existing: ResearchEvidence[], incoming: ResearchEvid
   return [...incoming.filter(item => !seen.has(item.id)), ...existing];
 }
 
+function formatApiError(data: any, fallback: string) {
+  return [data?.error || fallback, data?.hint].filter(Boolean).join('\n');
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
   const supabase = getSupabase();
   const { data: { session } } = await supabase.auth.getSession();
@@ -112,7 +116,7 @@ export default function ResearchPage() {
         body: JSON.stringify({ topic: nextTopic }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '创建研究会话失败');
+      if (!res.ok) throw new Error(formatApiError(data, '创建研究会话失败'));
       setSession(data.session);
       setCards(data.directionCards || []);
       setSelectedCards((data.directionCards || []).filter((card: ResearchDirectionCard) => card.recommended).map((card: ResearchDirectionCard) => card.id));
@@ -154,7 +158,7 @@ export default function ResearchPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '确认 scope 失败');
+      if (!res.ok) throw new Error(formatApiError(data, '确认 scope 失败'));
       setSession(data.session);
       setGraph(data.graphTemplate);
       setStatusText('研究超图模板已生成，可以开始第一轮检索。');
@@ -185,7 +189,7 @@ export default function ResearchPage() {
       });
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || '运行检索失败');
+        throw new Error(formatApiError(data, '运行检索失败'));
       }
 
       const reader = res.body.getReader();
@@ -241,7 +245,7 @@ export default function ResearchPage() {
         headers,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '生成草稿失败');
+      if (!res.ok) throw new Error(formatApiError(data, '生成草稿失败'));
       setSession(data.session);
       setDraft(data.draft || '');
       setEvidence(data.evidence || evidence);
@@ -262,7 +266,7 @@ export default function ResearchPage() {
       const headers = await authHeaders();
       const res = await fetch(`/api/research/sessions/${id}`, { headers });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '加载研究会话失败');
+      if (!res.ok) throw new Error(formatApiError(data, '加载研究会话失败'));
       setSession(data.session);
       setTopic(data.session.topic);
       setGraph(data.session.graph_template || null);
@@ -320,7 +324,7 @@ export default function ResearchPage() {
               开始范围确认
             </button>
             {statusText && <p className="mt-3 text-xs text-blue-600">{statusText}</p>}
-            {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
+            {error && <p className="mt-3 whitespace-pre-line text-xs text-red-600">{error}</p>}
           </section>
 
           {sessions.length > 0 && (

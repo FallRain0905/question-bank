@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfig } from '@/lib/user-settings';
 import { evidenceRowsToTyped, outputTypeLabel } from '@/lib/research-workflow';
+import { researchDbErrorResponse } from '@/lib/research-api-errors';
 import type { ResearchGraphTemplate, ResearchScope } from '@/types';
 
 export const runtime = 'nodejs';
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .eq('user_id', auth.user.id)
     .maybeSingle();
 
-  if (sessionError) return NextResponse.json({ error: sessionError.message }, { status: 500 });
+  if (sessionError) return researchDbErrorResponse(sessionError);
   if (!session) return NextResponse.json({ error: 'Research session not found' }, { status: 404 });
   if (!session.scope || !session.graph_template) {
     return NextResponse.json({ error: 'Research graph is not ready yet' }, { status: 400 });
@@ -116,7 +117,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .eq('user_id', auth.user.id)
     .order('created_at', { ascending: false });
 
-  if (evidenceError) return NextResponse.json({ error: evidenceError.message }, { status: 500 });
+  if (evidenceError) return researchDbErrorResponse(evidenceError);
 
   const evidence = evidenceRowsToTyped(evidenceRows || []);
   const llmConfig = await getUserLLMConfig(auth.token);
@@ -145,6 +146,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .select()
     .single();
 
-  if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+  if (updateError) return researchDbErrorResponse(updateError);
   return NextResponse.json({ session: updated, evidence, draft });
 }

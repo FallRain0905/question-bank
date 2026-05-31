@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { evidenceRowsToTyped } from '@/lib/research-workflow';
+import { researchDbErrorResponse } from '@/lib/research-api-errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     .eq('user_id', auth.user.id)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return researchDbErrorResponse(error);
   if (!session) return NextResponse.json({ error: 'Research session not found' }, { status: 404 });
 
   const { data: evidence, error: evidenceError } = await auth.supabase
@@ -44,6 +45,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     .eq('user_id', auth.user.id)
     .order('created_at', { ascending: false });
 
-  if (evidenceError) return NextResponse.json({ error: evidenceError.message }, { status: 500 });
+  if (evidenceError) return researchDbErrorResponse(evidenceError);
   return NextResponse.json({ session, evidence: evidenceRowsToTyped(evidence || []) });
 }

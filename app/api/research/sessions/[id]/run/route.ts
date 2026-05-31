@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getUserEmbeddingConfig, getUserLLMConfig, getUserResearchToolConfig } from '@/lib/user-settings';
 import { runResearchRetrieval } from '@/lib/research-retrieval';
+import { researchDbErrorResponse } from '@/lib/research-api-errors';
 import {
   applySourcesToGraph,
   buildGraphTemplate,
@@ -102,7 +103,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .eq('user_id', auth.user.id)
     .maybeSingle();
 
-  if (sessionError) return NextResponse.json({ error: sessionError.message }, { status: 500 });
+  if (sessionError) return researchDbErrorResponse(sessionError);
   if (!session) return NextResponse.json({ error: 'Research session not found' }, { status: 404 });
   if (!session.scope) return NextResponse.json({ error: 'Research scope is not confirmed yet' }, { status: 400 });
 

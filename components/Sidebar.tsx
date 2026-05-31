@@ -141,6 +141,8 @@ const Icons = {
 const mainNavItems: NavItem[] = [
   { href: '/research', label: '研究', icon: Icons.research },
   { href: '/search', label: '搜索', icon: Icons.search },
+  { href: '/kb', label: '知识库', icon: Icons.kb },
+  { href: '/qa', label: '知识问答', icon: Icons.qa },
   { href: '/reader', label: 'AI 阅读', icon: Icons.papers },
   { href: '/papers', label: '论文库', icon: Icons.papers },
   { href: '/graph', label: '研究图谱', icon: Icons.graph },
@@ -257,16 +259,16 @@ export default function Sidebar() {
   const mobileNavItems: NavItem[] = [
     { href: '/research', label: '研究', icon: Icons.research },
     { href: '/search', label: '搜索', icon: Icons.search },
+    { href: '/kb', label: '知识库', icon: Icons.kb },
+    { href: '/qa', label: '问答', icon: Icons.qa },
     { href: '/reader', label: '阅读', icon: Icons.papers },
-    { href: '/papers', label: '论文', icon: Icons.papers },
-    { href: '/settings', label: '设置', icon: Icons.settings },
   ];
 
   const mobileMoreItems: NavItem[] = [
     { href: '/', label: '首页', icon: Icons.home },
+    { href: '/papers', label: '论文库', icon: Icons.papers },
     { href: '/graph', label: '研究图谱', icon: Icons.graph },
-    { href: '/kb', label: '知识库', icon: Icons.kb },
-    { href: '/qa', label: '知识问答', icon: Icons.qa },
+    { href: '/settings', label: '设置', icon: Icons.settings },
     { href: '/convert', label: '文档转换', icon: Icons.parse },
     { href: '/english', label: '英语训练', icon: Icons.qa },
     { href: '/notes', label: '旧笔记', icon: Icons.notes },
@@ -454,17 +456,6 @@ export default function Sidebar() {
                   资料
                 </div>
               )}
-              <Link
-                href="/kb"
-                className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                  isActive('/kb') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } ${collapsed ? 'justify-center' : ''}`}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                </svg>
-                {!collapsed && <span>知识库</span>}
-              </Link>
               <Link
                 href="/convert"
                 className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${

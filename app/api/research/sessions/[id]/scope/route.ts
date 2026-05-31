@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { buildGraphTemplate, buildResearchScope } from '@/lib/research-workflow';
+import { researchDbErrorResponse } from '@/lib/research-api-errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,7 +36,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .eq('user_id', auth.user.id)
     .maybeSingle();
 
-  if (sessionError) return NextResponse.json({ error: sessionError.message }, { status: 500 });
+  if (sessionError) return researchDbErrorResponse(sessionError);
   if (!session) return NextResponse.json({ error: 'Research session not found' }, { status: 404 });
 
   const scope = buildResearchScope(session.topic, {
@@ -58,6 +59,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return researchDbErrorResponse(error);
   return NextResponse.json({ session: data, scope, graphTemplate });
 }
