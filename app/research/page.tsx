@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
 import { renderMarkdown } from '@/lib/render-markdown';
@@ -75,6 +75,7 @@ export default function ResearchPage() {
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
+  const draftRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     loadSessions();
@@ -251,6 +252,7 @@ export default function ResearchPage() {
       setEvidence(data.evidence || evidence);
       setGraph(data.session?.graph_template || graph);
       setStatusText('草稿已生成。');
+      setTimeout(() => draftRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
       loadSessions();
     } catch (err: any) {
       setError(err.message || '生成草稿失败');
@@ -438,6 +440,28 @@ export default function ResearchPage() {
             </section>
           )}
 
+          {draft && (
+            <section ref={draftRef} className="rounded-lg border border-gray-200 bg-white">
+              <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-sm font-medium text-gray-900">报告草稿</h2>
+                  <p className="mt-1 text-xs text-gray-500">基于当前 Evidence Board 生成。继续检索后可以重新生成。</p>
+                </div>
+                <button
+                  onClick={generateDraft}
+                  disabled={loading || evidence.length === 0}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
+                >
+                  重新生成
+                </button>
+              </div>
+              <article
+                className="prose prose-sm max-w-none break-words px-5 py-5 prose-headings:scroll-mt-20 prose-headings:text-gray-900 prose-p:leading-7 prose-p:text-gray-700 prose-li:leading-7 prose-li:marker:text-gray-300 prose-code:break-words prose-pre:whitespace-pre-wrap"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(draft) }}
+              />
+            </section>
+          )}
+
           {graph && (
             <section className="rounded-lg border border-gray-200 bg-white p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -556,16 +580,6 @@ export default function ResearchPage() {
                   </a>
                 ))}
               </div>
-            </section>
-          )}
-
-          {draft && (
-            <section className="rounded-lg border border-gray-200 bg-white p-5">
-              <h2 className="mb-4 text-sm font-medium text-gray-800">报告草稿</h2>
-              <div
-                className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-700"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(draft) }}
-              />
             </section>
           )}
 
