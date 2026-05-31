@@ -286,10 +286,23 @@ export interface ResearchSource {
   snippet: string;
   url: string;
   type: 'web' | 'paper';
+  sourceProvider?: 'tavily' | 'semantic_scholar' | 'semantic_scholar_recommendation' | 'openalex' | 'arxiv' | 'local_papers' | 'crawled_web';
+  perspective?: string;
+  query?: string;
+  fullTextExcerpt?: string;
+  score?: number;
+  doi?: string;
   authors?: string[];
   year?: number;
   venue?: string;
   citationCount?: number;
+}
+
+export interface PlannedResearchQuery {
+  perspective: string;
+  reason: string;
+  queries: string[];
+  preferredSources: string[];
 }
 
 export interface ReadingNote {
@@ -320,6 +333,11 @@ export interface ResearchAgentSource {
   snippet?: string;
   url?: string;
   type: 'web' | 'paper' | 'kb' | 'note' | 'document';
+  sourceProvider?: ResearchSource['sourceProvider'];
+  perspective?: string;
+  query?: string;
+  fullTextExcerpt?: string;
+  score?: number;
 }
 
 export interface ResearchAgentMessage {

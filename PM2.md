@@ -10,6 +10,13 @@ npm run build
 ```bash
 cd /root/projects/question-bank
 
+# crawl-service 需要先安装一次 Python 依赖
+cd crawl-service
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+cd ..
+
 # 方式 A：使用配置文件启动
 pm2 start ecosystem.config.js
 
@@ -24,9 +31,11 @@ pm2 status
 
 # 查看日志
 pm2 logs question-bank
+pm2 logs crawl-service
 
 # 重启
 pm2 restart question-bank
+pm2 restart crawl-service
 
 # 停止
 pm2 stop question-bank
@@ -56,4 +65,5 @@ cd /root/projects/question-bank
 git pull origin master
 npm run build
 pm2 restart question-bank
+pm2 restart crawl-service
 ```

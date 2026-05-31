@@ -5,10 +5,11 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
 import { renderMarkdown } from '@/lib/render-markdown';
-import type { ResearchSource } from '@/types';
+import type { PlannedResearchQuery, ResearchSource } from '@/types';
 
-type Stage = 'idle' | 'searching' | 'generating' | 'done' | 'error';
+type Stage = 'idle' | 'planning' | 'searching' | 'generating' | 'done' | 'error';
 type SearchMode = 'academic' | 'general' | 'both';
+type SearchDepth = 'fast' | 'medium' | 'deep';
 
 const SEARCH_MODES: { value: SearchMode; label: string; hint: string; color: string }[] = [
   { value: 'academic', label: '学术搜索', hint: 'Semantic Scholar', color: 'text-purple-600 bg-purple-50 hover:bg-purple-100' },
@@ -16,36 +17,61 @@ const SEARCH_MODES: { value: SearchMode; label: string; hint: string; color: str
   { value: 'both', label: '综合搜索', hint: '两者都搜索', color: 'text-blue-600 bg-blue-50 hover:bg-blue-100' },
 ];
 
+const SEARCH_DEPTHS: { value: SearchDepth; label: string; hint: string }[] = [
+  { value: 'fast', label: '快速', hint: '2 个视角' },
+  { value: 'medium', label: '中等', hint: '4 个视角，默认' },
+  { value: 'deep', label: '深度', hint: '6 个视角，更多正文读取' },
+];
+
+const PROVIDER_LABELS: Record<string, string> = {
+  tavily: 'Tavily',
+  crawled_web: '正文读取',
+  semantic_scholar: 'Semantic Scholar',
+  semantic_scholar_recommendation: 'Scholar 推荐',
+  openalex: 'OpenAlex',
+  arxiv: 'arXiv',
+  local_papers: '本地论文',
+};
+
 export default function ResearchSearchPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState('');
   const [summary, setSummary] = useState('');
   const [sources, setSources] = useState<ResearchSource[]>([]);
+  const [plannedQueries, setPlannedQueries] = useState<PlannedResearchQuery[]>([]);
   const [stage, setStage] = useState<Stage>('idle');
   const [resultMode, setResultMode] = useState<SearchMode>('both');
+  const [resultDepth, setResultDepth] = useState<SearchDepth>('medium');
   const [searchMode, setSearchMode] = useState<SearchMode>('both');
+  const [searchDepth, setSearchDepth] = useState<SearchDepth>('medium');
   const inputRef = useRef<HTMLInputElement>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const q = searchParams.get('q');
     const m = searchParams.get('mode') as SearchMode | null;
+    const d = searchParams.get('depth') as SearchDepth | null;
     if (q) {
       setQuery(q);
       const nextMode = m && ['academic', 'general', 'both'].includes(m) ? m : 'both';
+      const nextDepth = d && ['fast', 'medium', 'deep'].includes(d) ? d : 'medium';
       setSearchMode(nextMode);
-      performSearch(q, nextMode);
+      setSearchDepth(nextDepth);
+      performSearch(q, nextMode, nextDepth);
     }
   }, [searchParams]);
 
-  const performSearch = useCallback(async (q: string, mode?: SearchMode) => {
-    setStage('searching');
+  const performSearch = useCallback(async (q: string, mode?: SearchMode, depth?: SearchDepth) => {
+    setStage('planning');
     setSummary('');
     setSources([]);
+    setPlannedQueries([]);
     setResultMode(mode || searchMode);
+    setResultDepth(depth || searchDepth);
 
     const effectiveMode = mode || searchMode;
+    const effectiveDepth = depth || searchDepth;
 
     const supabase = getSupabase();
     const { data: { session } } = await supabase.auth.getSession();
@@ -57,7 +83,7 @@ export default function ResearchSearchPage() {
           'Content-Type': 'application/json',
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ query: q, mode: effectiveMode }),
+        body: JSON.stringify({ query: q, mode: effectiveMode, depth: effectiveDepth }),
       });
 
       if (!res.ok) {
@@ -96,13 +122,19 @@ export default function ResearchSearchPage() {
 
             if (eventType === 'status') {
               setStage(data.stage as Stage);
+            } else if (eventType === 'plannedQueries') {
+              setPlannedQueries(data.plannedQueries || []);
+            } else if (eventType === 'source' && data.source) {
+              setSources(prev => prev.some(source => source.id === data.source.id) ? prev : [...prev, data.source]);
             } else if (eventType === 'token') {
               setSummary(prev => prev + data.content);
             } else if (eventType === 'done') {
               setSources(data.sources || []);
+              if (data.plannedQueries) setPlannedQueries(data.plannedQueries);
               setResultMode(data.mode || effectiveMode);
+              setResultDepth(data.depth || effectiveDepth);
               setStage('done');
-              if (data.summary && data.summary !== summary) {
+              if (data.summary) {
                 setSummary(data.summary);
               }
             }
@@ -113,18 +145,27 @@ export default function ResearchSearchPage() {
       setStage('error');
       setSummary(err.message || '网络错误');
     }
-  }, [searchMode]);
+  }, [searchDepth, searchMode]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = query.trim();
     if (!q) return;
-    router.push(`/search?q=${encodeURIComponent(q)}&mode=${searchMode}`);
+    router.push(`/search?q=${encodeURIComponent(q)}&mode=${searchMode}&depth=${searchDepth}`);
   };
 
   const stageLabel: Record<string, string> = {
+    planning: '规划检索视角...',
     searching: '搜索相关来源...',
     generating: '生成总结...',
+  };
+
+  const sourceHost = (url: string) => {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return url;
+    }
   };
 
   // Replace [1], [2] with clickable badges in summary HTML
@@ -165,26 +206,44 @@ export default function ResearchSearchPage() {
             </button>
           </form>
         </div>
-        {/* Mode selector */}
-        <div className="max-w-3xl mx-auto mt-2 flex items-center gap-1">
-          {SEARCH_MODES.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => setSearchMode(opt.value)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full transition-colors ${
-                searchMode === opt.value
-                  ? `${opt.color.split(' ').slice(0, 2).join(' ')} ring-1 ring-current font-medium`
-                  : 'text-gray-400 bg-white hover:bg-gray-50'
-              }`}
-            >
-              <span className={`h-3 w-3 rounded border ${
-                searchMode === opt.value ? 'border-current bg-current' : 'border-gray-300'
-              }`} />
-              {opt.label}
-            </button>
-          ))}
-          <span className="text-[10px] text-gray-400 ml-1">
-            {SEARCH_MODES.find(item => item.value === searchMode)?.hint}
+        <div className="max-w-3xl mx-auto mt-2 flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1">
+            {SEARCH_MODES.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setSearchMode(opt.value)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full transition-colors ${
+                  searchMode === opt.value
+                    ? `${opt.color.split(' ').slice(0, 2).join(' ')} ring-1 ring-current font-medium`
+                    : 'text-gray-400 bg-white hover:bg-gray-50'
+                }`}
+              >
+                <span className={`h-3 w-3 rounded border ${
+                  searchMode === opt.value ? 'border-current bg-current' : 'border-gray-300'
+                }`} />
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <div className="h-4 w-px bg-gray-200 hidden sm:block" />
+          <div className="flex flex-wrap items-center gap-1">
+            {SEARCH_DEPTHS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setSearchDepth(opt.value)}
+                title={opt.hint}
+                className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
+                  searchDepth === opt.value
+                    ? 'bg-gray-900 text-white font-medium'
+                    : 'text-gray-400 bg-white hover:bg-gray-50'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[10px] text-gray-400">
+            {SEARCH_MODES.find(item => item.value === searchMode)?.hint} / {SEARCH_DEPTHS.find(item => item.value === searchDepth)?.hint}
           </span>
         </div>
       </div>
@@ -197,6 +256,36 @@ export default function ResearchSearchPage() {
             <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             <span>{stageLabel[stage] || '处理中...'}</span>
           </div>
+        )}
+
+        {plannedQueries.length > 0 && (
+          <details className="mb-6 rounded-xl border border-gray-200 bg-white p-4" open={stage !== 'done'}>
+            <summary className="cursor-pointer text-sm font-medium text-gray-700">
+              研究视角 ({plannedQueries.length})
+            </summary>
+            <div className="mt-3 space-y-3">
+              {plannedQueries.map((item, index) => (
+                <div key={`${item.perspective}-${index}`} className="border-t border-gray-100 pt-3 first:border-t-0 first:pt-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-gray-800">{item.perspective}</span>
+                    {item.preferredSources?.slice(0, 3).map(provider => (
+                      <span key={provider} className="rounded bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-400">
+                        {PROVIDER_LABELS[provider] || provider}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">{item.reason}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {item.queries.map(q => (
+                      <span key={q} className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] text-blue-600">
+                        {q}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
 
         {/* Summary */}
@@ -216,7 +305,7 @@ export default function ResearchSearchPage() {
                     resultMode === 'general' ? 'bg-green-50 text-green-600' :
                     'bg-gray-100 text-gray-500'
                   }`}>
-                    {resultMode === 'academic' ? '学术搜索' : resultMode === 'general' ? '全网搜索' : '综合搜索'}
+                    {resultMode === 'academic' ? '学术搜索' : resultMode === 'general' ? '全网搜索' : '综合搜索'} / {SEARCH_DEPTHS.find(item => item.value === resultDepth)?.label}
                   </span>
                 )}
               </div>
@@ -250,7 +339,7 @@ export default function ResearchSearchPage() {
                 <a
                   key={source.id}
                   id={`source-${idx + 1}`}
-                  href={source.url}
+                  href={source.url || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block bg-white border border-gray-200 rounded-xl p-4 hover:border-blue-300 hover:shadow-sm transition-all group"
@@ -275,9 +364,24 @@ export default function ResearchSearchPage() {
                         {source.title}
                       </h4>
                       <p className="text-xs text-gray-500 line-clamp-2 mt-1">
-                        {source.snippet}
+                        {source.fullTextExcerpt || source.snippet}
                       </p>
                       <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        {source.sourceProvider && (
+                          <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">
+                            {PROVIDER_LABELS[source.sourceProvider] || source.sourceProvider}
+                          </span>
+                        )}
+                        {source.fullTextExcerpt && (
+                          <span className="text-[10px] px-1.5 py-0.5 bg-green-50 text-green-600 rounded">
+                            已读正文
+                          </span>
+                        )}
+                        {source.perspective && (
+                          <span className="text-[10px] text-gray-400 line-clamp-1">
+                            {source.perspective}
+                          </span>
+                        )}
                         {source.type === 'paper' && source.authors && (
                           <span className="text-[10px] text-gray-400">
                             {source.authors.slice(0, 2).join(', ')}{source.authors.length > 2 ? ' et al.' : ''}
@@ -296,7 +400,12 @@ export default function ResearchSearchPage() {
                         )}
                         {source.type === 'web' && (
                           <span className="text-[10px] text-gray-400">
-                            {new URL(source.url).hostname}
+                            {sourceHost(source.url)}
+                          </span>
+                        )}
+                        {source.query && (
+                          <span className="text-[10px] text-gray-300 line-clamp-1">
+                            query: {source.query}
                           </span>
                         )}
                       </div>

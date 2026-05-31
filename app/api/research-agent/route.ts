@@ -5,6 +5,7 @@ import {
   getUserLLMConfig,
   getUserResearchToolConfig,
 } from '@/lib/user-settings';
+import { normalizeResearchOptions, runResearchRetrieval } from '@/lib/research-retrieval';
 import type { ResearchAgentSource, ResearchAgentToolCall } from '@/types';
 
 export const runtime = 'nodejs';
@@ -37,97 +38,6 @@ function supabaseForToken(token: string) {
 
 function sseEvent(event: string, data: object): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-}
-
-async function searchTavily(query: string, apiKey: string): Promise<ResearchAgentSource[]> {
-  if (!apiKey) return [];
-
-  try {
-    const res = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        search_depth: 'advanced',
-        include_answer: false,
-        max_results: 5,
-      }),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.results || []).map((r: any, i: number) => ({
-      id: `web-${i}`,
-      title: r.title || 'Web result',
-      snippet: (r.content || '').slice(0, 500),
-      url: r.url,
-      type: 'web' as const,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-async function searchSemanticScholar(query: string, apiKey: string): Promise<ResearchAgentSource[]> {
-  try {
-    const headers: Record<string, string> = {};
-    if (apiKey) headers['x-api-key'] = apiKey;
-
-    const url = `https://api.semanticscholar.org/graph/v1/paper/search?${new URLSearchParams({
-      query,
-      limit: '5',
-      fields: 'title,abstract,url,year,authors,citationCount,venue',
-    })}`;
-    const res = await fetch(url, { headers });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.data || []).map((p: any) => ({
-      id: `scholar-${p.paperId}`,
-      title: p.title || 'Paper',
-      snippet: (p.abstract || '').slice(0, 500),
-      url: p.url,
-      type: 'paper' as const,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function extractScholarIds(sources: ResearchAgentSource[]) {
-  return sources
-    .map(source => source.id.match(/scholar-(.+)$/)?.[1])
-    .filter(Boolean)
-    .slice(0, 3) as string[];
-}
-
-async function recommendSemanticScholar(seedPaperIds: string[], apiKey: string): Promise<ResearchAgentSource[]> {
-  if (seedPaperIds.length === 0) return [];
-
-  try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (apiKey) headers['x-api-key'] = apiKey;
-
-    const url = `https://api.semanticscholar.org/recommendations/v1/papers?${new URLSearchParams({
-      limit: '5',
-      fields: 'title,abstract,url,year,authors,citationCount,venue',
-    })}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ positivePaperIds: seedPaperIds }),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.recommendedPapers || []).map((p: any) => ({
-      id: `scholar-rec-${p.paperId}`,
-      title: p.title || 'Recommended paper',
-      snippet: (p.abstract || '').slice(0, 500),
-      url: p.url,
-      type: 'paper' as const,
-    }));
-  } catch {
-    return [];
-  }
 }
 
 async function callLLM(endpoint: string, apiKey: string, model: string, messages: any[], maxTokens = 800) {
@@ -269,7 +179,7 @@ async function chooseTools(body: AgentBody, llm: { endpoint: string; apiKey: str
   const prompt = `Choose tools for a research reading assistant.
 
 Available tools:
-- webSearch(query): search Tavily web results and Semantic Scholar papers.
+- webSearch(query): run the unified research pipeline across web, crawled pages, Semantic Scholar, OpenAlex, arXiv, and local papers.
 - searchMyKB(query): search the user's current knowledge base.
 - searchPapers(query): search local arXiv/daily papers.
 - saveNote(title, content, selected_text): save a private reading note, only when the user explicitly asks to record/save.
@@ -309,8 +219,8 @@ export async function GET(req: NextRequest) {
     tools: [
       {
         name: 'webSearch',
-        enabled: !!toolConfig.tavilyApiKey || !!toolConfig.semanticScholarApiKey,
-        detail: toolConfig.tavilyApiKey ? 'Tavily configured' : 'Tavily missing; Semantic Scholar only',
+        enabled: true,
+        detail: 'Unified research pipeline: Tavily, Crawl4AI, Semantic Scholar, OpenAlex, arXiv, local papers',
       },
       {
         name: 'Semantic Scholar',
@@ -372,34 +282,39 @@ export async function POST(req: NextRequest) {
 
         try {
           if (tool.name === 'webSearch') {
-            const query = tool.args.query || body.question;
-            const queries = await buildSearchQueries(query, body, {
-              endpoint: llmConfig.endpoint,
-              apiKey: llmConfig.apiKey,
-              model: llmConfig.defaultModel,
+            const query = enrichResearchQuery(tool.args.query || body.question, body);
+            const selected = normalizeResearchOptions('both', tool.args.depth || 'medium');
+            const result = await runResearchRetrieval({
+              query,
+              mode: selected.mode,
+              depth: selected.depth,
+              llmConfig,
+              toolConfig: researchTools,
+              supabase,
             });
-            const batches = await Promise.all(queries.map(async (searchQuery) => {
-              const [webResults, scholarResults] = await Promise.all([
-                searchTavily(searchQuery, researchTools.tavilyApiKey),
-                searchSemanticScholar(searchQuery, researchTools.semanticScholarApiKey),
-              ]);
-              return [...webResults, ...scholarResults];
+            const found: ResearchAgentSource[] = result.sources.map(source => ({
+              id: source.id,
+              title: source.title,
+              snippet: source.fullTextExcerpt || source.snippet,
+              url: source.url || undefined,
+              type: source.type,
+              sourceProvider: source.sourceProvider,
+              perspective: source.perspective,
+              query: source.query,
+              fullTextExcerpt: source.fullTextExcerpt,
+              score: source.score,
             }));
-            const initialFound = uniqueItems(
-              batches.flat(),
-              source => source.url || source.title
-            );
-            const recommended = await recommendSemanticScholar(
-              extractScholarIds(initialFound),
-              researchTools.semanticScholarApiKey
-            );
-            const found = uniqueItems(
-              [...initialFound, ...recommended],
-              source => source.url || source.title
-            ).slice(0, 10);
             sources.push(...found);
-            toolSummaries.push(`webSearch queries: ${queries.join(' | ')}\n${found.map((s, i) => `[${i + 1}] ${s.title}: ${s.snippet}`).join('\n') || 'No results.'}`);
-            await send('tool', { id: callId, name: tool.name, args: { ...tool.args, queries }, status: 'done', result: `${found.length} sources` });
+            toolSummaries.push(`webSearch plan: ${result.plan.map(item => item.perspective).join(' | ')}
+Queries: ${result.searchQueries.join(' | ')}
+${found.map((s, i) => `[${i + 1}] ${s.title} (${s.sourceProvider || s.type}): ${s.snippet}`).join('\n') || 'No results.'}`);
+            await send('tool', {
+              id: callId,
+              name: tool.name,
+              args: { ...tool.args, query, depth: selected.depth, plannedQueries: result.plan, queries: result.searchQueries },
+              status: 'done',
+              result: `${found.length} sources`,
+            });
           }
 
           if (tool.name === 'searchPapers') {

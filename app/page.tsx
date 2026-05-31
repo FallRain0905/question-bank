@@ -17,11 +17,18 @@ interface Paper {
 }
 
 type SearchMode = 'academic' | 'general' | 'both';
+type SearchDepth = 'fast' | 'medium' | 'deep';
 
 const SEARCH_MODES: { value: SearchMode; label: string }[] = [
   { value: 'academic', label: '学术搜索' },
   { value: 'general', label: '全网搜索' },
   { value: 'both', label: '综合搜索' },
+];
+
+const SEARCH_DEPTHS: { value: SearchDepth; label: string }[] = [
+  { value: 'fast', label: '快速' },
+  { value: 'medium', label: '中等' },
+  { value: 'deep', label: '深度' },
 ];
 
 const QUICK_ENTRIES = [
@@ -71,6 +78,7 @@ export default function HomePage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('both');
+  const [searchDepth, setSearchDepth] = useState<SearchDepth>('medium');
   const [focused, setFocused] = useState(false);
   const [popularTags, setPopularTags] = useState<string[]>([]);
   const [recentPapers, setRecentPapers] = useState<Paper[]>([]);
@@ -96,7 +104,7 @@ export default function HomePage() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}&mode=${searchMode}`);
+      router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}&mode=${searchMode}&depth=${searchDepth}`);
     }
   };
 
@@ -154,6 +162,23 @@ export default function HomePage() {
                 )}
               </span>
               {mode.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-2 flex flex-wrap gap-2">
+          {SEARCH_DEPTHS.map((depth) => (
+            <button
+              key={depth.value}
+              type="button"
+              onClick={() => setSearchDepth(depth.value)}
+              className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                searchDepth === depth.value
+                  ? 'border-blue-600 bg-blue-50 text-blue-700'
+                  : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300 hover:text-gray-800'
+              }`}
+            >
+              {depth.label}
             </button>
           ))}
         </div>

@@ -1,194 +1,37 @@
-﻿import { NextRequest } from 'next/server';
+import { NextRequest } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfig, getUserResearchToolConfig } from '@/lib/user-settings';
+import { normalizeResearchOptions, planResearchQueries, retrieveResearchSources } from '@/lib/research-retrieval';
 import type { ResearchSource } from '@/types';
 
 export const runtime = 'nodejs';
-
-type SearchMode = 'academic' | 'general' | 'both';
-
-interface TavilyResult {
-  title: string;
-  url: string;
-  content: string;
-}
-
-interface ScholarPaper {
-  paperId: string;
-  title: string;
-  abstract?: string;
-  url: string;
-  year?: number;
-  authors?: { name: string }[];
-  citationCount?: number;
-  venue?: string;
-}
+export const dynamic = 'force-dynamic';
 
 function sseEvent(event: string, data: object): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
-function uniqueItems<T>(items: T[], keyFn: (item: T) => string) {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    const key = keyFn(item).toLowerCase();
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+function supabaseForToken(token: string) {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    token ? { global: { headers: { Authorization: `Bearer ${token}` } } } : undefined
+  );
 }
 
-function parseEnglishQuery(text: string) {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return '';
-  try {
-    const parsed = JSON.parse(match[0]);
-    return typeof parsed.english_query === 'string' ? parsed.english_query.trim() : '';
-  } catch {
-    return '';
-  }
-}
-
-async function callLLM(prompt: string, apiKey: string, endpoint: string, model: string, maxTokens: number) {
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0,
-      max_tokens: maxTokens,
-    }),
-  });
-  if (!res.ok) throw new Error(`LLM error ${res.status}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || '';
-}
-
-async function buildSearchQueries(query: string, apiKey: string, endpoint: string, model: string) {
-  const baseQuery = query.trim();
-  if (!apiKey || !endpoint || !model) return [baseQuery];
-
-  const prompt = `Translate or rewrite this search query into one concise English academic/web search query.
-
-Return only JSON: {"english_query":"..."}
-
-Rules:
-- If the query is already English, return a cleaned English version.
-- Keep it under 14 words.
-- Preserve important domain terms.
-
-User query: ${baseQuery}`;
-
-  try {
-    const content = await callLLM(prompt, apiKey, endpoint, model, 220);
-    return uniqueItems([baseQuery, parseEnglishQuery(content)], q => q).slice(0, 2);
-  } catch {
-    return [baseQuery];
-  }
-}
-
-async function searchTavily(query: string, apiKey: string): Promise<ResearchSource[]> {
-  if (!apiKey) return [];
-
-  try {
-    const res = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        search_depth: 'advanced',
-        include_answer: false,
-        max_results: 5,
-      }),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.results || []).map((r: TavilyResult, i: number) => ({
-      id: `web-${i}-${encodeURIComponent(query).slice(0, 20)}`,
-      title: r.title,
-      snippet: (r.content || '').slice(0, 300),
-      url: r.url,
-      type: 'web' as const,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function mapScholarPaper(p: ScholarPaper, idPrefix = 'paper'): ResearchSource {
-  return {
-    id: `${idPrefix}-${p.paperId}`,
-    title: p.title,
-    snippet: (p.abstract || '').slice(0, 300),
-    url: p.url,
-    type: 'paper' as const,
-    authors: p.authors?.map(a => a.name),
-    year: p.year,
-    venue: p.venue,
-    citationCount: p.citationCount,
-  };
-}
-
-async function searchSemanticScholar(query: string, apiKey: string): Promise<ResearchSource[]> {
-  try {
-    const headers: Record<string, string> = {};
-    if (apiKey) headers['x-api-key'] = apiKey;
-
-    const url = `https://api.semanticscholar.org/graph/v1/paper/search?${new URLSearchParams({
-      query,
-      limit: '5',
-      fields: 'title,abstract,url,year,authors,citationCount,venue',
-    })}`;
-    const res = await fetch(url, { headers });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.data || []).map((p: ScholarPaper) => mapScholarPaper(p));
-  } catch {
-    return [];
-  }
-}
-
-function extractPaperIds(sources: ResearchSource[]) {
-  return sources
-    .map(source => source.id.match(/paper-(.+)$/)?.[1])
-    .filter(Boolean)
-    .slice(0, 3) as string[];
-}
-
-async function recommendSemanticScholar(seedPaperIds: string[], apiKey: string): Promise<ResearchSource[]> {
-  if (seedPaperIds.length === 0) return [];
-
-  try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (apiKey) headers['x-api-key'] = apiKey;
-
-    const url = `https://api.semanticscholar.org/recommendations/v1/papers?${new URLSearchParams({
-      limit: '5',
-      fields: 'title,abstract,url,year,authors,citationCount,venue',
-    })}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ positivePaperIds: seedPaperIds }),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.recommendedPapers || []).map((p: ScholarPaper) => mapScholarPaper(p, 'recommended-paper'));
-  } catch {
-    return [];
-  }
+function uniqueStrings(items: string[]) {
+  return Array.from(new Set(items.map(item => item.trim()).filter(Boolean)));
 }
 
 export async function POST(req: NextRequest) {
-  const { query, mode } = await req.json();
+  const { query, mode, depth } = await req.json();
   if (!query?.trim()) {
     return new Response(JSON.stringify({ error: 'Missing search query' }), { status: 400 });
   }
 
-  const selectedMode: SearchMode = mode === 'academic' || mode === 'general' || mode === 'both' ? mode : 'both';
+  const selected = normalizeResearchOptions(mode, depth);
   const token = (req.headers.get('authorization') || '').replace('Bearer ', '');
-  const [{ apiKey, endpoint, defaultModel: model }, toolConfig] = await Promise.all([
+  const [llmConfig, toolConfig] = await Promise.all([
     getUserLLMConfig(token),
     getUserResearchToolConfig(token),
   ]);
@@ -201,36 +44,35 @@ export async function POST(req: NextRequest) {
   };
 
   (async () => {
-    let searchQueries: string[] = [query.trim()];
     let sources: ResearchSource[] = [];
-
     try {
+      await send('status', { stage: 'planning' });
+      const retrievalOptions = {
+        query: query.trim(),
+        mode: selected.mode,
+        depth: selected.depth,
+        llmConfig,
+        toolConfig,
+        supabase: supabaseForToken(token),
+      };
+      const plan = await planResearchQueries(retrievalOptions);
+      const searchQueries = uniqueStrings(plan.flatMap(item => item.queries));
+      await send('plannedQueries', { plannedQueries: plan, searchQueries });
+
       await send('status', { stage: 'searching' });
-      searchQueries = await buildSearchQueries(query, apiKey, endpoint, model);
-
-      const searchPromises: Promise<ResearchSource[]>[] = [];
-      for (const searchQuery of searchQueries) {
-        if (selectedMode === 'academic' || selectedMode === 'both') {
-          searchPromises.push(searchSemanticScholar(searchQuery, toolConfig.semanticScholarApiKey));
-        }
-        if (selectedMode === 'general' || selectedMode === 'both') {
-          searchPromises.push(searchTavily(searchQuery, toolConfig.tavilyApiKey));
-        }
+      sources = await retrieveResearchSources({ ...retrievalOptions, plan });
+      for (const source of sources) {
+        await send('source', { source });
       }
-
-      const results = await Promise.all(searchPromises);
-      const initialSources = uniqueItems(results.flat(), source => source.url || source.title);
-      const recommendedSources = selectedMode === 'academic' || selectedMode === 'both'
-        ? await recommendSemanticScholar(extractPaperIds(initialSources), toolConfig.semanticScholarApiKey)
-        : [];
-      sources = uniqueItems([...initialSources, ...recommendedSources], source => source.url || source.title).slice(0, 12);
 
       if (sources.length === 0) {
         await send('done', {
           summary: 'No relevant results found. Try different keywords.',
           sources: [],
-          mode: selectedMode,
+          plannedQueries: plan,
           searchQueries,
+          mode: selected.mode,
+          depth: selected.depth,
         });
         await writer.close();
         return;
@@ -238,7 +80,10 @@ export async function POST(req: NextRequest) {
 
       await send('status', { stage: 'generating' });
       const sourceContext = sources
-        .map((s, i) => `[${i + 1}] ${s.title}\n${s.snippet || ''}`)
+        .map((source, i) => {
+          const text = source.fullTextExcerpt || source.snippet || '';
+          return `[${i + 1}] ${source.title}\nProvider: ${source.sourceProvider || source.type}\nPerspective: ${source.perspective || ''}\n${text}\n${source.url || ''}`;
+        })
         .join('\n\n');
 
       const summaryPrompt = `You are a research assistant. Based on the following sources, answer the user's question.
@@ -246,20 +91,21 @@ export async function POST(req: NextRequest) {
 Use inline citations like [1], [2]. Respond in the same language as the user's question.
 
 User question: ${query}
-Search mode: ${selectedMode}
+Search mode: ${selected.mode}
+Search depth: ${selected.depth}
 Search queries used: ${searchQueries.join(' | ')}
 
 Sources:
 ${sourceContext}`;
 
-      const summaryRes = await fetch(endpoint, {
+      const summaryRes = await fetch(llmConfig.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${llmConfig.apiKey}` },
         body: JSON.stringify({
-          model,
+          model: llmConfig.defaultModel,
           messages: [{ role: 'user', content: summaryPrompt }],
           temperature: 0.3,
-          max_tokens: 2000,
+          max_tokens: selected.depth === 'deep' ? 2600 : 2000,
           stream: true,
         }),
       });
@@ -268,8 +114,10 @@ ${sourceContext}`;
         await send('done', {
           summary: 'Summary generation failed. Please try again later.',
           sources,
-          mode: selectedMode,
+          plannedQueries: plan,
           searchQueries,
+          mode: selected.mode,
+          depth: selected.depth,
         });
         await writer.close();
         return;
@@ -300,14 +148,21 @@ ${sourceContext}`;
         }
       }
 
-      await send('done', { summary: fullSummary, sources, mode: selectedMode, searchQueries });
+      await send('done', {
+        summary: fullSummary,
+        sources,
+        plannedQueries: plan,
+        searchQueries,
+        mode: selected.mode,
+        depth: selected.depth,
+      });
       await writer.close();
     } catch (err: any) {
       await send('done', {
         summary: `Search failed: ${err.message}`,
         sources,
-        mode: selectedMode,
-        searchQueries,
+        mode: selected.mode,
+        depth: selected.depth,
       });
       await writer.close();
     }
