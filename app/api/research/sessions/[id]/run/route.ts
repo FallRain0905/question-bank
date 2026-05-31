@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getUserEmbeddingConfig, getUserLLMConfig, getUserResearchToolConfig } from '@/lib/user-settings';
 import { runResearchRetrieval } from '@/lib/research-retrieval';
 import { researchDbErrorResponse } from '@/lib/research-api-errors';
+import { sanitizeForJsonb } from '@/lib/json-sanitize';
 import {
   applySourcesToGraph,
   buildGraphTemplate,
@@ -146,24 +147,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         includeGithub: scope.sources.includes('github') || body.includeGithub === true,
       });
 
-      let sources: ResearchSource[] = result.sources;
+      let sources: ResearchSource[] = sanitizeForJsonb(result.sources);
       if (scope.sources.includes('local_kb') && body.kb_id) {
-        sources = [
+        sources = sanitizeForJsonb([
           ...sources,
           ...(await queryLocalKb(auth.token, auth.user.id, body.kb_id, searchQuery, llmConfig)),
-        ];
+        ]);
       }
 
       for (const source of sources) await send('source', { source });
 
       await send('status', { stage: 'extracting', message: '抽取 Paper / Method / Claim / Evidence 节点' });
       const applied = applySourcesToGraph(scope, graph, sources);
-      graph = applied.graph;
-      const evidencePayload = applied.evidenceInserts.map(item => ({
+      graph = sanitizeForJsonb(applied.graph);
+      const evidencePayload = sanitizeForJsonb(applied.evidenceInserts.map(item => ({
         ...item,
         session_id: id,
         user_id: auth.user.id,
-      }));
+      })));
 
       let evidenceRows: any[] = [];
       if (evidencePayload.length > 0) {
@@ -186,8 +187,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const { data: updated, error: updateError } = await auth.supabase
         .from('research_sessions')
         .update({
-          graph_template: graph,
-          scope,
+          graph_template: sanitizeForJsonb(graph),
+          scope: sanitizeForJsonb(scope),
           depth: scope.depth,
           status: 'WAITING_USER_ADJUSTMENT',
           updated_at: new Date().toISOString(),

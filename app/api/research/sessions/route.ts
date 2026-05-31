@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfig, getUserResearchToolConfig } from '@/lib/user-settings';
 import { runResearchRetrieval } from '@/lib/research-retrieval';
 import { researchDbErrorResponse } from '@/lib/research-api-errors';
+import { sanitizeForJsonb } from '@/lib/json-sanitize';
 import {
   buildResearchScope,
   getDirectionCards,
@@ -73,15 +74,15 @@ export async function POST(req: NextRequest) {
   }
 
   const directionCards = getDirectionCards(topic, quickScanSources.length);
-  const recommendedScope = buildResearchScope(topic, {
+  const recommendedScope = sanitizeForJsonb(buildResearchScope(topic, {
     focus: directionCards.filter(card => card.recommended).map(card => card.title),
-  });
+  }));
 
   const { data, error } = await auth.supabase
     .from('research_sessions')
     .insert({
       user_id: auth.user.id,
-      topic,
+      topic: sanitizeForJsonb(topic),
       status: 'WAITING_USER_CONFIRMATION',
       scope: recommendedScope,
       graph_template: null,

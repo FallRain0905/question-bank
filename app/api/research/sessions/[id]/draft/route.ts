@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfig } from '@/lib/user-settings';
 import { evidenceRowsToTyped, outputTypeLabel } from '@/lib/research-workflow';
 import { researchDbErrorResponse } from '@/lib/research-api-errors';
+import { sanitizeForJsonb } from '@/lib/json-sanitize';
 import type { ResearchGraphTemplate, ResearchScope } from '@/types';
 
 export const runtime = 'nodejs';
@@ -128,11 +129,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     evidence
   );
 
-  const graph = {
+  const graph = sanitizeForJsonb({
     ...(session.graph_template as ResearchGraphTemplate),
     reportDraft: draft,
     updatedAt: new Date().toISOString(),
-  };
+  });
 
   const { data: updated, error: updateError } = await auth.supabase
     .from('research_sessions')

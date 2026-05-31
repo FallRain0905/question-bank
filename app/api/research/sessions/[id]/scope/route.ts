@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { buildGraphTemplate, buildResearchScope } from '@/lib/research-workflow';
 import { researchDbErrorResponse } from '@/lib/research-api-errors';
+import { sanitizeForJsonb } from '@/lib/json-sanitize';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,11 +40,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (sessionError) return researchDbErrorResponse(sessionError);
   if (!session) return NextResponse.json({ error: 'Research session not found' }, { status: 404 });
 
-  const scope = buildResearchScope(session.topic, {
+  const scope = sanitizeForJsonb(buildResearchScope(session.topic, {
     ...(session.scope || {}),
     ...body,
-  });
-  const graphTemplate = buildGraphTemplate(scope);
+  }));
+  const graphTemplate = sanitizeForJsonb(buildGraphTemplate(scope));
 
   const { data, error } = await auth.supabase
     .from('research_sessions')
