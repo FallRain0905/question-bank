@@ -2,13 +2,13 @@
 
 ## 1. 构建（如果还没构建）
 ```bash
-cd /root/projects/question-bank
+cd /home/deploy/synap
 npm run build
 ```
 
 ## 2. 启动服务
 ```bash
-cd /root/projects/question-bank
+cd /home/deploy/synap
 
 # crawl-service 需要先安装一次 Python 依赖
 cd crawl-service
@@ -61,7 +61,7 @@ pm2 show question-bank
 
 ## 5. 更新代码后重启
 ```bash
-cd /root/projects/question-bank
+cd /home/deploy/synap
 git pull origin master
 npm run build
 pm2 restart question-bank

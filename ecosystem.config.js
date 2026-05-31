@@ -1,10 +1,12 @@
+const rootDir = __dirname
+
 module.exports = {
   apps: [
     {
       name: 'question-bank',
       script: 'npm',
       args: 'start',
-      cwd: '/root/projects/question-bank',
+      cwd: rootDir,
       env: {
         NODE_ENV: 'production',
         PORT: 3000
@@ -18,7 +20,7 @@ module.exports = {
       name: 'arxiv-cron',
       script: './node_modules/.bin/tsx',
       args: 'scripts/arxiv-cron.ts',
-      cwd: '/root/projects/question-bank',
+      cwd: rootDir,
       cron_restart: '0 9 * * *',
       autorestart: false,
       watch: false,
@@ -28,7 +30,7 @@ module.exports = {
       name: 'crawl-service',
       script: '.venv/bin/python',
       args: '-m uvicorn app:app --host 0.0.0.0 --port 8002',
-      cwd: '/root/projects/question-bank/crawl-service',
+      cwd: `${rootDir}/crawl-service`,
       env: {
         PYTHONUNBUFFERED: '1'
       },
