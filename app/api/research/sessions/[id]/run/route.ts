@@ -57,6 +57,62 @@ function preferredSourcesFromScope(scope: ResearchScope) {
   return Array.from(providers);
 }
 
+const BAD_QUERY_PHRASES = [
+  '代表性论文不足',
+  '核心技术路线不足',
+  '论文图结构证据不足',
+  '系统架构组件不足',
+  '评估指标和局限性不足',
+  '局限性和适用边界不足',
+  '证据不足',
+  '待规划',
+  '当前缺口',
+  '不足',
+];
+
+function cleanSearchQuery(raw: string, scope: ResearchScope) {
+  let query = String(raw || '').trim();
+  for (const phrase of BAD_QUERY_PHRASES) query = query.replaceAll(phrase, ' ');
+  query = query.replace(/\s+/g, ' ').trim();
+  if (!query) return '';
+
+  const topic = scope.topic.trim();
+  if (topic && !query.toLowerCase().includes(topic.toLowerCase())) {
+    query = `${topic} ${query}`;
+  }
+  return query.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeRetrievalPlan(plan: PlannedResearchQuery[], scope: ResearchScope, target?: number) {
+  const preferredFallback = preferredSourcesFromScope(scope);
+  const seen = new Set<string>();
+  const normalized = plan
+    .map(item => {
+      const queries = (item.queries || [])
+        .map(query => cleanSearchQuery(query, scope))
+        .filter(Boolean)
+        .filter(query => {
+          const key = query.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .slice(0, 2);
+
+      return {
+        perspective: String(item.perspective || '定向检索').trim(),
+        reason: String(item.reason || '补齐当前研究图谱缺口的可引用证据。').trim(),
+        queries,
+        preferredSources: Array.isArray(item.preferredSources) && item.preferredSources.length
+          ? item.preferredSources.map(source => String(source || '').trim()).filter(Boolean)
+          : preferredFallback,
+      };
+    })
+    .filter(item => item.queries.length > 0);
+
+  return normalized.slice(0, target || normalized.length);
+}
+
 function parseJsonObject(text: string) {
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return null;
@@ -87,13 +143,13 @@ async function callLLM(llmConfig: any, prompt: string, maxTokens = 1000) {
 function fallbackRoundPlan(scope: ResearchScope, graph: ResearchGraphTemplate): PlannedResearchQuery[] {
   const gaps = getOpenGaps(graph, scope.depth === 'deep' ? 5 : scope.depth === 'fast' ? 2 : 3);
   const preferredSources = preferredSourcesFromScope(scope);
-  const tasks = gaps.flatMap(gap => gap.suggestedQueries.slice(0, 2).map((query, index) => ({
+  const tasks = gaps.map(gap => ({
     perspective: gap.label,
     reason: gap.reason,
-    queries: index === 0 ? [query, `${scope.topic} ${gap.label} recent research`] : [query],
+    queries: gap.suggestedQueries.slice(0, 2),
     preferredSources,
-  })));
-  return tasks.slice(0, scope.depth === 'deep' ? 6 : scope.depth === 'fast' ? 2 : 4);
+  }));
+  return normalizeRetrievalPlan(tasks, scope, scope.depth === 'deep' ? 6 : scope.depth === 'fast' ? 2 : 4);
 }
 
 async function planRoundQueries(
@@ -111,26 +167,26 @@ async function planRoundQueries(
     .map(round => `Round ${round.index}: ${round.query}`)
     .join('\n') || 'none';
 
-  const prompt = `你是科研检索规划器。请根据用户原始主题、研究重点和当前证据缺口，设计下一轮检索计划。
+  const prompt = `You are a research retrieval planner for an interactive research agent.
+Return only JSON:
+{"perspectives":[{"perspective":"...","reason":"...","queries":["original-language query","English academic query"],"preferredSources":["semantic_scholar","openalex","arxiv","local_papers","tavily","crawled_web","github","local_kb"]}]}
 
-只返回 JSON，不要解释：
-{"perspectives":[{"perspective":"...","reason":"...","queries":["中文或原语言 query","English academic query"],"preferredSources":["semantic_scholar","openalex","arxiv","local_papers","tavily","crawled_web","github","local_kb"]}]}
+Rules:
+- Create exactly ${target} perspectives.
+- Every perspective must fill one current evidence gap and should not be generic.
+- Every query must stay anchored to the user's original topic and core object.
+- Do not put UI gap labels or status words into queries, such as "代表性论文不足", "核心技术路线不足", "证据不足", "待规划".
+- Do not introduce knowledge graph, graph schema, hypergraph, RAG, or paper graph topics unless the original topic or selected focus explicitly contains them.
+- Avoid repeating recent queries.
+- preferredSources must be chosen only from: ${preferredSourcesFromScope(scope).join(', ')}.
 
-规则：
-- 生成 exactly ${target} 个 perspective。
-- 每个 perspective 必须服务于一个当前缺口，不能泛泛搜索。
-- 每个 query 必须包含用户原始主题的核心对象，不要引入与主题无关的研究对象。
-- 除非用户主题或研究重点明确包含知识图谱/图结构/超图/RAG，否则不要把 query 设计成知识图谱、Graph Schema 或论文图结构。
-- 避免重复上一轮 query，优先补证据不足的方向。
-- preferredSources 只能从当前可用来源中选择：${preferredSourcesFromScope(scope).join(', ')}。
-
-用户原始主题：${scope.topic}
-研究重点：${scope.focus.join('、') || '未指定'}
-约束：${(scope.constraints || []).join('；') || '无'}
-当前缺口：
+Original topic: ${scope.topic}
+Selected focus: ${scope.focus.join(' / ') || 'not specified'}
+Constraints: ${(scope.constraints || []).join(' / ') || 'none'}
+Current gaps:
 ${gaps}
 
-最近检索：
+Recent searches:
 ${priorRounds}`;
 
   try {
@@ -150,7 +206,8 @@ ${priorRounds}`;
       }))
       .filter((row: PlannedResearchQuery) => row.perspective && row.queries.length > 0)
       .slice(0, target);
-    return planned.length >= Math.min(2, target) ? planned : fallback;
+    const normalized = normalizeRetrievalPlan(planned, scope, target);
+    return normalized.length >= Math.min(2, target) ? normalized : fallback;
   } catch {
     return fallback;
   }
@@ -238,6 +295,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       depth: body.depth || storedScope.depth,
     };
     let graph = (session.graph_template || buildGraphTemplate(scope)) as ResearchGraphTemplate;
+
     try {
       await auth.supabase
         .from('research_sessions')
@@ -245,8 +303,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .eq('id', id)
         .eq('user_id', auth.user.id);
 
-      const fallbackSearchQuery = String(body.query || buildSearchQueryFromGraph(scope, graph));
-      await send('status', { stage: 'planning', message: '根据当前研究缺口生成检索任务' });
+      const fallbackSearchQuery = cleanSearchQuery(String(body.query || buildSearchQueryFromGraph(scope, graph)), scope);
+      await send('status', { stage: 'planning', message: '正在根据当前研究缺口生成检索任务' });
 
       const [llmConfig, toolConfig] = await Promise.all([
         getUserLLMConfig(auth.token),
@@ -254,29 +312,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       ]);
 
       const planOverride = Array.isArray(body.planOverride) ? body.planOverride : null;
-      const retrievalPlan: PlannedResearchQuery[] = planOverride
+      const rawPlan: PlannedResearchQuery[] = planOverride
         ? sanitizeForJsonb(planOverride)
         : body.query
-        ? [{
-            perspective: '用户指定追问',
-            reason: '用户手动输入了本轮检索问题。',
-            queries: [String(body.query)],
-            preferredSources: preferredSourcesFromScope(scope),
-          }]
-        : await planRoundQueries(llmConfig, scope, graph);
-      const plannedSearchQuery = body.query
-        ? String(body.query)
-        : retrievalPlan.flatMap(item => item.queries).join(' | ') || fallbackSearchQuery;
+          ? [{
+              perspective: '用户指定追问',
+              reason: '用户手动输入了本轮检索问题。',
+              queries: [String(body.query)],
+              preferredSources: preferredSourcesFromScope(scope),
+            }]
+          : await planRoundQueries(llmConfig, scope, graph);
+      const retrievalPlan = normalizeRetrievalPlan(rawPlan, scope);
+      const safePlan = retrievalPlan.length ? retrievalPlan : fallbackRoundPlan(scope, graph);
+      const plannedSearchQuery = safePlan.flatMap(item => item.queries).join(' | ') || fallbackSearchQuery;
 
-      await send('status', { stage: 'planning', message: '正在根据当前缺口规划本轮检索问题' });
+      await send('status', { stage: 'planning', message: '本轮检索计划已生成，可以编辑后执行' });
       await send('tasks', {
         query: plannedSearchQuery,
-        tasks: retrievalPlan.flatMap(item => item.queries),
-        plannedQueries: retrievalPlan,
+        tasks: safePlan.flatMap(item => item.queries),
+        plannedQueries: safePlan,
       });
 
       if (body.planOnly === true) {
-        await send('done', { plannedQueries: retrievalPlan, query: plannedSearchQuery, graph });
+        await send('done', { plannedQueries: safePlan, query: plannedSearchQuery, graph });
         await writer.close();
         return;
       }
@@ -289,7 +347,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         llmConfig,
         toolConfig,
         supabase: auth.supabase,
-        plan: retrievalPlan,
+        plan: safePlan,
         includeGithub: scope.sources.includes('github') || body.includeGithub === true,
       });
 
@@ -303,7 +361,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       for (const source of sources) await send('source', { source });
 
-      await send('status', { stage: 'extracting', message: '抽取 Paper / Method / Claim / Evidence 节点' });
+      await send('status', { stage: 'extracting', message: '正在抽取 Paper / Method / Claim / Evidence 节点' });
       const applied = applySourcesToGraph(scope, graph, sources);
       graph = sanitizeForJsonb(applied.graph);
       const evidencePayload = sanitizeForJsonb(applied.evidenceInserts.map(item => ({
@@ -325,7 +383,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const round = buildResearchRound(graph, plannedSearchQuery, sources.length, evidenceRows.length);
       graph.rounds = [...(graph.rounds || []), round];
 
-      await send('status', { stage: 'graph', message: '更新检索超图并评估缺口' });
+      await send('status', { stage: 'graph', message: '正在更新检索超图并评估缺口' });
       await send('graph', { graph });
       await send('evidence', { evidence: evidenceRowsToTyped(evidenceRows) });
       await send('gaps', { gaps: graph.gaps });

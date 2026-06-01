@@ -110,6 +110,24 @@ function wantsSource(preferred: Set<string>, source: string, fallback: boolean) 
   return preferred.size === 0 ? fallback : preferred.has(source);
 }
 
+const BAD_RETRIEVAL_QUERY_PARTS = [
+  '代表性论文不足',
+  '核心技术路线不足',
+  '论文图结构证据不足',
+  '系统架构组件不足',
+  '评估指标和局限性不足',
+  '局限性和适用边界不足',
+  '证据不足',
+  '待规划',
+  '当前缺口',
+];
+
+function cleanRetrievalQuery(raw: string) {
+  let query = String(raw || '').trim();
+  for (const part of BAD_RETRIEVAL_QUERY_PARTS) query = query.replaceAll(part, ' ');
+  return query.replace(/\s+/g, ' ').trim();
+}
+
 function fallbackPlan(query: string, mode: ResearchMode, depth: ResearchDepth): PlannedResearchQuery[] {
   const candidates = [
     {
@@ -157,7 +175,7 @@ function cleanPlan(plan: any, query: string, mode: ResearchMode, depth: Research
       perspective: String(row?.perspective || '').trim(),
       reason: String(row?.reason || '').trim(),
       queries: Array.isArray(row?.queries)
-        ? row.queries.map((q: any) => String(q || '').trim()).filter(Boolean).slice(0, 2)
+        ? row.queries.map((q: any) => cleanRetrievalQuery(String(q || ''))).filter(Boolean).slice(0, 2)
         : [],
       preferredSources: Array.isArray(row?.preferredSources)
         ? row.preferredSources.map((s: any) => String(s || '').trim()).filter(Boolean)
@@ -484,7 +502,7 @@ async function crawlSource(source: ResearchSource, query: string, maxChars: numb
 }
 
 function termScore(source: ResearchSource, query: string) {
-  const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2).slice(0, 12);
+  const terms = cleanRetrievalQuery(query).toLowerCase().split(/\s+/).filter(t => t.length > 2).slice(0, 12);
   const haystack = `${source.title} ${source.snippet} ${source.fullTextExcerpt || ''}`.toLowerCase();
   return terms.reduce((sum, term) => sum + (haystack.includes(term) ? 1 : 0), 0);
 }
@@ -523,29 +541,31 @@ export async function retrieveResearchSources(options: RetrievalOptions & { plan
   for (const item of plan) {
     const preferred = sourcePrefsForPlanItem(item, mode);
     for (const plannedQuery of item.queries.slice(0, 2)) {
+      const searchQuery = cleanRetrievalQuery(plannedQuery);
+      if (!searchQuery) continue;
       const searches: Promise<ResearchSource[]>[] = [];
       if (web && (wantsSource(preferred, 'tavily', web) || wantsSource(preferred, 'crawled_web', web))) {
-        searches.push(searchTavily(plannedQuery, toolConfig.tavilyApiKey, config.perSourceLimit));
+        searches.push(searchTavily(searchQuery, toolConfig.tavilyApiKey, config.perSourceLimit));
       }
       if (includeGithub && wantsSource(preferred, 'github', false)) {
-        searches.push(searchGitHub(plannedQuery, toolConfig.githubToken, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
+        searches.push(searchGitHub(searchQuery, toolConfig.githubToken, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
       }
       if (academic) {
         if (wantsSource(preferred, 'semantic_scholar', academic)) {
-          searches.push(searchSemanticScholar(plannedQuery, toolConfig.semanticScholarApiKey, config.perSourceLimit));
+          searches.push(searchSemanticScholar(searchQuery, toolConfig.semanticScholarApiKey, config.perSourceLimit));
         }
         if (wantsSource(preferred, 'openalex', academic)) {
-          searches.push(searchOpenAlex(plannedQuery, config.perSourceLimit));
+          searches.push(searchOpenAlex(searchQuery, config.perSourceLimit));
         }
         if (wantsSource(preferred, 'arxiv', academic)) {
-          searches.push(searchArxiv(plannedQuery, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
+          searches.push(searchArxiv(searchQuery, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
         }
         if (wantsSource(preferred, 'local_papers', academic)) {
-          searches.push(searchLocalPapers(plannedQuery, supabase, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
+          searches.push(searchLocalPapers(searchQuery, supabase, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
         }
       }
       const results = await Promise.all(searches);
-      rawSources.push(...results.flat().map(source => attachMeta(source, item, plannedQuery)));
+      rawSources.push(...results.flat().map(source => attachMeta(source, item, searchQuery)));
     }
   }
 
@@ -562,7 +582,10 @@ export async function retrieveResearchSources(options: RetrievalOptions & { plan
   const crawledIds = new Set(crawled.map(source => source.id));
   const merged = unique.map(source => crawledIds.has(source.id) ? crawled.find(item => item.id === source.id)! : source);
 
-  return rankSources(merged, query).slice(0, depth === 'deep' ? 20 : depth === 'medium' ? 12 : 8);
+  const ranked = rankSources(merged, query);
+  const relevant = ranked.filter(source => termScore(source, query) > 0 || (source.score || 0) >= 4);
+  const finalSources = relevant.length >= Math.min(4, ranked.length) ? relevant : ranked;
+  return finalSources.slice(0, depth === 'deep' ? 20 : depth === 'medium' ? 12 : 8);
 }
 
 export async function runResearchRetrieval(options: RetrievalOptions) {

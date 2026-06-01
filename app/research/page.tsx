@@ -5,11 +5,11 @@ import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
 import { renderMarkdown } from '@/lib/render-markdown';
 import type {
+  PlannedResearchQuery,
   ResearchDirectionCard,
   ResearchEvidence,
   ResearchGraphTemplate,
   ResearchOutputType,
-  PlannedResearchQuery,
   ResearchScope,
   ResearchSession,
   ResearchSessionDepth,
@@ -21,7 +21,7 @@ const SOURCE_OPTIONS: { value: ResearchSourcePreference; label: string }[] = [
   { value: 'papers', label: '论文源' },
   { value: 'web', label: 'Web' },
   { value: 'github', label: 'GitHub' },
-  { value: 'local_kb', label: '本地 HyperRAG' },
+  { value: 'local_kb', label: '本地知识库' },
 ];
 
 const OUTPUT_OPTIONS: { value: ResearchOutputType; label: string }[] = [
@@ -94,6 +94,16 @@ export default function ResearchPage() {
   const [error, setError] = useState('');
   const draftRef = useRef<HTMLElement | null>(null);
 
+  const selectedFocus = useMemo(
+    () => cards.filter(card => selectedCards.includes(card.id)).map(card => card.title),
+    [cards, selectedCards]
+  );
+
+  const openGaps = useMemo(
+    () => graph?.gaps.filter(gap => gap.status !== 'filled') || [],
+    [graph]
+  );
+
   const pushTimeline = (event: Omit<TimelineEvent, 'id'>) => {
     setTimeline(prev => [...prev, { id: timelineId(), ...event }]);
   };
@@ -101,11 +111,6 @@ export default function ResearchPage() {
   useEffect(() => {
     loadSessions();
   }, []);
-
-  const selectedFocus = useMemo(
-    () => cards.filter(card => selectedCards.includes(card.id)).map(card => card.title),
-    [cards, selectedCards]
-  );
 
   const loadSessions = async () => {
     try {
@@ -115,7 +120,7 @@ export default function ResearchPage() {
       if (!res.ok) return;
       setSessions(await res.json());
     } catch {
-      // ignore
+      // Keep the workspace usable even if the sidebar history fails.
     }
   };
 
@@ -128,9 +133,9 @@ export default function ResearchPage() {
     setEvidence([]);
     setRoundSources([]);
     setRoundPlan([]);
-    setTimeline([{ id: timelineId(), role: 'user', title: nextTopic, body: '新的研究主题' }]);
     setGraph(null);
-    setStatusText('正在做轻量预检索并生成研究方向...');
+    setTimeline([{ id: timelineId(), role: 'user', title: nextTopic, body: '新的研究主题' }]);
+    setStatusText('正在做轻量预检索，并生成研究方向卡片...');
 
     try {
       const headers = await authHeaders();
@@ -141,10 +146,14 @@ export default function ResearchPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(formatApiError(data, '创建研究会话失败'));
+
       setSession(data.session);
       setCards(data.directionCards || []);
-      setSelectedCards((data.directionCards || []).filter((card: ResearchDirectionCard) => card.recommended).map((card: ResearchDirectionCard) => card.id));
+      setSelectedCards((data.directionCards || [])
+        .filter((card: ResearchDirectionCard) => card.recommended)
+        .map((card: ResearchDirectionCard) => card.id));
       setQuickScanSources(data.quickScanSources || []);
+
       const recommended = data.recommendedScope as ResearchScope;
       if (recommended) {
         setSources(recommended.sources);
@@ -152,11 +161,15 @@ export default function ResearchPage() {
         setDepth(recommended.depth);
         setConstraints((recommended.constraints || []).join('\n'));
       }
-      setStatusText('请确认研究方向和输出目标。');
+
+      setStatusText('请在左侧确认研究方向和输出目标。');
       pushTimeline({
         role: 'assistant',
-        title: '我已完成预检索和研究范围初判',
-        body: `推荐方向：${(data.directionCards || []).filter((card: ResearchDirectionCard) => card.recommended).map((card: ResearchDirectionCard) => card.title).join('、') || '请手动选择'}`,
+        title: '我已经完成预检索和范围初判',
+        body: `推荐方向：${(data.directionCards || [])
+          .filter((card: ResearchDirectionCard) => card.recommended)
+          .map((card: ResearchDirectionCard) => card.title)
+          .join('、') || '请手动选择'}`,
       });
       loadSessions();
     } catch (err: any) {
@@ -188,13 +201,14 @@ export default function ResearchPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(formatApiError(data, '确认 scope 失败'));
+
       setSession(data.session);
       setGraph(data.graphTemplate);
-      setStatusText('研究超图模板已生成，可以开始第一轮检索。');
+      setStatusText('研究超图模板已生成，可以在对话流中规划下一轮检索。');
       pushTimeline({
         role: 'assistant',
         title: '研究范围已确认',
-        body: `我会优先围绕 ${selectedFocus.join('、') || '当前选定方向'} 推进检索。`,
+        body: `接下来我会围绕 ${selectedFocus.join('、') || '当前选定方向'} 推进检索。检索计划会出现在这里，你可以先改问题再执行。`,
       });
       loadSessions();
     } catch (err: any) {
@@ -204,11 +218,31 @@ export default function ResearchPage() {
     }
   };
 
+  const updatePlanField = (planIndex: number, field: 'perspective' | 'reason', value: string) => {
+    setRoundPlan(prev => prev.map((item, index) => index === planIndex ? { ...item, [field]: value } : item));
+  };
+
   const updatePlanQuery = (planIndex: number, queryIndex: number, value: string) => {
     setRoundPlan(prev => prev.map((item, index) => index === planIndex
       ? { ...item, queries: item.queries.map((query, qIndex) => qIndex === queryIndex ? value : query) }
       : item
     ));
+  };
+
+  const addPlanItem = () => {
+    setRoundPlan(prev => [
+      ...prev,
+      {
+        perspective: '自定义检索',
+        reason: '用户在对话流中补充的检索方向。',
+        queries: [session?.topic || topic],
+        preferredSources: sources,
+      },
+    ]);
+  };
+
+  const removePlanItem = (planIndex: number) => {
+    setRoundPlan(prev => prev.filter((_, index) => index !== planIndex));
   };
 
   const planNextRound = async () => {
@@ -217,7 +251,12 @@ export default function ResearchPage() {
     setError('');
     setRoundPlan([]);
     setStatusText('正在规划下一轮检索问题...');
-    pushTimeline({ role: 'assistant', title: '我正在规划下一轮检索', body: '会根据当前缺口生成可编辑的检索问题。' });
+    pushTimeline({
+      role: 'assistant',
+      title: '我正在规划下一轮检索',
+      body: '会根据当前缺口生成可编辑的问题。你可以删改这些 query，再让我按计划检索。',
+    });
+
     try {
       const headers = await authHeaders();
       const res = await fetch(`/api/research/sessions/${session.id}/run`, {
@@ -243,12 +282,14 @@ export default function ResearchPage() {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const parts = buffer.split('\n\n');
       buffer = parts.pop() || '';
+
       for (const part of parts) {
         const lines = part.split('\n');
         let eventType = '';
@@ -258,6 +299,7 @@ export default function ResearchPage() {
           if (line.startsWith('data: ')) dataStr = line.slice(6);
         }
         if (!dataStr) continue;
+
         const data = JSON.parse(dataStr);
         if (eventType === 'status') {
           setStatusText(data.message || data.stage);
@@ -268,7 +310,10 @@ export default function ResearchPage() {
           pushTimeline({
             role: 'assistant',
             title: executeSearch ? '我准备按这些问题开始检索' : '下一轮检索计划已生成',
-            body: data.plannedQueries.flatMap((item: PlannedResearchQuery) => item.queries).slice(0, 6).join('\n'),
+            body: data.plannedQueries
+              .flatMap((item: PlannedResearchQuery) => item.queries)
+              .slice(0, 6)
+              .join('\n'),
           });
         }
         if (eventType === 'source' && data.source) {
@@ -291,7 +336,7 @@ export default function ResearchPage() {
             pushTimeline({
               role: 'assistant',
               title: '本轮检索完成',
-              body: `新增来源 ${data.sources.length} 个，证据板已更新。`,
+              body: `新增来源 ${data.sources.length} 个，证据板和研究图谱已经更新。`,
             });
           }
         }
@@ -301,6 +346,8 @@ export default function ResearchPage() {
 
   const runRound = async (override?: Partial<ResearchScope>, planOverride?: PlannedResearchQuery[]) => {
     if (!session) return;
+    const effectiveSources = override?.sources || sources;
+    const effectiveDepth = override?.depth || depth;
     setRunning(true);
     setError('');
     setRoundSources([]);
@@ -311,16 +358,22 @@ export default function ResearchPage() {
       title: planOverride ? '我会按你确认的计划开始检索' : '我会先规划并执行一轮检索',
       body: planOverride?.flatMap(item => item.queries).join('\n'),
     });
+
     try {
       if (override) {
-        setDepth(override.depth || depth);
-        if (override.sources) setSources(override.sources);
+        setDepth(effectiveDepth);
+        setSources(effectiveSources);
       }
       const headers = await authHeaders();
       const res = await fetch(`/api/research/sessions/${session.id}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ includeGithub: sources.includes('github'), sources, depth, planOverride }),
+        body: JSON.stringify({
+          includeGithub: effectiveSources.includes('github'),
+          sources: effectiveSources,
+          depth: effectiveDepth,
+          planOverride,
+        }),
       });
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
@@ -342,7 +395,7 @@ export default function ResearchPage() {
     if (!session) return;
     setLoading(true);
     setError('');
-    setStatusText('正在基于研究图谱和 evidence board 生成草稿...');
+    setStatusText('正在基于研究图谱和 evidence board 生成草稿文件...');
     try {
       const headers = await authHeaders();
       const res = await fetch(`/api/research/sessions/${session.id}/draft`, {
@@ -351,13 +404,18 @@ export default function ResearchPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(formatApiError(data, '生成草稿失败'));
+
       setSession(data.session);
       setDraft(data.draft || '');
       setShowDraftPreview(false);
       setEvidence(data.evidence || evidence);
       setGraph(data.session?.graph_template || graph);
       setStatusText('草稿文件已生成。');
-      pushTimeline({ role: 'assistant', title: '报告草稿已生成', body: '你可以下载 Markdown 或 DOCX，也可以打开页面预览。' });
+      pushTimeline({
+        role: 'assistant',
+        title: '报告草稿已生成',
+        body: '默认作为文件产物交付。你可以下载 Markdown 或 DOCX，也可以展开页面预览。',
+      });
       loadSessions();
     } catch (err: any) {
       setError(err.message || '生成草稿失败');
@@ -371,7 +429,12 @@ export default function ResearchPage() {
     setAutoRunning(true);
     setError('');
     const rounds = depth === 'deep' ? 4 : depth === 'standard' ? 2 : 1;
-    pushTimeline({ role: 'assistant', title: '我将自动推进研究', body: `计划连续运行 ${rounds} 轮，然后生成报告文件。` });
+    pushTimeline({
+      role: 'assistant',
+      title: '我将自动推进研究',
+      body: `计划连续运行 ${rounds} 轮，然后生成报告文件。`,
+    });
+
     try {
       for (let i = 0; i < rounds; i += 1) {
         await runRound();
@@ -414,12 +477,19 @@ export default function ResearchPage() {
       const res = await fetch(`/api/research/sessions/${id}`, { headers });
       const data = await res.json();
       if (!res.ok) throw new Error(formatApiError(data, '加载研究会话失败'));
+
       setSession(data.session);
       setTopic(data.session.topic);
       setGraph(data.session.graph_template || null);
       setEvidence(data.evidence || []);
       setRoundPlan([]);
+      setRoundSources([]);
       setDraft(data.session.graph_template?.reportDraft || '');
+      setTimeline([
+        { id: timelineId(), role: 'user', title: data.session.topic, body: '已恢复的研究主题' },
+        { id: timelineId(), role: 'assistant', title: '研究会话已恢复', body: '你可以继续规划下一轮检索，或直接生成报告文件。' },
+      ]);
+
       const scope = data.session.scope as ResearchScope | null;
       if (scope) {
         setSources(scope.sources);
@@ -438,10 +508,10 @@ export default function ResearchPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="border-b border-gray-200 bg-white px-4 py-4">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mx-auto flex max-w-[1600px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Research</h1>
-            <p className="mt-1 text-sm text-gray-500">交互式深度研究：范围确认、检索超图、证据板和报告草稿。</p>
+            <p className="mt-1 text-sm text-gray-500">交互式深度研究：对话规划、图谱检索、证据沉淀和报告产物。</p>
           </div>
           <div className="flex items-center gap-2">
             <Link href="/search" className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">
@@ -454,8 +524,8 @@ export default function ResearchPage() {
         </div>
       </div>
 
-      <div className="mx-auto grid max-w-[1600px] gap-4 px-4 py-4 lg:grid-cols-[320px_minmax(0,1fr)_360px]">
-        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+      <div className="mx-auto grid max-w-[1600px] gap-4 px-4 py-4 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
           <section className="rounded-lg border border-gray-200 bg-white p-4">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium text-gray-800">研究控制台</h2>
@@ -464,7 +534,7 @@ export default function ResearchPage() {
             <textarea
               value={topic}
               onChange={e => setTopic(e.target.value)}
-              placeholder="例如：我想研究面向论文语料的超图 RAG"
+              placeholder="例如：我想研究 CCUS，重点是碳捕集"
               className="mt-3 min-h-28 w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
             />
             <button
@@ -477,6 +547,86 @@ export default function ResearchPage() {
             {statusText && <p className="mt-3 text-xs text-blue-600">{statusText}</p>}
             {error && <p className="mt-3 whitespace-pre-line text-xs text-red-600">{error}</p>}
           </section>
+
+          {cards.length > 0 && !graph && (
+            <section className="rounded-lg border border-gray-200 bg-white p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-medium text-gray-800">范围确认</h2>
+                <button
+                  onClick={confirmScope}
+                  disabled={loading || !session}
+                  className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  生成图谱
+                </button>
+              </div>
+              <div className="mt-3 space-y-2">
+                {cards.map(card => (
+                  <button
+                    key={card.id}
+                    onClick={() => setSelectedCards(prev => toggleInList(prev, card.id))}
+                    className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                      selectedCards.includes(card.id)
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-medium text-gray-800">{card.title}</h3>
+                      {card.recommended && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">推荐</span>}
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-gray-500">{card.description}</p>
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-4 border-t border-gray-100 pt-4">
+                <h3 className="text-xs font-medium text-gray-500">信息源</h3>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {SOURCE_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setSources(prev => toggleInList(prev, opt.value))}
+                      className={`rounded-full border px-3 py-1.5 text-xs ${
+                        sources.includes(opt.value) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-gray-500'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                <label className="text-xs font-medium text-gray-500">
+                  输出形式
+                  <select
+                    value={outputType}
+                    onChange={e => setOutputType(e.target.value as ResearchOutputType)}
+                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                  >
+                    {OUTPUT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-gray-500">
+                  检索深度
+                  <select
+                    value={depth}
+                    onChange={e => setDepth(e.target.value as ResearchSessionDepth)}
+                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                  >
+                    {DEPTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} - {opt.hint}</option>)}
+                  </select>
+                </label>
+                <textarea
+                  value={constraints}
+                  onChange={e => setConstraints(e.target.value)}
+                  className="min-h-20 w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none"
+                  placeholder="补充约束，每行一条"
+                />
+              </div>
+            </section>
+          )}
 
           {sessions.length > 0 && (
             <section className="rounded-lg border border-gray-200 bg-white p-4">
@@ -499,15 +649,19 @@ export default function ResearchPage() {
           )}
         </aside>
 
-        <main className="space-y-4">
-          {session && (
-            <section className="rounded-lg border border-gray-200 bg-white p-4">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <main className="min-w-0">
+          <section className="flex min-h-[calc(100vh-132px)] flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
+            <div className="border-b border-gray-100 px-4 py-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0">
-                  <div className="text-[10px] font-medium uppercase tracking-wide text-gray-400">Research Workspace</div>
-                  <h2 className="mt-1 truncate text-lg font-semibold text-gray-900">{session.topic}</h2>
+                  <div className="text-[10px] font-medium uppercase text-gray-400">Research Chat</div>
+                  <h2 className="mt-1 truncate text-base font-semibold text-gray-900">
+                    {session?.topic || '从一个研究问题开始'}
+                  </h2>
                   <p className="mt-1 text-xs text-gray-500">
-                    {graph ? `${graph.nodes.length} 节点 / ${graph.edges.length} 超边 / ${evidence.length} 条证据` : '确认范围后生成研究图谱'}
+                    {graph
+                      ? `${graph.nodes.length} 节点 / ${graph.edges.length} 超边 / ${openGaps.length} 个开放缺口 / ${evidence.length} 条证据`
+                      : '确认范围后，检索计划会作为对话卡片出现在这里。'}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -517,338 +671,199 @@ export default function ResearchPage() {
                   <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs text-blue-600">{depth}</span>
                 </div>
               </div>
-            </section>
-          )}
+            </div>
 
-          {timeline.length > 0 && (
-            <section className="rounded-lg border border-gray-200 bg-white">
-              <div className="border-b border-gray-100 px-4 py-3">
-                <h2 className="text-sm font-medium text-gray-900">研究对话流</h2>
-                <p className="mt-1 text-xs text-gray-500">检索规划、执行进度和产物生成会按时间线追加。</p>
-              </div>
-              <div className="max-h-[520px] space-y-3 overflow-y-auto px-4 py-4">
-                {timeline.map(item => (
-                  <div key={item.id} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[86%] rounded-lg px-3 py-2 text-sm ${
-                      item.role === 'user'
-                        ? 'bg-gray-900 text-white'
-                        : item.role === 'system'
-                          ? 'bg-gray-50 text-gray-600'
-                          : 'bg-blue-50 text-gray-800'
-                    }`}>
-                      <div className="font-medium">{item.title}</div>
-                      {item.body && <div className="mt-1 whitespace-pre-line text-xs leading-5 opacity-80">{item.body}</div>}
-                      {item.meta && <div className="mt-1 text-[10px] opacity-60">{item.meta}</div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {cards.length > 0 && !graph && (
-            <section className="rounded-lg border border-gray-200 bg-white p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-medium text-gray-800">研究方向确认</h2>
-                  <p className="mt-1 text-xs text-gray-500">先选范围，再生成检索超图。这样每轮检索都会更贴合目标。</p>
-                </div>
-                <button
-                  onClick={confirmScope}
-                  disabled={loading || !session}
-                  className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  生成研究超图
-                </button>
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {cards.map(card => (
-                  <button
-                    key={card.id}
-                    onClick={() => setSelectedCards(prev => toggleInList(prev, card.id))}
-                    className={`rounded-lg border p-3 text-left transition-colors ${
-                      selectedCards.includes(card.id)
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 bg-white hover:border-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-medium text-gray-800">{card.title}</h3>
-                      {card.recommended && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">推荐</span>}
-                    </div>
-                    <p className="mt-2 text-xs leading-5 text-gray-500">{card.description}</p>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {card.graphFocus.slice(0, 3).map(item => (
-                        <span key={item} className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{item}</span>
-                      ))}
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-4 grid gap-4 border-t border-gray-100 pt-4 md:grid-cols-3">
-                <div>
-                  <h3 className="text-xs font-medium text-gray-500">信息源</h3>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {SOURCE_OPTIONS.map(opt => (
-                      <button
-                        key={opt.value}
-                        onClick={() => setSources(prev => toggleInList(prev, opt.value))}
-                        className={`rounded-full border px-3 py-1.5 text-xs ${
-                          sources.includes(opt.value) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-gray-500'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <h3 className="text-xs font-medium text-gray-500">输出形式</h3>
-                  <select
-                    value={outputType}
-                    onChange={e => setOutputType(e.target.value as ResearchOutputType)}
-                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-                  >
-                    {OUTPUT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <h3 className="text-xs font-medium text-gray-500">检索深度</h3>
-                  <select
-                    value={depth}
-                    onChange={e => setDepth(e.target.value as ResearchSessionDepth)}
-                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-                  >
-                    {DEPTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} - {opt.hint}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <textarea
-                value={constraints}
-                onChange={e => setConstraints(e.target.value)}
-                className="mt-4 min-h-20 w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none"
-                placeholder="补充约束，每行一条"
-              />
-            </section>
-          )}
-
-          {draft && (
-            <section ref={draftRef} className="rounded-lg border border-gray-200 bg-white">
-              <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-sm font-medium text-gray-900">报告文件已生成</h2>
-                  <p className="mt-1 text-xs text-gray-500">默认以文件产物交付，需要时再展开页面预览。</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => downloadArtifact('markdown')} className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800">下载 Markdown</button>
-                  <button onClick={() => downloadArtifact('docx')} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">下载 DOCX</button>
-                  <button onClick={() => setShowDraftPreview(prev => !prev)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">
-                    {showDraftPreview ? '收起预览' : '预览'}
-                  </button>
-                  <button
-                    onClick={generateDraft}
-                    disabled={loading || evidence.length === 0}
-                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
-                  >
-                    重新生成
-                  </button>
-                </div>
-              </div>
-              {showDraftPreview && (
-                <article
-                  className="prose prose-sm max-w-none break-words px-5 py-5 prose-headings:scroll-mt-20 prose-headings:text-gray-900 prose-p:leading-7 prose-p:text-gray-700 prose-li:leading-7 prose-li:marker:text-gray-300 prose-code:break-words prose-pre:whitespace-pre-wrap"
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(draft) }}
-                />
-              )}
-            </section>
-          )}
-
-          {graph && (
-            <section className="rounded-lg border border-gray-200 bg-white p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-sm font-medium text-gray-800">Session Research Hypergraph</h2>
-                  <p className="mt-1 text-xs text-gray-500">
-                    {graph.nodes.length} 节点 / {graph.edges.length} 超边 / {graph.gaps.filter(gap => gap.status !== 'filled').length} 个开放缺口
+            <div className="flex-1 space-y-4 overflow-y-auto bg-gray-50/60 px-4 py-4">
+              {!session && (
+                <div className="mx-auto mt-12 max-w-2xl rounded-lg border border-dashed border-gray-200 bg-white p-8 text-center">
+                  <h3 className="text-base font-medium text-gray-800">输入研究主题，然后让 Synap 先做预检索</h3>
+                  <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-gray-500">
+                    它会生成研究方向卡片，你确认范围后，再进入多轮检索、证据填充和报告生成。
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={planNextRound}
-                    disabled={running}
-                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
-                  >
-                    只规划下一轮
-                  </button>
-                  <button
-                    onClick={() => runRound(undefined, roundPlan.length ? roundPlan : undefined)}
-                    disabled={running}
-                    className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-                  >
-                    {running ? '检索中...' : roundPlan.length ? '按计划检索' : '规划并检索'}
-                  </button>
-                  <button
-                    onClick={autoContinue}
-                    disabled={running || autoRunning}
-                    className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {autoRunning ? '自动研究中...' : '自动跑完'}
-                  </button>
-                  <button
-                    onClick={generateDraft}
-                    disabled={loading || evidence.length === 0}
-                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
-                  >
-                    生成草稿
-                  </button>
-                </div>
-              </div>
+              )}
 
-              <div className="mt-4 grid gap-3 rounded-lg bg-gray-50 p-3 md:grid-cols-[1fr_220px]">
-                <div>
-                  <h3 className="text-xs font-medium text-gray-500">本轮来源偏好</h3>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {SOURCE_OPTIONS.map(opt => (
-                      <button
-                        key={opt.value}
-                        onClick={() => setSources(prev => toggleInList(prev, opt.value))}
-                        className={`rounded-full border px-3 py-1.5 text-xs ${
-                          sources.includes(opt.value) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+              {timeline.map(item => (
+                <div key={item.id} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[88%] rounded-lg px-3 py-2 text-sm shadow-sm ${
+                    item.role === 'user'
+                      ? 'bg-gray-900 text-white'
+                      : item.role === 'system'
+                        ? 'border border-gray-200 bg-white text-gray-600'
+                        : 'bg-blue-50 text-gray-800'
+                  }`}>
+                    <div className="font-medium">{item.title}</div>
+                    {item.body && <div className="mt-1 whitespace-pre-line text-xs leading-5 opacity-80">{item.body}</div>}
+                    {item.meta && <div className="mt-1 text-[10px] opacity-60">{item.meta}</div>}
                   </div>
                 </div>
-                <div>
-                  <h3 className="text-xs font-medium text-gray-500">本轮深度</h3>
-                  <select
-                    value={depth}
-                    onChange={e => setDepth(e.target.value as ResearchSessionDepth)}
-                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-                  >
-                    {DEPTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                  </select>
-                </div>
-              </div>
+              ))}
 
-              <div className="mt-4 rounded-lg border border-gray-100 bg-white p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xs font-medium text-gray-500">本轮检索计划</h3>
-                  <span className="text-[10px] text-gray-400">{roundPlan.length ? 'LLM planned' : 'waiting'}</span>
-                </div>
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  {(roundPlan.length ? roundPlan : (graph.nextSearchTasks || []).map(task => ({
-                    perspective: '待规划',
-                    reason: '下一轮会根据开放缺口重新规划检索问题。',
-                    queries: [task],
-                    preferredSources: sources,
-                  }))).slice(0, 6).map((item, index) => (
-                    <div key={`${item.perspective}-${index}`} className="rounded-lg bg-gray-50 p-3">
-                      <div className="text-xs font-medium text-gray-700">{item.perspective}</div>
-                      <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-gray-500">{item.reason}</p>
-                      <div className="mt-2 space-y-1">
-                        {item.queries.slice(0, 2).map((query, queryIndex) => (
-                          roundPlan.length ? (
-                            <input
-                              key={`${index}-${query}`}
-                              value={query}
-                              onChange={event => updatePlanQuery(index, queryIndex, event.target.value)}
-                              className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 outline-none focus:border-blue-300"
-                            />
-                          ) : (
-                            <div key={query} className="line-clamp-1 rounded bg-white px-2 py-1 text-[11px] text-gray-600">{query}</div>
-                          )
+              {graph && (
+                <div className="rounded-lg border border-blue-100 bg-white p-4 shadow-sm">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-900">下一轮检索计划</h3>
+                      <p className="mt-1 text-xs text-gray-500">
+                        这里就是可交互修改区。先“只规划下一轮”，改掉不准确的 query，再按当前计划检索。
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={planNextRound}
+                        disabled={running}
+                        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
+                      >
+                        只规划下一轮
+                      </button>
+                      <button
+                        onClick={() => runRound(undefined, roundPlan.length ? roundPlan : undefined)}
+                        disabled={running}
+                        className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                      >
+                        {running ? '检索中...' : roundPlan.length ? '按当前计划检索' : '规划并检索'}
+                      </button>
+                      <button
+                        onClick={autoContinue}
+                        disabled={running || autoRunning}
+                        className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {autoRunning ? '自动研究中...' : '自动跑完'}
+                      </button>
+                      <button
+                        onClick={generateDraft}
+                        disabled={loading || evidence.length === 0}
+                        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
+                      >
+                        生成报告文件
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 rounded-lg bg-gray-50 p-3 md:grid-cols-[1fr_220px]">
+                    <div>
+                      <h4 className="text-xs font-medium text-gray-500">本轮来源偏好</h4>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {SOURCE_OPTIONS.map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setSources(prev => toggleInList(prev, opt.value))}
+                            className={`rounded-full border px-3 py-1.5 text-xs ${
+                              sources.includes(opt.value) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
                         ))}
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
+                    <label className="text-xs font-medium text-gray-500">
+                      本轮深度
+                      <select
+                        value={depth}
+                        onChange={e => setDepth(e.target.value as ResearchSessionDepth)}
+                        className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                      >
+                        {DEPTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                      </select>
+                    </label>
+                  </div>
 
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
-                <div className="rounded-lg bg-gray-50 p-3">
-                  <h3 className="text-xs font-medium text-gray-500">节点类型</h3>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {graph.nodeTypes.map(type => (
-                      <span key={type} className="rounded bg-white px-2 py-1 text-[10px] text-gray-600">{type}</span>
+                  <div className="mt-4 space-y-3">
+                    {(roundPlan.length ? roundPlan : [{
+                      perspective: '等待规划',
+                      reason: '点击“只规划下一轮”后，这里会出现可编辑的检索问题。',
+                      queries: graph.nextSearchTasks?.slice(0, 2) || [],
+                      preferredSources: sources,
+                    }]).map((item, index) => (
+                      <div key={`${item.perspective}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                        <div className="flex items-start gap-2">
+                          {roundPlan.length ? (
+                            <input
+                              value={item.perspective}
+                              onChange={event => updatePlanField(index, 'perspective', event.target.value)}
+                              className="min-w-0 flex-1 rounded border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700 outline-none focus:border-blue-300"
+                            />
+                          ) : (
+                            <div className="min-w-0 flex-1 text-xs font-medium text-gray-700">{item.perspective}</div>
+                          )}
+                          {roundPlan.length > 0 && (
+                            <button
+                              onClick={() => removePlanItem(index)}
+                              className="rounded border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-500 hover:border-red-200 hover:text-red-600"
+                            >
+                              删除
+                            </button>
+                          )}
+                        </div>
+                        {roundPlan.length ? (
+                          <textarea
+                            value={item.reason}
+                            onChange={event => updatePlanField(index, 'reason', event.target.value)}
+                            className="mt-2 min-h-14 w-full resize-none rounded border border-gray-200 bg-white px-2 py-1 text-[11px] leading-5 text-gray-600 outline-none focus:border-blue-300"
+                          />
+                        ) : (
+                          <p className="mt-1 text-[11px] leading-5 text-gray-500">{item.reason}</p>
+                        )}
+                        <div className="mt-2 space-y-2">
+                          {item.queries.slice(0, 2).map((query, queryIndex) => (
+                            roundPlan.length ? (
+                              <input
+                                key={`${index}-${queryIndex}`}
+                                value={query}
+                                onChange={event => updatePlanQuery(index, queryIndex, event.target.value)}
+                                className="w-full rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-blue-300"
+                              />
+                            ) : (
+                              <div key={query} className="rounded bg-white px-2 py-1.5 text-xs text-gray-600">{query}</div>
+                            )
+                          ))}
+                        </div>
+                      </div>
                     ))}
+                    {roundPlan.length > 0 && (
+                      <button
+                        onClick={addPlanItem}
+                        className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-xs text-gray-500 hover:border-blue-300 hover:text-blue-600"
+                      >
+                        添加自定义检索问题
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div className="rounded-lg bg-gray-50 p-3">
-                  <h3 className="text-xs font-medium text-gray-500">待填补 slots</h3>
-                  <div className="mt-2 space-y-1">
-                    {graph.requiredSlots.map(slot => (
-                      <div key={slot} className="text-xs text-gray-600">{slot}</div>
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-lg bg-gray-50 p-3">
-                  <h3 className="text-xs font-medium text-gray-500">下一轮检索</h3>
-                  <div className="mt-2 space-y-1">
-                    {(graph.nextSearchTasks || []).slice(0, 5).map(task => (
-                      <div key={task} className="line-clamp-2 text-xs text-gray-600">{task}</div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              )}
 
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {graph.gaps.map(gap => (
-                  <div key={gap.id} className="rounded-lg border border-gray-100 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-medium text-gray-800">{gap.label}</h3>
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] ${
-                        gap.status === 'filled' ? 'bg-green-50 text-green-600' :
-                        gap.status === 'partial' ? 'bg-amber-50 text-amber-600' :
-                        'bg-red-50 text-red-600'
-                      }`}>
-                        {gap.status}
-                      </span>
+              {draft && (
+                <section ref={draftRef} className="rounded-lg border border-gray-200 bg-white shadow-sm">
+                  <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="text-sm font-medium text-gray-900">报告文件已生成</h2>
+                      <p className="mt-1 text-xs text-gray-500">默认以文件产物交付，页面预览保持折叠。</p>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-gray-500">{gap.reason}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {roundSources.length > 0 && (
-            <section className="rounded-lg border border-gray-200 bg-white p-4">
-              <h2 className="text-sm font-medium text-gray-800">本轮来源</h2>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {roundSources.slice(0, 8).map(source => (
-                  <a key={`${source.id}-${source.url}`} href={source.url || '#'} target="_blank" rel="noreferrer" className="rounded-lg border border-gray-100 p-3 hover:border-blue-200">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{source.sourceProvider || source.type}</span>
-                      {source.year && <span className="text-[10px] text-gray-400">{source.year}</span>}
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => downloadArtifact('markdown')} className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800">下载 Markdown</button>
+                      <button onClick={() => downloadArtifact('docx')} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">下载 DOCX</button>
+                      <button onClick={() => setShowDraftPreview(prev => !prev)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">
+                        {showDraftPreview ? '收起预览' : '预览'}
+                      </button>
                     </div>
-                    <h3 className="mt-2 line-clamp-2 text-sm font-medium text-gray-800">{source.title}</h3>
-                    <p className="mt-1 line-clamp-2 text-xs text-gray-500">{source.fullTextExcerpt || source.snippet}</p>
-                  </a>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {!session && (
-            <section className="rounded-lg border border-dashed border-gray-200 bg-white p-8 text-center">
-              <h2 className="text-base font-medium text-gray-700">从一个研究问题开始</h2>
-              <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-gray-500">
-                Synap 会先做轻量预检索，生成研究方向卡片；你确认范围后，它会生成一个临时研究超图，并在每轮检索后更新证据和缺口。
-              </p>
-            </section>
-          )}
+                  </div>
+                  {showDraftPreview && (
+                    <article
+                      className="prose prose-sm max-w-none break-words px-5 py-5 prose-headings:scroll-mt-20 prose-headings:text-gray-900 prose-p:leading-7 prose-p:text-gray-700 prose-li:leading-7 prose-li:marker:text-gray-300 prose-code:break-words prose-pre:whitespace-pre-wrap"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(draft) }}
+                    />
+                  )}
+                </section>
+              )}
+            </div>
+          </section>
         </main>
 
-        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-          <section className="rounded-lg border border-gray-200 bg-white p-4">
-            <h2 className="text-sm font-medium text-gray-800">Evidence Board</h2>
-            <p className="mt-1 text-xs text-gray-500">按 claim 聚合证据，最终报告会优先使用这里的内容。</p>
+        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+          <details open className="rounded-lg border border-gray-200 bg-white p-4">
+            <summary className="cursor-pointer text-sm font-medium text-gray-800">Evidence Board</summary>
+            <p className="mt-2 text-xs text-gray-500">按 claim 聚合证据，最终报告会优先使用这里的内容。</p>
             <div className="mt-3 space-y-3">
               {evidence.length === 0 ? (
                 <div className="rounded-lg bg-gray-50 p-4 text-xs text-gray-400">运行一轮检索后会出现证据。</div>
@@ -865,20 +880,69 @@ export default function ResearchPage() {
                 </div>
               ))}
             </div>
-          </section>
+          </details>
 
-          {quickScanSources.length > 0 && (
-            <section className="rounded-lg border border-gray-200 bg-white p-4">
-              <h2 className="text-sm font-medium text-gray-800">预检索来源</h2>
+          {graph && (
+            <details className="rounded-lg border border-gray-200 bg-white p-4">
+              <summary className="cursor-pointer text-sm font-medium text-gray-800">研究图谱</summary>
+              <div className="mt-3 space-y-3">
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <h3 className="text-xs font-medium text-gray-500">节点类型</h3>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {graph.nodeTypes.map(type => (
+                      <span key={type} className="rounded bg-white px-2 py-1 text-[10px] text-gray-600">{type}</span>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <h3 className="text-xs font-medium text-gray-500">待填 slots</h3>
+                  <div className="mt-2 space-y-1">
+                    {graph.requiredSlots.map(slot => (
+                      <div key={slot} className="text-xs text-gray-600">{slot}</div>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {openGaps.map(gap => (
+                    <div key={gap.id} className="rounded-lg border border-gray-100 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-xs font-medium text-gray-800">{gap.label}</h3>
+                        <span className={`rounded px-1.5 py-0.5 text-[10px] ${
+                          gap.status === 'partial' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'
+                        }`}>
+                          {gap.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs leading-5 text-gray-500">{gap.reason}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </details>
+          )}
+
+          {(roundSources.length > 0 || quickScanSources.length > 0) && (
+            <details className="rounded-lg border border-gray-200 bg-white p-4">
+              <summary className="cursor-pointer text-sm font-medium text-gray-800">来源</summary>
               <div className="mt-3 space-y-2">
-                {quickScanSources.map(source => (
-                  <a key={source.id} href={source.url || '#'} target="_blank" rel="noreferrer" className="block rounded-lg bg-gray-50 p-3">
-                    <div className="text-[10px] text-gray-400">{source.sourceProvider || source.type}</div>
+                {[...roundSources, ...quickScanSources].slice(0, 12).map(source => (
+                  <a
+                    key={`${source.id}-${source.url}`}
+                    href={source.url || '#'}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block rounded-lg bg-gray-50 p-3 hover:bg-gray-100"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-gray-500">{source.sourceProvider || source.type}</span>
+                      {source.year && <span className="text-[10px] text-gray-400">{source.year}</span>}
+                    </div>
                     <div className="mt-1 line-clamp-2 text-xs font-medium text-gray-700">{source.title}</div>
+                    <p className="mt-1 line-clamp-2 text-xs text-gray-500">{source.fullTextExcerpt || source.snippet}</p>
                   </a>
                 ))}
               </div>
-            </section>
+            </details>
           )}
         </aside>
       </div>
