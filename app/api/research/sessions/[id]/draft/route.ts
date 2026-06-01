@@ -59,29 +59,30 @@ URL: ${meta.url || ''}
 Snippet: ${item.snippet}`;
   }).join('\n\n');
 
-  const prompt = `你是严谨的中文科研助理，正在根据证据板撰写研究草稿。
+  const prompt = `You are a rigorous Chinese research assistant writing a research draft from an evidence board.
 
-请严格遵守：
-- 只回答用户的原始研究主题，不要把内部 Research Graph / Graph Schema / Evidence Board 机制写成研究目标。
-- 不要出现“好的”“根据您的要求”“为 Synap 的工作空间撰写”等开场白。
-- 不要把题目改写成“构建知识图谱”，除非用户原题或证据明确要求研究知识图谱本身。
-- 如果证据不足，明确标注“证据不足”，不要编造结论。
-- 使用 Markdown，必须从标题开始，标题使用用户原始主题。
+Rules:
+- Respond in Chinese.
+- Start directly with a Markdown title using the user's original topic.
+- Do not write greetings such as "好的" or "根据您的要求".
+- Do not describe Synap, Research Graph, Graph Schema, or Evidence Board as the user's research objective.
+- Do not rewrite the topic as "constructing a knowledge graph" unless the user's topic explicitly asks for knowledge graphs.
+- If evidence is insufficient, say so. Do not invent claims.
 
-用户原始主题：${scope.topic}
-用户选择的研究重点：${scope.focus.join('、') || '未指定'}
-期望输出形式：${outputTypeLabel(scope.outputType)}
-当前未充分填补的研究缺口：${graph.gaps.map(gap => `${gap.label}(${gap.status})：${gap.reason}`).join('；')}
+User original topic: ${scope.topic}
+Selected focus: ${scope.focus.join('、') || '未指定'}
+Expected output type: ${outputTypeLabel(scope.outputType)}
+Open research gaps: ${graph.gaps.map(gap => `${gap.label}(${gap.status}): ${gap.reason}`).join('；')}
 
-请输出三个部分：
+Required sections:
 ## 带引用回答
-围绕用户原始主题给出直接回答。引用使用 [1]、[2] 形式。
+Answer the original topic directly. Use citations like [1], [2].
 
 ## Evidence Board
-按“主张 - 证据 - 来源编号”整理，保留不确定性。
+Organize as claim - evidence - source number.
 
 ## 技术报告草稿
-给出结构化草稿，包含研究背景、关键技术路线、证据归纳、局限与下一步检索建议。
+Include background, key technical routes, evidence synthesis, limitations, and next retrieval suggestions.
 
 Evidence:
 ${evidenceContext}`;

@@ -38,6 +38,14 @@ const DEPTH_OPTIONS: { value: ResearchSessionDepth; label: string; hint: string 
   { value: 'deep', label: '深度', hint: '最多 5 轮，适合报告' },
 ];
 
+type TimelineEvent = {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  title: string;
+  body?: string;
+  meta?: string;
+};
+
 function toggleInList<T extends string>(items: T[], value: T) {
   return items.includes(value) ? items.filter(item => item !== value) : [...items, value];
 }
@@ -49,6 +57,10 @@ function mergeEvidenceItems(existing: ResearchEvidence[], incoming: ResearchEvid
 
 function formatApiError(data: any, fallback: string) {
   return [data?.error || fallback, data?.hint].filter(Boolean).join('\n');
+}
+
+function timelineId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -72,12 +84,19 @@ export default function ResearchPage() {
   const [evidence, setEvidence] = useState<ResearchEvidence[]>([]);
   const [roundSources, setRoundSources] = useState<ResearchSource[]>([]);
   const [roundPlan, setRoundPlan] = useState<PlannedResearchQuery[]>([]);
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [draft, setDraft] = useState('');
+  const [showDraftPreview, setShowDraftPreview] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
+  const [autoRunning, setAutoRunning] = useState(false);
   const [error, setError] = useState('');
   const draftRef = useRef<HTMLElement | null>(null);
+
+  const pushTimeline = (event: Omit<TimelineEvent, 'id'>) => {
+    setTimeline(prev => [...prev, { id: timelineId(), ...event }]);
+  };
 
   useEffect(() => {
     loadSessions();
@@ -109,6 +128,7 @@ export default function ResearchPage() {
     setEvidence([]);
     setRoundSources([]);
     setRoundPlan([]);
+    setTimeline([{ id: timelineId(), role: 'user', title: nextTopic, body: '新的研究主题' }]);
     setGraph(null);
     setStatusText('正在做轻量预检索并生成研究方向...');
 
@@ -133,6 +153,11 @@ export default function ResearchPage() {
         setConstraints((recommended.constraints || []).join('\n'));
       }
       setStatusText('请确认研究方向和输出目标。');
+      pushTimeline({
+        role: 'assistant',
+        title: '我已完成预检索和研究范围初判',
+        body: `推荐方向：${(data.directionCards || []).filter((card: ResearchDirectionCard) => card.recommended).map((card: ResearchDirectionCard) => card.title).join('、') || '请手动选择'}`,
+      });
       loadSessions();
     } catch (err: any) {
       setError(err.message || '创建研究会话失败');
@@ -166,6 +191,11 @@ export default function ResearchPage() {
       setSession(data.session);
       setGraph(data.graphTemplate);
       setStatusText('研究超图模板已生成，可以开始第一轮检索。');
+      pushTimeline({
+        role: 'assistant',
+        title: '研究范围已确认',
+        body: `我会优先围绕 ${selectedFocus.join('、') || '当前选定方向'} 推进检索。`,
+      });
       loadSessions();
     } catch (err: any) {
       setError(err.message || '确认 scope 失败');
@@ -174,13 +204,113 @@ export default function ResearchPage() {
     }
   };
 
-  const runRound = async (override?: Partial<ResearchScope>) => {
+  const updatePlanQuery = (planIndex: number, queryIndex: number, value: string) => {
+    setRoundPlan(prev => prev.map((item, index) => index === planIndex
+      ? { ...item, queries: item.queries.map((query, qIndex) => qIndex === queryIndex ? value : query) }
+      : item
+    ));
+  };
+
+  const planNextRound = async () => {
+    if (!session) return;
+    setRunning(true);
+    setError('');
+    setRoundPlan([]);
+    setStatusText('正在规划下一轮检索问题...');
+    pushTimeline({ role: 'assistant', title: '我正在规划下一轮检索', body: '会根据当前缺口生成可编辑的检索问题。' });
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`/api/research/sessions/${session.id}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ includeGithub: sources.includes('github'), sources, depth, planOnly: true }),
+      });
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(formatApiError(data, '规划检索失败'));
+      }
+      await consumeRunStream(res.body, false);
+      setStatusText('本轮检索计划已生成，可以编辑后开始检索。');
+    } catch (err: any) {
+      setError(err.message || '规划检索失败');
+      setStatusText('');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const consumeRunStream = async (body: ReadableStream<Uint8Array>, executeSearch = true) => {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+      for (const part of parts) {
+        const lines = part.split('\n');
+        let eventType = '';
+        let dataStr = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) eventType = line.slice(7);
+          if (line.startsWith('data: ')) dataStr = line.slice(6);
+        }
+        if (!dataStr) continue;
+        const data = JSON.parse(dataStr);
+        if (eventType === 'status') {
+          setStatusText(data.message || data.stage);
+          pushTimeline({ role: 'assistant', title: data.message || data.stage, meta: data.stage });
+        }
+        if (eventType === 'tasks' && data.plannedQueries) {
+          setRoundPlan(data.plannedQueries);
+          pushTimeline({
+            role: 'assistant',
+            title: executeSearch ? '我准备按这些问题开始检索' : '下一轮检索计划已生成',
+            body: data.plannedQueries.flatMap((item: PlannedResearchQuery) => item.queries).slice(0, 6).join('\n'),
+          });
+        }
+        if (eventType === 'source' && data.source) {
+          setRoundSources(prev => [...prev, data.source]);
+          pushTimeline({
+            role: 'system',
+            title: `找到来源：${data.source.title}`,
+            meta: data.source.sourceProvider || data.source.type,
+          });
+        }
+        if (eventType === 'graph' && data.graph) setGraph(data.graph);
+        if (eventType === 'evidence' && data.evidence) setEvidence(prev => mergeEvidenceItems(prev, data.evidence));
+        if (eventType === 'done') {
+          if (data.error) throw new Error(data.error);
+          if (data.session) setSession(data.session);
+          if (data.graph) setGraph(data.graph);
+          if (data.evidence) setEvidence(prev => mergeEvidenceItems(prev, data.evidence));
+          if (data.plannedQueries) setRoundPlan(data.plannedQueries);
+          if (executeSearch && data.sources) {
+            pushTimeline({
+              role: 'assistant',
+              title: '本轮检索完成',
+              body: `新增来源 ${data.sources.length} 个，证据板已更新。`,
+            });
+          }
+        }
+      }
+    }
+  };
+
+  const runRound = async (override?: Partial<ResearchScope>, planOverride?: PlannedResearchQuery[]) => {
     if (!session) return;
     setRunning(true);
     setError('');
     setRoundSources([]);
-    setRoundPlan([]);
+    if (!planOverride) setRoundPlan([]);
     setStatusText('正在启动一轮图谱驱动检索...');
+    pushTimeline({
+      role: 'assistant',
+      title: planOverride ? '我会按你确认的计划开始检索' : '我会先规划并执行一轮检索',
+      body: planOverride?.flatMap(item => item.queries).join('\n'),
+    });
     try {
       if (override) {
         setDepth(override.depth || depth);
@@ -190,46 +320,15 @@ export default function ResearchPage() {
       const res = await fetch(`/api/research/sessions/${session.id}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ includeGithub: sources.includes('github'), sources, depth }),
+        body: JSON.stringify({ includeGithub: sources.includes('github'), sources, depth, planOverride }),
       });
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
         throw new Error(formatApiError(data, '运行检索失败'));
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() || '';
-        for (const part of parts) {
-          const lines = part.split('\n');
-          let eventType = '';
-          let dataStr = '';
-          for (const line of lines) {
-            if (line.startsWith('event: ')) eventType = line.slice(7);
-            if (line.startsWith('data: ')) dataStr = line.slice(6);
-          }
-          if (!dataStr) continue;
-          const data = JSON.parse(dataStr);
-          if (eventType === 'status') setStatusText(data.message || data.stage);
-          if (eventType === 'tasks' && data.plannedQueries) setRoundPlan(data.plannedQueries);
-          if (eventType === 'source' && data.source) setRoundSources(prev => [...prev, data.source]);
-          if (eventType === 'graph' && data.graph) setGraph(data.graph);
-          if (eventType === 'evidence' && data.evidence) setEvidence(prev => mergeEvidenceItems(prev, data.evidence));
-          if (eventType === 'done') {
-            if (data.error) throw new Error(data.error);
-            setSession(data.session || session);
-            if (data.graph) setGraph(data.graph);
-            if (data.evidence) setEvidence(prev => mergeEvidenceItems(prev, data.evidence));
-            setStatusText('本轮检索完成，已回到等待调整状态。');
-          }
-        }
-      }
+      await consumeRunStream(res.body, true);
+      setStatusText('本轮检索完成，已回到等待调整状态。');
       loadSessions();
     } catch (err: any) {
       setError(err.message || '运行检索失败');
@@ -254,15 +353,56 @@ export default function ResearchPage() {
       if (!res.ok) throw new Error(formatApiError(data, '生成草稿失败'));
       setSession(data.session);
       setDraft(data.draft || '');
+      setShowDraftPreview(false);
       setEvidence(data.evidence || evidence);
       setGraph(data.session?.graph_template || graph);
-      setStatusText('草稿已生成。');
-      setTimeout(() => draftRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+      setStatusText('草稿文件已生成。');
+      pushTimeline({ role: 'assistant', title: '报告草稿已生成', body: '你可以下载 Markdown 或 DOCX，也可以打开页面预览。' });
       loadSessions();
     } catch (err: any) {
       setError(err.message || '生成草稿失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const autoContinue = async () => {
+    if (!session || !graph) return;
+    setAutoRunning(true);
+    setError('');
+    const rounds = depth === 'deep' ? 4 : depth === 'standard' ? 2 : 1;
+    pushTimeline({ role: 'assistant', title: '我将自动推进研究', body: `计划连续运行 ${rounds} 轮，然后生成报告文件。` });
+    try {
+      for (let i = 0; i < rounds; i += 1) {
+        await runRound();
+      }
+      await generateDraft();
+    } finally {
+      setAutoRunning(false);
+    }
+  };
+
+  const downloadArtifact = async (format: 'markdown' | 'docx') => {
+    if (!session) return;
+    setError('');
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`/api/research/sessions/${session.id}/artifact?format=${format}`, { headers });
+      const blob = await res.blob();
+      if (!res.ok) {
+        const text = await blob.text().catch(() => '');
+        throw new Error(text || '下载失败');
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${session.topic.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, '-').slice(0, 60) || 'research-report'}.${format === 'docx' ? 'docx' : 'md'}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message || '下载失败');
     }
   };
 
@@ -380,6 +520,32 @@ export default function ResearchPage() {
             </section>
           )}
 
+          {timeline.length > 0 && (
+            <section className="rounded-lg border border-gray-200 bg-white">
+              <div className="border-b border-gray-100 px-4 py-3">
+                <h2 className="text-sm font-medium text-gray-900">研究对话流</h2>
+                <p className="mt-1 text-xs text-gray-500">检索规划、执行进度和产物生成会按时间线追加。</p>
+              </div>
+              <div className="max-h-[520px] space-y-3 overflow-y-auto px-4 py-4">
+                {timeline.map(item => (
+                  <div key={item.id} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[86%] rounded-lg px-3 py-2 text-sm ${
+                      item.role === 'user'
+                        ? 'bg-gray-900 text-white'
+                        : item.role === 'system'
+                          ? 'bg-gray-50 text-gray-600'
+                          : 'bg-blue-50 text-gray-800'
+                    }`}>
+                      <div className="font-medium">{item.title}</div>
+                      {item.body && <div className="mt-1 whitespace-pre-line text-xs leading-5 opacity-80">{item.body}</div>}
+                      {item.meta && <div className="mt-1 text-[10px] opacity-60">{item.meta}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           {cards.length > 0 && !graph && (
             <section className="rounded-lg border border-gray-200 bg-white p-4">
               <div className="flex items-center justify-between gap-3">
@@ -473,21 +639,30 @@ export default function ResearchPage() {
             <section ref={draftRef} className="rounded-lg border border-gray-200 bg-white">
               <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-sm font-medium text-gray-900">报告草稿</h2>
-                  <p className="mt-1 text-xs text-gray-500">基于当前 Evidence Board 生成。继续检索后可以重新生成。</p>
+                  <h2 className="text-sm font-medium text-gray-900">报告文件已生成</h2>
+                  <p className="mt-1 text-xs text-gray-500">默认以文件产物交付，需要时再展开页面预览。</p>
                 </div>
-                <button
-                  onClick={generateDraft}
-                  disabled={loading || evidence.length === 0}
-                  className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
-                >
-                  重新生成
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => downloadArtifact('markdown')} className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800">下载 Markdown</button>
+                  <button onClick={() => downloadArtifact('docx')} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">下载 DOCX</button>
+                  <button onClick={() => setShowDraftPreview(prev => !prev)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">
+                    {showDraftPreview ? '收起预览' : '预览'}
+                  </button>
+                  <button
+                    onClick={generateDraft}
+                    disabled={loading || evidence.length === 0}
+                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
+                  >
+                    重新生成
+                  </button>
+                </div>
               </div>
-              <article
-                className="prose prose-sm max-w-none break-words px-5 py-5 prose-headings:scroll-mt-20 prose-headings:text-gray-900 prose-p:leading-7 prose-p:text-gray-700 prose-li:leading-7 prose-li:marker:text-gray-300 prose-code:break-words prose-pre:whitespace-pre-wrap"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(draft) }}
-              />
+              {showDraftPreview && (
+                <article
+                  className="prose prose-sm max-w-none break-words px-5 py-5 prose-headings:scroll-mt-20 prose-headings:text-gray-900 prose-p:leading-7 prose-p:text-gray-700 prose-li:leading-7 prose-li:marker:text-gray-300 prose-code:break-words prose-pre:whitespace-pre-wrap"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(draft) }}
+                />
+              )}
             </section>
           )}
 
@@ -502,11 +677,25 @@ export default function ResearchPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
-                    onClick={() => runRound()}
+                    onClick={planNextRound}
+                    disabled={running}
+                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
+                  >
+                    只规划下一轮
+                  </button>
+                  <button
+                    onClick={() => runRound(undefined, roundPlan.length ? roundPlan : undefined)}
                     disabled={running}
                     className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                   >
-                    {running ? '检索中...' : '运行一轮检索'}
+                    {running ? '检索中...' : roundPlan.length ? '按计划检索' : '规划并检索'}
+                  </button>
+                  <button
+                    onClick={autoContinue}
+                    disabled={running || autoRunning}
+                    className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {autoRunning ? '自动研究中...' : '自动跑完'}
                   </button>
                   <button
                     onClick={generateDraft}
@@ -563,8 +752,17 @@ export default function ResearchPage() {
                       <div className="text-xs font-medium text-gray-700">{item.perspective}</div>
                       <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-gray-500">{item.reason}</p>
                       <div className="mt-2 space-y-1">
-                        {item.queries.slice(0, 2).map(query => (
-                          <div key={query} className="line-clamp-1 rounded bg-white px-2 py-1 text-[11px] text-gray-600">{query}</div>
+                        {item.queries.slice(0, 2).map((query, queryIndex) => (
+                          roundPlan.length ? (
+                            <input
+                              key={`${index}-${query}`}
+                              value={query}
+                              onChange={event => updatePlanQuery(index, queryIndex, event.target.value)}
+                              className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 outline-none focus:border-blue-300"
+                            />
+                          ) : (
+                            <div key={query} className="line-clamp-1 rounded bg-white px-2 py-1 text-[11px] text-gray-600">{query}</div>
+                          )
                         ))}
                       </div>
                     </div>

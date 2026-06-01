@@ -253,7 +253,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         getUserResearchToolConfig(auth.token),
       ]);
 
-      const retrievalPlan: PlannedResearchQuery[] = body.query
+      const planOverride = Array.isArray(body.planOverride) ? body.planOverride : null;
+      const retrievalPlan: PlannedResearchQuery[] = planOverride
+        ? sanitizeForJsonb(planOverride)
+        : body.query
         ? [{
             perspective: '用户指定追问',
             reason: '用户手动输入了本轮检索问题。',
@@ -271,6 +274,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         tasks: retrievalPlan.flatMap(item => item.queries),
         plannedQueries: retrievalPlan,
       });
+
+      if (body.planOnly === true) {
+        await send('done', { plannedQueries: retrievalPlan, query: plannedSearchQuery, graph });
+        await writer.close();
+        return;
+      }
 
       await send('status', { stage: 'searching', message: '正在调用统一研究检索管线' });
       const sourcesFromRetrieval = await retrieveResearchSources({
