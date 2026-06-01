@@ -1,4 +1,4 @@
-import type { PlannedResearchQuery, ResearchSource } from '@/types';
+import type { PlannedResearchQuery, ResearchPlanningContext, ResearchSource } from '@/types';
 
 export type ResearchMode = 'academic' | 'general' | 'both';
 export type ResearchDepth = 'fast' | 'medium' | 'deep';
@@ -27,6 +27,7 @@ interface RetrievalOptions {
   toolConfig: ToolConfig;
   supabase?: SupabaseLike;
   includeGithub?: boolean;
+  planningContext?: ResearchPlanningContext;
 }
 
 interface DepthConfig {
@@ -41,6 +42,19 @@ const DEPTH_CONFIG: Record<ResearchDepth, DepthConfig> = {
   medium: { perspectives: 4, perSourceLimit: 5, crawlLimit: 3, maxChars: 3500 },
   deep: { perspectives: 6, perSourceLimit: 8, crawlLimit: 6, maxChars: 6000 },
 };
+
+const BAD_RETRIEVAL_QUERY_PARTS = [
+  '代表性论文不足',
+  '核心技术路线不足',
+  '论文图结构证据不足',
+  '系统架构组件不足',
+  '评价指标和局限性不足',
+  '局限性和适用边界不足',
+  '证据不足',
+  '待规划',
+  '当前缺口',
+  '不足',
+];
 
 function normalizeMode(mode: unknown): ResearchMode {
   return mode === 'academic' || mode === 'general' || mode === 'both' ? mode : 'both';
@@ -110,25 +124,50 @@ function wantsSource(preferred: Set<string>, source: string, fallback: boolean) 
   return preferred.size === 0 ? fallback : preferred.has(source);
 }
 
-const BAD_RETRIEVAL_QUERY_PARTS = [
-  '代表性论文不足',
-  '核心技术路线不足',
-  '论文图结构证据不足',
-  '系统架构组件不足',
-  '评估指标和局限性不足',
-  '局限性和适用边界不足',
-  '证据不足',
-  '待规划',
-  '当前缺口',
-];
-
 function cleanRetrievalQuery(raw: string) {
   let query = String(raw || '').trim();
   for (const part of BAD_RETRIEVAL_QUERY_PARTS) query = query.replaceAll(part, ' ');
   return query.replace(/\s+/g, ' ').trim();
 }
 
-function fallbackPlan(query: string, mode: ResearchMode, depth: ResearchDepth): PlannedResearchQuery[] {
+function contextualFallbackPlan(query: string, mode: ResearchMode, depth: ResearchDepth, planningContext?: ResearchPlanningContext): PlannedResearchQuery[] {
+  const topic = planningContext?.topic?.trim() || query.trim();
+  const openGaps = planningContext?.openGaps || [];
+  const byGap = openGaps.map(gap => {
+    const preferredSources = gap.preferredSources?.length ? gap.preferredSources : preferredSourcesForMode(mode);
+    if (gap.id === 'gap-papers') {
+      return {
+        perspective: gap.label,
+        reason: gap.reason || '补齐代表性综述和论文来源。',
+        queries: [`"${topic}" review synthesis applications`, `"${topic}" representative papers methods advances`],
+        preferredSources,
+      };
+    }
+    if (gap.id === 'gap-methods') {
+      return {
+        perspective: gap.label,
+        reason: gap.reason || '补齐核心方法、机制和应用场景。',
+        queries: [`"${topic}" synthesis methods structure property relationship`, `"${topic}" mechanism applications performance evidence`],
+        preferredSources,
+      };
+    }
+    if (gap.id === 'gap-evaluation') {
+      return {
+        perspective: gap.label,
+        reason: gap.reason || '补齐评价指标、数据库和 benchmark。',
+        queries: [`"${topic}" characterization BET adsorption stability performance metrics`, `"${topic}" database benchmark dataset evaluation limitation`],
+        preferredSources,
+      };
+    }
+    return {
+      perspective: gap.label || '定向检索',
+      reason: gap.reason || '补齐当前研究缺口的可引用证据。',
+      queries: (gap.suggestedQueries?.length ? gap.suggestedQueries : [`"${topic}" review evidence`, `"${topic}" methods limitations`]).slice(0, 2),
+      preferredSources,
+    };
+  });
+  if (byGap.length > 0) return byGap.slice(0, DEPTH_CONFIG[depth].perspectives);
+
   const candidates = [
     {
       perspective: 'Direct evidence',
@@ -167,8 +206,10 @@ function fallbackPlan(query: string, mode: ResearchMode, depth: ResearchDepth): 
   }));
 }
 
-function cleanPlan(plan: any, query: string, mode: ResearchMode, depth: ResearchDepth): PlannedResearchQuery[] {
+function cleanPlan(plan: any, query: string, mode: ResearchMode, depth: ResearchDepth, planningContext?: ResearchPlanningContext): PlannedResearchQuery[] {
   const target = DEPTH_CONFIG[depth].perspectives;
+  const forbidden = (planningContext?.forbiddenTerms?.length ? planningContext.forbiddenTerms : BAD_RETRIEVAL_QUERY_PARTS)
+    .map(item => item.toLowerCase());
   const rows = Array.isArray(plan?.perspectives) ? plan.perspectives : [];
   const cleaned = rows
     .map((row: any) => ({
@@ -182,16 +223,33 @@ function cleanPlan(plan: any, query: string, mode: ResearchMode, depth: Research
         : preferredSourcesForMode(mode),
     }))
     .filter((row: PlannedResearchQuery) => row.perspective && row.queries.length > 0)
+    .map((row: PlannedResearchQuery) => ({
+      ...row,
+      queries: row.queries.filter(queryText => {
+        const lower = queryText.toLowerCase();
+        return !forbidden.some(term => term && lower.includes(term));
+      }),
+    }))
+    .filter((row: PlannedResearchQuery) => row.queries.length > 0)
     .slice(0, target);
 
   if (cleaned.length >= Math.min(2, target)) return cleaned;
-  return fallbackPlan(query, mode, depth);
+  return contextualFallbackPlan(query, mode, depth, planningContext);
 }
 
 export async function planResearchQueries(options: RetrievalOptions): Promise<PlannedResearchQuery[]> {
-  const { query, mode, depth, llmConfig } = options;
+  const { query, mode, depth, llmConfig, planningContext } = options;
   const target = DEPTH_CONFIG[depth].perspectives;
   const sources = preferredSourcesForMode(mode).join(', ');
+  const contextBlock = planningContext ? `
+Research context:
+- Original topic: ${planningContext.topic}
+- Selected focus: ${planningContext.focus.join(' / ') || 'not specified'}
+- Open gaps:
+${planningContext.openGaps.map(gap => `  - ${gap.id}: ${gap.label}; ${gap.reason}; suggested=${gap.suggestedQueries.join(' | ')}`).join('\n') || '  - none'}
+- Recent queries to avoid: ${planningContext.priorQueries.join(' | ') || 'none'}
+- Forbidden query terms: ${planningContext.forbiddenTerms.join(' | ') || BAD_RETRIEVAL_QUERY_PARTS.join(' | ')}
+` : '';
 
   const prompt = `Create a research retrieval plan for the user question.
 
@@ -203,16 +261,20 @@ Rules:
 - Each perspective must have exactly 2 queries.
 - Query 1 should preserve the user's language/context when useful.
 - Query 2 should be concise English academic/web search wording.
+- Every query must stay anchored to the original topic and selected focus.
+- Gap labels are planning context only; do not copy gap labels or status words into queries.
+- Do not introduce knowledge graph, graph schema, hypergraph, RAG, or paper-graph topics unless the original topic or selected focus explicitly asks for them.
 - preferredSources can use: ${sources}.
 - Do not answer the question.
 
-User question: ${query}`;
+User question: ${query}
+${contextBlock}`;
 
   try {
     const content = await callLLM(llmConfig, prompt, depth === 'deep' ? 1200 : 800);
-    return cleanPlan(sseSafeJson(content), query, mode, depth);
+    return cleanPlan(sseSafeJson(content), query, mode, depth, planningContext);
   } catch {
-    return fallbackPlan(query, mode, depth);
+    return contextualFallbackPlan(query, mode, depth, planningContext);
   }
 }
 
@@ -266,7 +328,7 @@ async function searchTavily(query: string, apiKey: string, limit: number): Promi
 
 function mapScholarPaper(p: any, provider: ResearchSource['sourceProvider']): ResearchSource {
   return {
-    id: `${provider}-${p.paperId}`,
+    id: `${provider}-${p.paperId || encodeURIComponent(p.title || 'paper').slice(0, 40)}`,
     title: p.title || 'Paper',
     snippet: (p.abstract || '').slice(0, 700),
     url: p.url || (p.paperId ? `https://www.semanticscholar.org/paper/${p.paperId}` : ''),

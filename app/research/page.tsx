@@ -324,6 +324,14 @@ export default function ResearchPage() {
             meta: data.source.sourceProvider || data.source.type,
           });
         }
+        if (eventType === 'gate') {
+          pushTimeline({
+            role: 'assistant',
+            title: '证据筛选完成',
+            body: `通过 ${data.accepted || 0} 个来源，拒绝 ${data.rejected || 0} 个噪音来源。${data.fallback ? '\n本轮使用规则 fallback 筛选。' : ''}`,
+            meta: 'evidence gate',
+          });
+        }
         if (eventType === 'graph' && data.graph) setGraph(data.graph);
         if (eventType === 'evidence' && data.evidence) setEvidence(prev => mergeEvidenceItems(prev, data.evidence));
         if (eventType === 'done') {

@@ -305,6 +305,35 @@ export interface PlannedResearchQuery {
   preferredSources: string[];
 }
 
+export interface ResearchPlanningContext {
+  topic: string;
+  focus: string[];
+  openGaps: Array<Pick<ResearchGap, 'id' | 'label' | 'reason' | 'suggestedQueries' | 'preferredSources' | 'status'>>;
+  priorQueries: string[];
+  forbiddenTerms: string[];
+}
+
+export interface AcceptedResearchEvidence {
+  sourceId: string;
+  relevanceScore: number;
+  gapIds: string[];
+  claim: string;
+  evidenceSnippet: string;
+  nodeTypes: string[];
+  reason: string;
+}
+
+export interface RejectedResearchSource {
+  sourceId: string;
+  reason: string;
+}
+
+export interface EvidenceGateResult {
+  accepted: AcceptedResearchEvidence[];
+  rejected: RejectedResearchSource[];
+  fallback?: boolean;
+}
+
 export type ResearchSessionStatus =
   | 'CREATED'
   | 'SCOPING'
