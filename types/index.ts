@@ -332,6 +332,7 @@ export interface EvidenceGateResult {
   accepted: AcceptedResearchEvidence[];
   rejected: RejectedResearchSource[];
   fallback?: boolean;
+  fallbackReason?: string;
 }
 
 export type ResearchSessionStatus =

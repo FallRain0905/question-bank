@@ -123,6 +123,26 @@ function buildPlanningContext(scope: ResearchScope, graph: ResearchGraphTemplate
   };
 }
 
+function summarizeGateItems(
+  items: Array<{ sourceId: string; reason: string; relevanceScore?: number }>,
+  sources: ResearchSource[],
+  limit: number
+) {
+  const sourceMap = new Map(sources.map(source => [source.id, source]));
+  return items.slice(0, limit).map(item => {
+    const source = sourceMap.get(item.sourceId);
+    return {
+      sourceId: item.sourceId,
+      title: source?.title || item.sourceId,
+      provider: source?.sourceProvider || source?.type || 'source',
+      url: source?.url || '',
+      snippet: (source?.fullTextExcerpt || source?.snippet || '').slice(0, 360),
+      reason: item.reason,
+      relevanceScore: item.relevanceScore,
+    };
+  });
+}
+
 async function queryLocalKb(
   token: string,
   userId: string,
@@ -299,7 +319,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         accepted: gate.accepted.length,
         rejected: gate.rejected.length,
         fallback: gate.fallback === true,
-        rejectedSamples: gate.rejected.slice(0, 5),
+        fallbackReason: gate.fallbackReason || '',
+        acceptedSamples: summarizeGateItems(gate.accepted, sources, 6),
+        rejectedSamples: summarizeGateItems(gate.rejected, sources, 8),
       });
 
       await send('status', { stage: 'extracting', message: '正在把通过筛选的证据写入研究图谱' });

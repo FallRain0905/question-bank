@@ -18,24 +18,24 @@ import type {
 } from '@/types';
 
 const SOURCE_OPTIONS: { value: ResearchSourcePreference; label: string }[] = [
-  { value: 'papers', label: '论文源' },
+  { value: 'papers', label: '\u8bba\u6587\u6e90' },
   { value: 'web', label: 'Web' },
   { value: 'github', label: 'GitHub' },
-  { value: 'local_kb', label: '本地知识库' },
+  { value: 'local_kb', label: '\u672c\u5730\u77e5\u8bc6\u5e93' },
 ];
 
 const OUTPUT_OPTIONS: { value: ResearchOutputType; label: string }[] = [
-  { value: 'technical_report', label: '技术报告' },
-  { value: 'system_design', label: '系统设计' },
-  { value: 'literature_review', label: '文献综述' },
-  { value: 'concise_answer', label: '简洁回答' },
-  { value: 'comparison_table', label: '对比表' },
+  { value: 'technical_report', label: '\u6280\u672f\u62a5\u544a' },
+  { value: 'system_design', label: '\u7cfb\u7edf\u8bbe\u8ba1' },
+  { value: 'literature_review', label: '\u6587\u732e\u7efc\u8ff0' },
+  { value: 'concise_answer', label: '\u7b80\u6d01\u56de\u7b54' },
+  { value: 'comparison_table', label: '\u5bf9\u6bd4\u8868' },
 ];
 
 const DEPTH_OPTIONS: { value: ResearchSessionDepth; label: string; hint: string }[] = [
-  { value: 'fast', label: '快速', hint: '1 轮，快速看方向' },
-  { value: 'standard', label: '标准', hint: '2-3 轮，默认' },
-  { value: 'deep', label: '深度', hint: '最多 5 轮，适合报告' },
+  { value: 'fast', label: '\u5feb\u901f', hint: '1 \u8f6e\uff0c\u5feb\u901f\u770b\u65b9\u5411' },
+  { value: 'standard', label: '\u6807\u51c6', hint: '2-3 \u8f6e\uff0c\u9ed8\u8ba4' },
+  { value: 'deep', label: '\u6df1\u5ea6', hint: '\u6700\u591a 5 \u8f6e\uff0c\u9002\u5408\u62a5\u544a' },
 ];
 
 type TimelineEvent = {
@@ -47,6 +47,25 @@ type TimelineEvent = {
 };
 
 type RightPanelTab = 'evidence' | 'graph' | 'sources' | 'report';
+
+type GateSample = {
+  sourceId: string;
+  title: string;
+  provider: string;
+  url?: string;
+  snippet?: string;
+  reason: string;
+  relevanceScore?: number;
+};
+
+type GateDiagnostics = {
+  accepted: number;
+  rejected: number;
+  fallback: boolean;
+  fallbackReason?: string;
+  acceptedSamples: GateSample[];
+  rejectedSamples: GateSample[];
+};
 
 function toggleInList<T extends string>(items: T[], value: T) {
   return items.includes(value) ? items.filter(item => item !== value) : [...items, value];
@@ -96,12 +115,13 @@ export default function ResearchPage() {
   const [sources, setSources] = useState<ResearchSourcePreference[]>(['papers', 'web', 'github', 'local_kb']);
   const [outputType, setOutputType] = useState<ResearchOutputType>('technical_report');
   const [depth, setDepth] = useState<ResearchSessionDepth>('standard');
-  const [constraints, setConstraints] = useState('优先保留可引用证据\n每轮检索都服务于补全研究图谱缺口');
+  const [constraints, setConstraints] = useState('Prefer citable evidence\nEvery round should fill a research graph gap');
   const [quickScanSources, setQuickScanSources] = useState<ResearchSource[]>([]);
   const [graph, setGraph] = useState<ResearchGraphTemplate | null>(null);
   const [evidence, setEvidence] = useState<ResearchEvidence[]>([]);
   const [roundSources, setRoundSources] = useState<ResearchSource[]>([]);
   const [roundPlan, setRoundPlan] = useState<PlannedResearchQuery[]>([]);
+  const [gateDiagnostics, setGateDiagnostics] = useState<GateDiagnostics | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [draft, setDraft] = useState('');
   const [statusText, setStatusText] = useState('');
@@ -165,10 +185,11 @@ export default function ResearchPage() {
     setDraft('');
     setEvidence([]);
     setRoundSources([]);
+    setGateDiagnostics(null);
     setRoundPlan([]);
     setGraph(null);
-    setTimeline([{ id: timelineId(), role: 'user', title: nextTopic, body: '新的研究主题' }]);
-    setStatusText('正在做轻量预检索，并生成研究方向卡片...');
+    setTimeline([{ id: timelineId(), role: 'user', title: nextTopic, body: '\u65b0\u7684\u7814\u7a76\u4e3b\u9898' }]);
+    setStatusText('\u6b63\u5728\u505a\u8f7b\u91cf\u9884\u68c0\u7d22\uff0c\u5e76\u751f\u6210\u7814\u7a76\u65b9\u5411\u5361\u7247...');
 
     try {
       const headers = await authHeaders();
@@ -342,26 +363,47 @@ export default function ResearchPage() {
           setRoundPlan(data.plannedQueries);
           pushTimeline({
             role: 'assistant',
-            title: executeSearch ? '我准备按这些问题开始检索' : '下一轮检索计划已生成',
+            title: executeSearch ? 'I will search with this plan' : 'Next-round search plan is ready',
             body: data.plannedQueries
               .flatMap((item: PlannedResearchQuery) => item.queries)
-              .slice(0, 6)
+              .slice(0, 8)
               .join('\n'),
+            meta: 'query planner',
           });
         }
         if (eventType === 'source' && data.source) {
           setRoundSources(prev => [...prev, data.source]);
           pushTimeline({
             role: 'system',
-            title: `找到来源：${data.source.title}`,
+            title: `Found source: ${data.source.title}`,
+            body: [
+              data.source.query ? `query: ${data.source.query}` : '',
+              (data.source.fullTextExcerpt || data.source.snippet || '').slice(0, 260),
+            ].filter(Boolean).join('\n'),
             meta: data.source.sourceProvider || data.source.type,
           });
         }
         if (eventType === 'gate') {
+          const diagnostics: GateDiagnostics = {
+            accepted: data.accepted || 0,
+            rejected: data.rejected || 0,
+            fallback: data.fallback === true,
+            fallbackReason: data.fallbackReason || '',
+            acceptedSamples: data.acceptedSamples || [],
+            rejectedSamples: data.rejectedSamples || [],
+          };
+          setGateDiagnostics(diagnostics);
+          setRightPanelTab('sources');
+          setRightSidebarOpen(true);
           pushTimeline({
             role: 'assistant',
-            title: '证据筛选完成',
-            body: `通过 ${data.accepted || 0} 个来源，拒绝 ${data.rejected || 0} 个噪音来源。${data.fallback ? '\n本轮使用规则 fallback 筛选。' : ''}`,
+            title: 'Evidence gate completed',
+            body: [
+              `Passed ${diagnostics.accepted} sources, rejected ${diagnostics.rejected} sources.`,
+              diagnostics.fallback ? `Rule fallback was used: ${diagnostics.fallbackReason || 'reason unavailable'}` : 'LLM evidence gate was used.',
+              diagnostics.acceptedSamples.length ? `Accepted samples:\n${diagnostics.acceptedSamples.map(item => `- ${item.title}: ${item.reason}`).join('\n')}` : '',
+              diagnostics.rejectedSamples.length ? `Rejected samples:\n${diagnostics.rejectedSamples.slice(0, 4).map(item => `- ${item.title}: ${item.reason}`).join('\n')}` : '',
+            ].filter(Boolean).join('\n\n'),
             meta: 'evidence gate',
           });
         }
@@ -376,8 +418,8 @@ export default function ResearchPage() {
           if (executeSearch && data.sources) {
             pushTimeline({
               role: 'assistant',
-              title: '本轮检索完成',
-              body: `新增来源 ${data.sources.length} 个，证据板和研究图谱已经更新。`,
+              title: 'Search round completed',
+              body: `Found ${data.sources.length} candidate sources. Evidence and graph updates now follow the gate result.`,
             });
           }
         }
@@ -392,6 +434,7 @@ export default function ResearchPage() {
     setRunning(true);
     setError('');
     setRoundSources([]);
+    setGateDiagnostics(null);
     if (!planOverride) setRoundPlan([]);
     setStatusText('正在启动一轮图谱驱动检索...');
     pushTimeline({
@@ -526,6 +569,7 @@ export default function ResearchPage() {
       setEvidence(data.evidence || []);
       setRoundPlan([]);
       setRoundSources([]);
+    setGateDiagnostics(null);
       setDraft(data.session.graph_template?.reportDraft || '');
       setTimeline([
         { id: timelineId(), role: 'user', title: data.session.topic, body: '已恢复的研究主题' },
@@ -784,6 +828,30 @@ export default function ResearchPage() {
 
         {rightPanelTab === 'sources' && (
           <div className="space-y-2">
+            {gateDiagnostics && (
+              <div className="mb-3 rounded-lg border border-amber-100 bg-amber-50 p-3">
+                <div className="text-xs font-medium text-amber-800">
+                  Gate: {gateDiagnostics.accepted} accepted / {gateDiagnostics.rejected} rejected
+                </div>
+                <div className="mt-1 text-[11px] text-amber-700">
+                  {gateDiagnostics.fallback ? `Rule fallback: ${gateDiagnostics.fallbackReason || 'reason unavailable'}` : 'LLM evidence gate was used.'}
+                </div>
+                <div className="mt-3 space-y-2">
+                  {gateDiagnostics.acceptedSamples.slice(0, 4).map(item => (
+                    <div key={`accepted-${item.sourceId}`} className="rounded-md bg-white/80 p-2 text-[11px] text-green-800">
+                      <div className="font-medium">Accepted: {item.title}</div>
+                      <div className="mt-1">{item.reason}</div>
+                    </div>
+                  ))}
+                  {gateDiagnostics.rejectedSamples.slice(0, 5).map(item => (
+                    <div key={`rejected-${item.sourceId}`} className="rounded-md bg-white/80 p-2 text-[11px] text-red-800">
+                      <div className="font-medium">Rejected: {item.title}</div>
+                      <div className="mt-1">{item.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {contextSources.length === 0 ? (
               <div className="rounded-lg bg-gray-50 p-4 text-xs text-gray-400">预检索或运行检索后会显示来源。</div>
             ) : contextSources.slice(0, 24).map(source => (
@@ -919,6 +987,49 @@ export default function ResearchPage() {
                 </div>
               </div>
             ))}
+
+            {gateDiagnostics && (
+              <div className="rounded-lg border border-amber-100 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-900">Evidence Gate Diagnostics</h3>
+                    <p className="mt-1 text-xs text-gray-500">Passed {gateDiagnostics.accepted}, rejected {gateDiagnostics.rejected}. {gateDiagnostics.fallback ? `Rule fallback: ${gateDiagnostics.fallbackReason || 'reason unavailable'}` : 'LLM gate was used.'}</p>
+                  </div>
+                  <button
+                    onClick={() => { setRightPanelTab('sources'); setRightSidebarOpen(true); }}
+                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 hover:border-gray-300"
+                  >
+                    View sources
+                  </button>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-medium text-green-700">Accepted samples</div>
+                    <div className="mt-2 space-y-2">
+                      {(gateDiagnostics.acceptedSamples.length ? gateDiagnostics.acceptedSamples : []).slice(0, 4).map(item => (
+                        <div key={item.sourceId} className="rounded-lg bg-green-50 p-2 text-xs text-green-800">
+                          <div className="font-medium">{item.title}</div>
+                          <div className="mt-1 opacity-80">{item.reason}</div>
+                        </div>
+                      ))}
+                      {gateDiagnostics.acceptedSamples.length === 0 && <div className="rounded-lg bg-gray-50 p-2 text-xs text-gray-400">No samples yet</div>}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-red-700">Rejected samples</div>
+                    <div className="mt-2 space-y-2">
+                      {gateDiagnostics.rejectedSamples.slice(0, 4).map(item => (
+                        <div key={item.sourceId} className="rounded-lg bg-red-50 p-2 text-xs text-red-800">
+                          <div className="font-medium">{item.title}</div>
+                          <div className="mt-1 opacity-80">{item.reason}</div>
+                        </div>
+                      ))}
+                      {gateDiagnostics.rejectedSamples.length === 0 && <div className="rounded-lg bg-gray-50 p-2 text-xs text-gray-400">No samples yet</div>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {graph && (
               <div className="rounded-lg border border-blue-100 bg-white p-4 shadow-sm">
