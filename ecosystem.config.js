@@ -32,7 +32,10 @@ module.exports = {
       args: '-m uvicorn app:app --host 0.0.0.0 --port 8002',
       cwd: `${rootDir}/crawl-service`,
       env: {
-        PYTHONUNBUFFERED: '1'
+        PYTHONUNBUFFERED: '1',
+        CRAWL_ENABLE_BROWSER: '0',
+        CRAWL_CONCURRENCY: '1',
+        CRAWL_TIMEOUT_SECONDS: '20'
       },
       instances: 1,
       autorestart: true,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import os
+import asyncio
 from html.parser import HTMLParser
 from typing import Optional
 from urllib.request import Request, urlopen
@@ -15,6 +17,11 @@ except Exception:  # pragma: no cover - optional runtime dependency fallback
 
 
 app = FastAPI(title="SynapFlow Crawl Service", version="0.1.0")
+
+BROWSER_CRAWL_ENABLED = os.getenv("CRAWL_ENABLE_BROWSER", "0").lower() in {"1", "true", "yes"}
+CRAWL_TIMEOUT_SECONDS = int(os.getenv("CRAWL_TIMEOUT_SECONDS", "20"))
+CRAWL_CONCURRENCY = max(1, int(os.getenv("CRAWL_CONCURRENCY", "1")))
+browser_crawl_semaphore = asyncio.Semaphore(CRAWL_CONCURRENCY)
 
 
 class CrawlRequest(BaseModel):
@@ -66,9 +73,12 @@ def compact(text: str, max_chars: int) -> str:
 async def crawl_with_crawl4ai(url: str, max_chars: int) -> tuple[str, str]:
     if AsyncWebCrawler is None:
         raise RuntimeError("crawl4ai is not installed")
+    if not BROWSER_CRAWL_ENABLED:
+        raise RuntimeError("browser crawling is disabled")
 
-    async with AsyncWebCrawler() as crawler:
-        result = await crawler.arun(url=url)
+    async with browser_crawl_semaphore:
+        async with AsyncWebCrawler() as crawler:
+            result = await asyncio.wait_for(crawler.arun(url=url), timeout=CRAWL_TIMEOUT_SECONDS)
     markdown = getattr(result, "markdown", "") or getattr(result, "cleaned_html", "") or ""
     title = getattr(result, "metadata", {}).get("title", "") if getattr(result, "metadata", None) else ""
     return title, compact(markdown, max_chars)
@@ -82,7 +92,7 @@ def crawl_with_stdlib(url: str, max_chars: int) -> tuple[str, str]:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
     )
-    with urlopen(request, timeout=15) as response:
+    with urlopen(request, timeout=CRAWL_TIMEOUT_SECONDS) as response:
         raw = response.read(min(max_chars * 8, 2_000_000))
         encoding = response.headers.get_content_charset() or "utf-8"
     html = raw.decode(encoding, errors="ignore")
