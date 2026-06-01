@@ -90,6 +90,26 @@ function preferredSourcesForMode(mode: ResearchMode) {
   return ['semantic_scholar', 'openalex', 'arxiv', 'local_papers', 'tavily', 'crawled_web'];
 }
 
+function sourcePrefsForPlanItem(item: PlannedResearchQuery, mode: ResearchMode) {
+  const raw = item.preferredSources?.length ? item.preferredSources : preferredSourcesForMode(mode);
+  const normalized = new Set(raw.map(source => String(source || '').toLowerCase().trim()));
+  if (normalized.has('papers')) {
+    normalized.add('semantic_scholar');
+    normalized.add('openalex');
+    normalized.add('arxiv');
+    normalized.add('local_papers');
+  }
+  if (normalized.has('web')) {
+    normalized.add('tavily');
+    normalized.add('crawled_web');
+  }
+  return normalized;
+}
+
+function wantsSource(preferred: Set<string>, source: string, fallback: boolean) {
+  return preferred.size === 0 ? fallback : preferred.has(source);
+}
+
 function fallbackPlan(query: string, mode: ResearchMode, depth: ResearchDepth): PlannedResearchQuery[] {
   const candidates = [
     {
@@ -501,15 +521,28 @@ export async function retrieveResearchSources(options: RetrievalOptions & { plan
   const rawSources: ResearchSource[] = [];
 
   for (const item of plan) {
+    const preferred = sourcePrefsForPlanItem(item, mode);
     for (const plannedQuery of item.queries.slice(0, 2)) {
       const searches: Promise<ResearchSource[]>[] = [];
-      if (web) searches.push(searchTavily(plannedQuery, toolConfig.tavilyApiKey, config.perSourceLimit));
-      if (includeGithub) searches.push(searchGitHub(plannedQuery, toolConfig.githubToken, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
+      if (web && (wantsSource(preferred, 'tavily', web) || wantsSource(preferred, 'crawled_web', web))) {
+        searches.push(searchTavily(plannedQuery, toolConfig.tavilyApiKey, config.perSourceLimit));
+      }
+      if (includeGithub && wantsSource(preferred, 'github', false)) {
+        searches.push(searchGitHub(plannedQuery, toolConfig.githubToken, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
+      }
       if (academic) {
-        searches.push(searchSemanticScholar(plannedQuery, toolConfig.semanticScholarApiKey, config.perSourceLimit));
-        searches.push(searchOpenAlex(plannedQuery, config.perSourceLimit));
-        searches.push(searchArxiv(plannedQuery, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
-        searches.push(searchLocalPapers(plannedQuery, supabase, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
+        if (wantsSource(preferred, 'semantic_scholar', academic)) {
+          searches.push(searchSemanticScholar(plannedQuery, toolConfig.semanticScholarApiKey, config.perSourceLimit));
+        }
+        if (wantsSource(preferred, 'openalex', academic)) {
+          searches.push(searchOpenAlex(plannedQuery, config.perSourceLimit));
+        }
+        if (wantsSource(preferred, 'arxiv', academic)) {
+          searches.push(searchArxiv(plannedQuery, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
+        }
+        if (wantsSource(preferred, 'local_papers', academic)) {
+          searches.push(searchLocalPapers(plannedQuery, supabase, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
+        }
       }
       const results = await Promise.all(searches);
       rawSources.push(...results.flat().map(source => attachMeta(source, item, plannedQuery)));

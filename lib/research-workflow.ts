@@ -53,7 +53,7 @@ export const DEFAULT_DIRECTIONS: ResearchDirectionCard[] = [
     id: 'architecture',
     title: '系统架构',
     description: '重点研究系统组件、数据流、Agent 流程和工程实现。',
-    recommended: true,
+    recommended: false,
     graphFocus: ['Method', 'Component', 'OpenSourceProject', 'Limitation'],
     sourceHints: ['papers', 'github', 'web'],
   },
@@ -61,7 +61,7 @@ export const DEFAULT_DIRECTIONS: ResearchDirectionCard[] = [
     id: 'paper_graph',
     title: '论文图结构',
     description: '聚焦论文语料如何建模成图、超图或证据结构。',
-    recommended: true,
+    recommended: false,
     graphFocus: ['GraphSchema', 'Paper', 'Evidence', 'Metric'],
     sourceHints: ['papers', 'local_kb'],
   },
@@ -125,6 +125,26 @@ function unique<T>(items: T[]) {
   return Array.from(new Set(items));
 }
 
+function topicMatches(topic: string, patterns: RegExp[]) {
+  return patterns.some(pattern => pattern.test(topic));
+}
+
+function needsArchitecture(topic: string, focus: string[]) {
+  return focus.includes('系统架构') || topicMatches(topic, [/系统|架构|平台|agent|workflow|pipeline|implementation|实现|工程/i]);
+}
+
+function needsPaperGraph(topic: string, focus: string[]) {
+  return focus.includes('论文图结构') || topicMatches(topic, [/论文语料|文献图|知识图谱|图结构|超图|hypergraph|graph schema|graph rag|hyper-rag/i]);
+}
+
+function needsEvaluation(topic: string, focus: string[]) {
+  return focus.includes('实验评估') || topicMatches(topic, [/评估|实验|benchmark|metric|指标|性能|对比/i]);
+}
+
+function needsOpenSource(topic: string, focus: string[]) {
+  return focus.includes('开源实现') || topicMatches(topic, [/github|开源|repo|代码|实现/i]);
+}
+
 export function normalizeResearchSessionDepth(depth: unknown): ResearchSessionDepth {
   return depth === 'fast' || depth === 'deep' || depth === 'standard' ? depth : 'standard';
 }
@@ -145,21 +165,31 @@ export function sourcePrefsToMode(sources: ResearchSourcePreference[]): Research
 
 export function getDirectionCards(topic: string, sourceCount = 0): ResearchDirectionCard[] {
   const lower = topic.toLowerCase();
+  const asksArchitecture = needsArchitecture(lower, []);
+  const asksPaperGraph = needsPaperGraph(lower, []);
+  const asksEvaluation = needsEvaluation(lower, []);
+  const asksOpenSource = needsOpenSource(lower, []);
+  const asksTheory = topicMatches(lower, [/理论|基础|定义|concept|机制|原理|what is/i]);
+  const broadDomain = !asksArchitecture && !asksPaperGraph && !asksEvaluation && !asksOpenSource;
+
   return DEFAULT_DIRECTIONS.map(card => ({
     ...card,
     recommended:
       card.recommended ||
-      (card.id === 'open_source' && /github|开源|repo|代码/.test(lower)) ||
-      (card.id === 'evaluation' && /实验|评估|benchmark|metric/.test(lower)) ||
-      (card.id === 'theory' && /理论|基础|定义|concept/.test(lower)) ||
-      (sourceCount > 0 && card.id === 'paper_graph'),
+      (card.id === 'architecture' && asksArchitecture) ||
+      (card.id === 'paper_graph' && asksPaperGraph) ||
+      (card.id === 'open_source' && asksOpenSource) ||
+      (card.id === 'evaluation' && asksEvaluation) ||
+      (card.id === 'theory' && (asksTheory || broadDomain)) ||
+      (card.id === 'application' && broadDomain) ||
+      (sourceCount > 0 && card.id === 'evaluation' && asksEvaluation),
   }));
 }
 
 export function buildResearchScope(topic: string, patch?: Partial<ResearchScope>): ResearchScope {
   const focus = patch?.focus?.length
     ? patch.focus
-    : DEFAULT_DIRECTIONS.filter(card => card.recommended).map(card => card.title);
+    : getDirectionCards(topic).filter(card => card.recommended).map(card => card.title);
   const sources = patch?.sources?.length
     ? patch.sources
     : unique(
@@ -192,6 +222,10 @@ function gap(
 }
 
 export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate {
+  const includeArchitecture = needsArchitecture(scope.topic, scope.focus);
+  const includePaperGraph = needsPaperGraph(scope.topic, scope.focus);
+  const includeEvaluation = needsEvaluation(scope.topic, scope.focus);
+  const includeOpenSource = needsOpenSource(scope.topic, scope.focus) || scope.sources.includes('github');
   const nodes: ResearchGraphNode[] = [
     {
       id: `problem-${safeId(scope.topic)}`,
@@ -205,15 +239,15 @@ export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate 
   const requiredSlots = unique([
     '代表性论文',
     '核心方法',
-    '论文图结构设计',
     '证据链',
-    ...(scope.focus.includes('系统架构') ? ['系统组件', '工程实现'] : []),
-    ...(scope.focus.includes('实验评估') ? ['评估指标', '数据集'] : []),
-    ...(scope.sources.includes('github') ? ['开源项目'] : []),
+    ...(includePaperGraph ? ['论文图结构设计'] : ['技术路线', '应用场景']),
+    ...(includeArchitecture ? ['系统组件', '工程实现'] : []),
+    ...(includeEvaluation ? ['评估指标', '数据集'] : []),
+    ...(includeOpenSource ? ['开源项目'] : []),
     '局限性',
   ]);
 
-  const gaps = [
+  const gaps: ResearchGap[] = [
     gap(
       'gap-papers',
       '代表性论文不足',
@@ -224,6 +258,19 @@ export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate 
       'high'
     ),
     gap(
+      'gap-methods',
+      '核心技术路线不足',
+      '需要补齐该主题下的主要方法、机制、适用场景和代表性证据。',
+      ['Method', 'Claim', 'Evidence'],
+      [`${scope.topic} core methods mechanism`, `${scope.topic} review technology routes`],
+      ['papers', 'web', 'local_kb'],
+      'high'
+    ),
+  ];
+
+  if (includePaperGraph) {
+    gaps.push(
+    gap(
       'gap-graph-schema',
       '论文图结构证据不足',
       '需要明确 Paper / Method / Evidence / GraphSchema 如何连接。',
@@ -231,7 +278,11 @@ export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate 
       [`${scope.topic} graph schema paper corpus`, `${scope.topic} evidence graph scientific papers`],
       ['papers', 'web', 'local_kb'],
       'high'
-    ),
+    ));
+  }
+
+  if (includeArchitecture) {
+    gaps.push(
     gap(
       'gap-architecture',
       '系统架构组件不足',
@@ -239,8 +290,12 @@ export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate 
       ['Component', 'Method', 'OpenSourceProject'],
       [`${scope.topic} system architecture implementation`, `${scope.topic} open source implementation`],
       ['web', 'github'],
-      scope.focus.includes('系统架构') ? 'high' : 'medium'
-    ),
+      'high'
+    ));
+  }
+
+  if (includeEvaluation) {
+    gaps.push(
     gap(
       'gap-evaluation',
       '评估指标和局限性不足',
@@ -249,8 +304,20 @@ export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate 
       [`${scope.topic} evaluation metrics benchmark limitation`],
       ['papers', 'web'],
       'medium'
-    ),
-  ];
+    ));
+  } else {
+    gaps.push(
+      gap(
+        'gap-limitations',
+        '局限性和适用边界不足',
+        '需要补齐当前方法的限制、成本、风险和适用条件。',
+        ['Limitation', 'Evidence'],
+        [`${scope.topic} limitations challenges`, `${scope.topic} cost barriers comparison`],
+        ['papers', 'web'],
+        'medium'
+      )
+    );
+  }
 
   return {
     nodeTypes: NODE_TYPES,
@@ -279,7 +346,7 @@ export function buildSearchQueryFromGraph(scope: ResearchScope, graph: ResearchG
   const gapQueries = getOpenGaps(graph, scope.depth === 'deep' ? 4 : 3)
     .flatMap(item => item.suggestedQueries)
     .slice(0, scope.depth === 'fast' ? 2 : scope.depth === 'deep' ? 6 : 4);
-  return unique([scope.topic, ...gapQueries]).join(' | ');
+  return unique([scope.topic, ...gapQueries]).join(' ');
 }
 
 function nodeTypeForSource(source: ResearchSource) {

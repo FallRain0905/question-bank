@@ -9,6 +9,7 @@ import type {
   ResearchEvidence,
   ResearchGraphTemplate,
   ResearchOutputType,
+  PlannedResearchQuery,
   ResearchScope,
   ResearchSession,
   ResearchSessionDepth,
@@ -70,6 +71,7 @@ export default function ResearchPage() {
   const [graph, setGraph] = useState<ResearchGraphTemplate | null>(null);
   const [evidence, setEvidence] = useState<ResearchEvidence[]>([]);
   const [roundSources, setRoundSources] = useState<ResearchSource[]>([]);
+  const [roundPlan, setRoundPlan] = useState<PlannedResearchQuery[]>([]);
   const [draft, setDraft] = useState('');
   const [statusText, setStatusText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -106,6 +108,7 @@ export default function ResearchPage() {
     setDraft('');
     setEvidence([]);
     setRoundSources([]);
+    setRoundPlan([]);
     setGraph(null);
     setStatusText('正在做轻量预检索并生成研究方向...');
 
@@ -176,6 +179,7 @@ export default function ResearchPage() {
     setRunning(true);
     setError('');
     setRoundSources([]);
+    setRoundPlan([]);
     setStatusText('正在启动一轮图谱驱动检索...');
     try {
       if (override) {
@@ -213,6 +217,7 @@ export default function ResearchPage() {
           if (!dataStr) continue;
           const data = JSON.parse(dataStr);
           if (eventType === 'status') setStatusText(data.message || data.stage);
+          if (eventType === 'tasks' && data.plannedQueries) setRoundPlan(data.plannedQueries);
           if (eventType === 'source' && data.source) setRoundSources(prev => [...prev, data.source]);
           if (eventType === 'graph' && data.graph) setGraph(data.graph);
           if (eventType === 'evidence' && data.evidence) setEvidence(prev => mergeEvidenceItems(prev, data.evidence));
@@ -273,6 +278,7 @@ export default function ResearchPage() {
       setTopic(data.session.topic);
       setGraph(data.session.graph_template || null);
       setEvidence(data.evidence || []);
+      setRoundPlan([]);
       setDraft(data.session.graph_template?.reportDraft || '');
       const scope = data.session.scope as ResearchScope | null;
       if (scope) {
@@ -308,10 +314,13 @@ export default function ResearchPage() {
         </div>
       </div>
 
-      <div className="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[300px_minmax(0,1fr)_320px]">
-        <aside className="space-y-4">
+      <div className="mx-auto grid max-w-[1600px] gap-4 px-4 py-4 lg:grid-cols-[320px_minmax(0,1fr)_360px]">
+        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
           <section className="rounded-lg border border-gray-200 bg-white p-4">
-            <h2 className="text-sm font-medium text-gray-800">研究主题</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-gray-800">研究控制台</h2>
+              {session && <span className="rounded bg-gray-100 px-2 py-1 text-[10px] text-gray-500">{session.status}</span>}
+            </div>
             <textarea
               value={topic}
               onChange={e => setTopic(e.target.value)}
@@ -351,6 +360,26 @@ export default function ResearchPage() {
         </aside>
 
         <main className="space-y-4">
+          {session && (
+            <section className="rounded-lg border border-gray-200 bg-white p-4">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-gray-400">Research Workspace</div>
+                  <h2 className="mt-1 truncate text-lg font-semibold text-gray-900">{session.topic}</h2>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {graph ? `${graph.nodes.length} 节点 / ${graph.edges.length} 超边 / ${evidence.length} 条证据` : '确认范围后生成研究图谱'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {sources.map(source => (
+                    <span key={source} className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{source}</span>
+                  ))}
+                  <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs text-blue-600">{depth}</span>
+                </div>
+              </div>
+            </section>
+          )}
+
           {cards.length > 0 && !graph && (
             <section className="rounded-lg border border-gray-200 bg-white p-4">
               <div className="flex items-center justify-between gap-3">
@@ -518,6 +547,31 @@ export default function ResearchPage() {
                 </div>
               </div>
 
+              <div className="mt-4 rounded-lg border border-gray-100 bg-white p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-xs font-medium text-gray-500">本轮检索计划</h3>
+                  <span className="text-[10px] text-gray-400">{roundPlan.length ? 'LLM planned' : 'waiting'}</span>
+                </div>
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  {(roundPlan.length ? roundPlan : (graph.nextSearchTasks || []).map(task => ({
+                    perspective: '待规划',
+                    reason: '下一轮会根据开放缺口重新规划检索问题。',
+                    queries: [task],
+                    preferredSources: sources,
+                  }))).slice(0, 6).map((item, index) => (
+                    <div key={`${item.perspective}-${index}`} className="rounded-lg bg-gray-50 p-3">
+                      <div className="text-xs font-medium text-gray-700">{item.perspective}</div>
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-gray-500">{item.reason}</p>
+                      <div className="mt-2 space-y-1">
+                        {item.queries.slice(0, 2).map(query => (
+                          <div key={query} className="line-clamp-1 rounded bg-white px-2 py-1 text-[11px] text-gray-600">{query}</div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 <div className="rounded-lg bg-gray-50 p-3">
                   <h3 className="text-xs font-medium text-gray-500">节点类型</h3>
@@ -593,7 +647,7 @@ export default function ResearchPage() {
           )}
         </main>
 
-        <aside className="space-y-4">
+        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
           <section className="rounded-lg border border-gray-200 bg-white p-4">
             <h2 className="text-sm font-medium text-gray-800">Evidence Board</h2>
             <p className="mt-1 text-xs text-gray-500">按 claim 聚合证据，最终报告会优先使用这里的内容。</p>
