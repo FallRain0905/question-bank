@@ -46,6 +46,8 @@ type TimelineEvent = {
   meta?: string;
 };
 
+type RightPanelTab = 'evidence' | 'graph' | 'sources' | 'report';
+
 function toggleInList<T extends string>(items: T[], value: T) {
   return items.includes(value) ? items.filter(item => item !== value) : [...items, value];
 }
@@ -61,6 +63,22 @@ function formatApiError(data: any, fallback: string) {
 
 function timelineId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function MenuIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+    </svg>
+  );
+}
+
+function PanelIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 6.75h15M4.5 12h15m-15 5.25h15" />
+    </svg>
+  );
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -86,13 +104,15 @@ export default function ResearchPage() {
   const [roundPlan, setRoundPlan] = useState<PlannedResearchQuery[]>([]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [draft, setDraft] = useState('');
-  const [showDraftPreview, setShowDraftPreview] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
   const [error, setError] = useState('');
-  const draftRef = useRef<HTMLElement | null>(null);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('evidence');
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const selectedFocus = useMemo(
     () => cards.filter(card => selectedCards.includes(card.id)).map(card => card.title),
@@ -104,13 +124,26 @@ export default function ResearchPage() {
     [graph]
   );
 
+  const contextSources = useMemo(
+    () => [...roundSources, ...quickScanSources],
+    [roundSources, quickScanSources]
+  );
+
   const pushTimeline = (event: Omit<TimelineEvent, 'id'>) => {
     setTimeline(prev => [...prev, { id: timelineId(), ...event }]);
   };
 
   useEffect(() => {
     loadSessions();
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setLeftSidebarOpen(false);
+      setRightSidebarOpen(false);
+    }
   }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [timeline, roundPlan, draft, running]);
 
   const loadSessions = async () => {
     try {
@@ -200,7 +233,7 @@ export default function ResearchPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(formatApiError(data, '确认 scope 失败'));
+      if (!res.ok) throw new Error(formatApiError(data, '确认研究范围失败'));
 
       setSession(data.session);
       setGraph(data.graphTemplate);
@@ -212,7 +245,7 @@ export default function ResearchPage() {
       });
       loadSessions();
     } catch (err: any) {
-      setError(err.message || '确认 scope 失败');
+      setError(err.message || '确认研究范围失败');
     } finally {
       setLoading(false);
     }
@@ -415,14 +448,15 @@ export default function ResearchPage() {
 
       setSession(data.session);
       setDraft(data.draft || '');
-      setShowDraftPreview(false);
       setEvidence(data.evidence || evidence);
       setGraph(data.session?.graph_template || graph);
       setStatusText('草稿文件已生成。');
+      setRightPanelTab('report');
+      setRightSidebarOpen(true);
       pushTimeline({
         role: 'assistant',
         title: '报告草稿已生成',
-        body: '默认作为文件产物交付。你可以下载 Markdown 或 DOCX，也可以展开页面预览。',
+        body: '默认作为文件产物交付。你可以下载 Markdown 或 DOCX，也可以在右侧报告面板预览。',
       });
       loadSessions();
     } catch (err: any) {
@@ -506,6 +540,7 @@ export default function ResearchPage() {
         setConstraints((scope.constraints || []).join('\n'));
       }
       setStatusText('已恢复研究会话。');
+      if (typeof window !== 'undefined' && window.innerWidth < 1024) setLeftSidebarOpen(false);
     } catch (err: any) {
       setError(err.message || '加载研究会话失败');
     } finally {
@@ -513,369 +548,181 @@ export default function ResearchPage() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="border-b border-gray-200 bg-white px-4 py-4">
-        <div className="mx-auto flex max-w-[1600px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">Research</h1>
-            <p className="mt-1 text-sm text-gray-500">交互式深度研究：对话规划、图谱检索、证据沉淀和报告产物。</p>
+  const renderLeftSidebar = () => (
+    <div className="flex h-full flex-col bg-white">
+      <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+        <div>
+          <h2 className="text-sm font-medium text-gray-900">研究控制台</h2>
+          {session && <p className="mt-0.5 text-[10px] text-gray-400">{session.status}</p>}
+        </div>
+        <button
+          onClick={() => setLeftSidebarOpen(false)}
+          className="rounded-lg px-2 py-1 text-xs text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+        >
+          收起
+        </button>
+      </div>
+
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        <section>
+          <textarea
+            value={topic}
+            onChange={e => setTopic(e.target.value)}
+            placeholder="例如：我想研究 CCUS，重点是碳捕集"
+            className="min-h-28 w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+          />
+          <button
+            onClick={createSession}
+            disabled={loading || !topic.trim()}
+            className="mt-3 w-full rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+          >
+            开始范围确认
+          </button>
+          {statusText && <p className="mt-3 text-xs text-blue-600">{statusText}</p>}
+          {error && <p className="mt-3 whitespace-pre-line text-xs text-red-600">{error}</p>}
+        </section>
+
+        {cards.length > 0 && !graph && (
+          <section className="border-t border-gray-100 pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-medium text-gray-800">范围确认</h3>
+              <button
+                onClick={confirmScope}
+                disabled={loading || !session}
+                className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                生成图谱
+              </button>
+            </div>
+            <div className="mt-3 space-y-2">
+              {cards.map(card => (
+                <button
+                  key={card.id}
+                  onClick={() => setSelectedCards(prev => toggleInList(prev, card.id))}
+                  className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                    selectedCards.includes(card.id)
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-sm font-medium text-gray-800">{card.title}</h4>
+                    {card.recommended && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">推荐</span>}
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-gray-500">{card.description}</p>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="border-t border-gray-100 pt-4">
+          <h3 className="text-xs font-medium text-gray-500">信息源</h3>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {SOURCE_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setSources(prev => toggleInList(prev, opt.value))}
+                className={`rounded-full border px-3 py-1.5 text-xs ${
+                  sources.includes(opt.value) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-gray-500'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
-          <div className="flex items-center gap-2">
-            <Link href="/search" className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">
-              轻量搜索
-            </Link>
-            <Link href="/reader" className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">
-              AI 阅读
-            </Link>
-          </div>
+        </section>
+
+        <section className="grid gap-3 border-t border-gray-100 pt-4">
+          <label className="text-xs font-medium text-gray-500">
+            输出形式
+            <select
+              value={outputType}
+              onChange={e => setOutputType(e.target.value as ResearchOutputType)}
+              className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+            >
+              {OUTPUT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-gray-500">
+            检索深度
+            <select
+              value={depth}
+              onChange={e => setDepth(e.target.value as ResearchSessionDepth)}
+              className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+            >
+              {DEPTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} - {opt.hint}</option>)}
+            </select>
+          </label>
+          <textarea
+            value={constraints}
+            onChange={e => setConstraints(e.target.value)}
+            className="min-h-20 w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none"
+            placeholder="补充约束，每行一条"
+          />
+        </section>
+
+        {sessions.length > 0 && (
+          <section className="border-t border-gray-100 pt-4">
+            <h3 className="text-sm font-medium text-gray-800">最近研究</h3>
+            <div className="mt-3 space-y-2">
+              {sessions.slice(0, 8).map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => loadSession(item.id)}
+                  className={`block w-full rounded-lg px-3 py-2 text-left text-xs transition-colors ${
+                    session?.id === item.id ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <span className="line-clamp-2 font-medium">{item.topic}</span>
+                  <span className="mt-1 block text-[10px] text-gray-400">{item.status}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderRightPanel = () => (
+    <div className="flex h-full flex-col bg-white">
+      <div className="border-b border-gray-100 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-medium text-gray-900">研究上下文</h2>
+          <button
+            onClick={() => setRightSidebarOpen(false)}
+            className="rounded-lg px-2 py-1 text-xs text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+          >
+            收起
+          </button>
+        </div>
+        <div className="mt-3 grid grid-cols-4 rounded-lg bg-gray-100 p-1 text-xs">
+          {[
+            ['evidence', '证据'],
+            ['graph', '图谱'],
+            ['sources', '来源'],
+            ['report', '报告'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => setRightPanelTab(value as RightPanelTab)}
+              className={`rounded-md px-2 py-1.5 ${rightPanelTab === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="mx-auto grid max-w-[1600px] gap-4 px-4 py-4 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
-        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-          <section className="rounded-lg border border-gray-200 bg-white p-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-gray-800">研究控制台</h2>
-              {session && <span className="rounded bg-gray-100 px-2 py-1 text-[10px] text-gray-500">{session.status}</span>}
-            </div>
-            <textarea
-              value={topic}
-              onChange={e => setTopic(e.target.value)}
-              placeholder="例如：我想研究 CCUS，重点是碳捕集"
-              className="mt-3 min-h-28 w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-            />
-            <button
-              onClick={createSession}
-              disabled={loading || !topic.trim()}
-              className="mt-3 w-full rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-            >
-              开始范围确认
-            </button>
-            {statusText && <p className="mt-3 text-xs text-blue-600">{statusText}</p>}
-            {error && <p className="mt-3 whitespace-pre-line text-xs text-red-600">{error}</p>}
-          </section>
-
-          {cards.length > 0 && !graph && (
-            <section className="rounded-lg border border-gray-200 bg-white p-4">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-sm font-medium text-gray-800">范围确认</h2>
-                <button
-                  onClick={confirmScope}
-                  disabled={loading || !session}
-                  className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  生成图谱
-                </button>
-              </div>
-              <div className="mt-3 space-y-2">
-                {cards.map(card => (
-                  <button
-                    key={card.id}
-                    onClick={() => setSelectedCards(prev => toggleInList(prev, card.id))}
-                    className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                      selectedCards.includes(card.id)
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 bg-white hover:border-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-medium text-gray-800">{card.title}</h3>
-                      {card.recommended && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">推荐</span>}
-                    </div>
-                    <p className="mt-2 text-xs leading-5 text-gray-500">{card.description}</p>
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-4 border-t border-gray-100 pt-4">
-                <h3 className="text-xs font-medium text-gray-500">信息源</h3>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {SOURCE_OPTIONS.map(opt => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setSources(prev => toggleInList(prev, opt.value))}
-                      className={`rounded-full border px-3 py-1.5 text-xs ${
-                        sources.includes(opt.value) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-gray-500'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-3">
-                <label className="text-xs font-medium text-gray-500">
-                  输出形式
-                  <select
-                    value={outputType}
-                    onChange={e => setOutputType(e.target.value as ResearchOutputType)}
-                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-                  >
-                    {OUTPUT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                  </select>
-                </label>
-                <label className="text-xs font-medium text-gray-500">
-                  检索深度
-                  <select
-                    value={depth}
-                    onChange={e => setDepth(e.target.value as ResearchSessionDepth)}
-                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-                  >
-                    {DEPTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} - {opt.hint}</option>)}
-                  </select>
-                </label>
-                <textarea
-                  value={constraints}
-                  onChange={e => setConstraints(e.target.value)}
-                  className="min-h-20 w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none"
-                  placeholder="补充约束，每行一条"
-                />
-              </div>
-            </section>
-          )}
-
-          {sessions.length > 0 && (
-            <section className="rounded-lg border border-gray-200 bg-white p-4">
-              <h2 className="text-sm font-medium text-gray-800">最近研究</h2>
-              <div className="mt-3 space-y-2">
-                {sessions.slice(0, 6).map(item => (
-                  <button
-                    key={item.id}
-                    onClick={() => loadSession(item.id)}
-                    className={`block w-full rounded-lg px-3 py-2 text-left text-xs transition-colors ${
-                      session?.id === item.id ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    <span className="line-clamp-2 font-medium">{item.topic}</span>
-                    <span className="mt-1 block text-[10px] text-gray-400">{item.status}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-        </aside>
-
-        <main className="min-w-0">
-          <section className="flex min-h-[calc(100vh-132px)] flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
-            <div className="border-b border-gray-100 px-4 py-3">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="min-w-0">
-                  <div className="text-[10px] font-medium uppercase text-gray-400">Research Chat</div>
-                  <h2 className="mt-1 truncate text-base font-semibold text-gray-900">
-                    {session?.topic || '从一个研究问题开始'}
-                  </h2>
-                  <p className="mt-1 text-xs text-gray-500">
-                    {graph
-                      ? `${graph.nodes.length} 节点 / ${graph.edges.length} 超边 / ${openGaps.length} 个开放缺口 / ${evidence.length} 条证据`
-                      : '确认范围后，检索计划会作为对话卡片出现在这里。'}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {sources.map(source => (
-                    <span key={source} className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{source}</span>
-                  ))}
-                  <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs text-blue-600">{depth}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex-1 space-y-4 overflow-y-auto bg-gray-50/60 px-4 py-4">
-              {!session && (
-                <div className="mx-auto mt-12 max-w-2xl rounded-lg border border-dashed border-gray-200 bg-white p-8 text-center">
-                  <h3 className="text-base font-medium text-gray-800">输入研究主题，然后让 Synap 先做预检索</h3>
-                  <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-gray-500">
-                    它会生成研究方向卡片，你确认范围后，再进入多轮检索、证据填充和报告生成。
-                  </p>
-                </div>
-              )}
-
-              {timeline.map(item => (
-                <div key={item.id} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[88%] rounded-lg px-3 py-2 text-sm shadow-sm ${
-                    item.role === 'user'
-                      ? 'bg-gray-900 text-white'
-                      : item.role === 'system'
-                        ? 'border border-gray-200 bg-white text-gray-600'
-                        : 'bg-blue-50 text-gray-800'
-                  }`}>
-                    <div className="font-medium">{item.title}</div>
-                    {item.body && <div className="mt-1 whitespace-pre-line text-xs leading-5 opacity-80">{item.body}</div>}
-                    {item.meta && <div className="mt-1 text-[10px] opacity-60">{item.meta}</div>}
-                  </div>
-                </div>
-              ))}
-
-              {graph && (
-                <div className="rounded-lg border border-blue-100 bg-white p-4 shadow-sm">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-900">下一轮检索计划</h3>
-                      <p className="mt-1 text-xs text-gray-500">
-                        这里就是可交互修改区。先“只规划下一轮”，改掉不准确的 query，再按当前计划检索。
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={planNextRound}
-                        disabled={running}
-                        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
-                      >
-                        只规划下一轮
-                      </button>
-                      <button
-                        onClick={() => runRound(undefined, roundPlan.length ? roundPlan : undefined)}
-                        disabled={running}
-                        className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-                      >
-                        {running ? '检索中...' : roundPlan.length ? '按当前计划检索' : '规划并检索'}
-                      </button>
-                      <button
-                        onClick={autoContinue}
-                        disabled={running || autoRunning}
-                        className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        {autoRunning ? '自动研究中...' : '自动跑完'}
-                      </button>
-                      <button
-                        onClick={generateDraft}
-                        disabled={loading || evidence.length === 0}
-                        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
-                      >
-                        生成报告文件
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 rounded-lg bg-gray-50 p-3 md:grid-cols-[1fr_220px]">
-                    <div>
-                      <h4 className="text-xs font-medium text-gray-500">本轮来源偏好</h4>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {SOURCE_OPTIONS.map(opt => (
-                          <button
-                            key={opt.value}
-                            onClick={() => setSources(prev => toggleInList(prev, opt.value))}
-                            className={`rounded-full border px-3 py-1.5 text-xs ${
-                              sources.includes(opt.value) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500'
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <label className="text-xs font-medium text-gray-500">
-                      本轮深度
-                      <select
-                        value={depth}
-                        onChange={e => setDepth(e.target.value as ResearchSessionDepth)}
-                        className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-                      >
-                        {DEPTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                      </select>
-                    </label>
-                  </div>
-
-                  <div className="mt-4 space-y-3">
-                    {(roundPlan.length ? roundPlan : [{
-                      perspective: '等待规划',
-                      reason: '点击“只规划下一轮”后，这里会出现可编辑的检索问题。',
-                      queries: graph.nextSearchTasks?.slice(0, 2) || [],
-                      preferredSources: sources,
-                    }]).map((item, index) => (
-                      <div key={`${item.perspective}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                        <div className="flex items-start gap-2">
-                          {roundPlan.length ? (
-                            <input
-                              value={item.perspective}
-                              onChange={event => updatePlanField(index, 'perspective', event.target.value)}
-                              className="min-w-0 flex-1 rounded border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700 outline-none focus:border-blue-300"
-                            />
-                          ) : (
-                            <div className="min-w-0 flex-1 text-xs font-medium text-gray-700">{item.perspective}</div>
-                          )}
-                          {roundPlan.length > 0 && (
-                            <button
-                              onClick={() => removePlanItem(index)}
-                              className="rounded border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-500 hover:border-red-200 hover:text-red-600"
-                            >
-                              删除
-                            </button>
-                          )}
-                        </div>
-                        {roundPlan.length ? (
-                          <textarea
-                            value={item.reason}
-                            onChange={event => updatePlanField(index, 'reason', event.target.value)}
-                            className="mt-2 min-h-14 w-full resize-none rounded border border-gray-200 bg-white px-2 py-1 text-[11px] leading-5 text-gray-600 outline-none focus:border-blue-300"
-                          />
-                        ) : (
-                          <p className="mt-1 text-[11px] leading-5 text-gray-500">{item.reason}</p>
-                        )}
-                        <div className="mt-2 space-y-2">
-                          {item.queries.slice(0, 2).map((query, queryIndex) => (
-                            roundPlan.length ? (
-                              <input
-                                key={`${index}-${queryIndex}`}
-                                value={query}
-                                onChange={event => updatePlanQuery(index, queryIndex, event.target.value)}
-                                className="w-full rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-blue-300"
-                              />
-                            ) : (
-                              <div key={query} className="rounded bg-white px-2 py-1.5 text-xs text-gray-600">{query}</div>
-                            )
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                    {roundPlan.length > 0 && (
-                      <button
-                        onClick={addPlanItem}
-                        className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-xs text-gray-500 hover:border-blue-300 hover:text-blue-600"
-                      >
-                        添加自定义检索问题
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {draft && (
-                <section ref={draftRef} className="rounded-lg border border-gray-200 bg-white shadow-sm">
-                  <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h2 className="text-sm font-medium text-gray-900">报告文件已生成</h2>
-                      <p className="mt-1 text-xs text-gray-500">默认以文件产物交付，页面预览保持折叠。</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button onClick={() => downloadArtifact('markdown')} className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800">下载 Markdown</button>
-                      <button onClick={() => downloadArtifact('docx')} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">下载 DOCX</button>
-                      <button onClick={() => setShowDraftPreview(prev => !prev)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">
-                        {showDraftPreview ? '收起预览' : '预览'}
-                      </button>
-                    </div>
-                  </div>
-                  {showDraftPreview && (
-                    <article
-                      className="prose prose-sm max-w-none break-words px-5 py-5 prose-headings:scroll-mt-20 prose-headings:text-gray-900 prose-p:leading-7 prose-p:text-gray-700 prose-li:leading-7 prose-li:marker:text-gray-300 prose-code:break-words prose-pre:whitespace-pre-wrap"
-                      dangerouslySetInnerHTML={{ __html: renderMarkdown(draft) }}
-                    />
-                  )}
-                </section>
-              )}
-            </div>
-          </section>
-        </main>
-
-        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-          <details open className="rounded-lg border border-gray-200 bg-white p-4">
-            <summary className="cursor-pointer text-sm font-medium text-gray-800">Evidence Board</summary>
-            <p className="mt-2 text-xs text-gray-500">按 claim 聚合证据，最终报告会优先使用这里的内容。</p>
+      <div className="flex-1 overflow-y-auto p-4">
+        {rightPanelTab === 'evidence' && (
+          <div>
+            <p className="text-xs text-gray-500">按 claim 聚合证据，最终报告会优先使用这里的内容。</p>
             <div className="mt-3 space-y-3">
               {evidence.length === 0 ? (
                 <div className="rounded-lg bg-gray-50 p-4 text-xs text-gray-400">运行一轮检索后会出现证据。</div>
-              ) : evidence.slice(0, 12).map(item => (
+              ) : evidence.slice(0, 18).map(item => (
                 <div key={`${item.id}-${item.source_id}`} className="rounded-lg border border-gray-100 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-600">
@@ -884,16 +731,19 @@ export default function ResearchPage() {
                     <span className="text-[10px] text-gray-400">{item.metadata?.provider || 'source'}</span>
                   </div>
                   <p className="mt-2 text-xs font-medium leading-5 text-gray-700">{item.claim}</p>
-                  <p className="mt-1 line-clamp-3 text-xs leading-5 text-gray-500">{item.snippet}</p>
+                  <p className="mt-1 line-clamp-4 text-xs leading-5 text-gray-500">{item.snippet}</p>
                 </div>
               ))}
             </div>
-          </details>
+          </div>
+        )}
 
-          {graph && (
-            <details className="rounded-lg border border-gray-200 bg-white p-4">
-              <summary className="cursor-pointer text-sm font-medium text-gray-800">研究图谱</summary>
-              <div className="mt-3 space-y-3">
+        {rightPanelTab === 'graph' && (
+          <div className="space-y-3">
+            {!graph ? (
+              <div className="rounded-lg bg-gray-50 p-4 text-xs text-gray-400">确认研究范围后会生成图谱。</div>
+            ) : (
+              <>
                 <div className="rounded-lg bg-gray-50 p-3">
                   <h3 className="text-xs font-medium text-gray-500">节点类型</h3>
                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -911,7 +761,9 @@ export default function ResearchPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {openGaps.map(gap => (
+                  {openGaps.length === 0 ? (
+                    <div className="rounded-lg bg-green-50 p-3 text-xs text-green-700">当前开放缺口已初步填充。</div>
+                  ) : openGaps.map(gap => (
                     <div key={gap.id} className="rounded-lg border border-gray-100 p-3">
                       <div className="flex items-center justify-between gap-2">
                         <h3 className="text-xs font-medium text-gray-800">{gap.label}</h3>
@@ -925,35 +777,346 @@ export default function ResearchPage() {
                     </div>
                   ))}
                 </div>
-              </div>
-            </details>
-          )}
+              </>
+            )}
+          </div>
+        )}
 
-          {(roundSources.length > 0 || quickScanSources.length > 0) && (
-            <details className="rounded-lg border border-gray-200 bg-white p-4">
-              <summary className="cursor-pointer text-sm font-medium text-gray-800">来源</summary>
-              <div className="mt-3 space-y-2">
-                {[...roundSources, ...quickScanSources].slice(0, 12).map(source => (
-                  <a
-                    key={`${source.id}-${source.url}`}
-                    href={source.url || '#'}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block rounded-lg bg-gray-50 p-3 hover:bg-gray-100"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-gray-500">{source.sourceProvider || source.type}</span>
-                      {source.year && <span className="text-[10px] text-gray-400">{source.year}</span>}
-                    </div>
-                    <div className="mt-1 line-clamp-2 text-xs font-medium text-gray-700">{source.title}</div>
-                    <p className="mt-1 line-clamp-2 text-xs text-gray-500">{source.fullTextExcerpt || source.snippet}</p>
-                  </a>
-                ))}
+        {rightPanelTab === 'sources' && (
+          <div className="space-y-2">
+            {contextSources.length === 0 ? (
+              <div className="rounded-lg bg-gray-50 p-4 text-xs text-gray-400">预检索或运行检索后会显示来源。</div>
+            ) : contextSources.slice(0, 24).map(source => (
+              <a
+                key={`${source.id}-${source.url}`}
+                href={source.url || '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="block rounded-lg bg-gray-50 p-3 hover:bg-gray-100"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-gray-500">{source.sourceProvider || source.type}</span>
+                  {source.year && <span className="text-[10px] text-gray-400">{source.year}</span>}
+                </div>
+                <div className="mt-1 line-clamp-2 text-xs font-medium text-gray-700">{source.title}</div>
+                <p className="mt-1 line-clamp-3 text-xs text-gray-500">{source.fullTextExcerpt || source.snippet}</p>
+              </a>
+            ))}
+          </div>
+        )}
+
+        {rightPanelTab === 'report' && (
+          <div>
+            {!draft ? (
+              <div className="rounded-lg bg-gray-50 p-4 text-xs text-gray-400">生成报告后可在这里预览。</div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => downloadArtifact('markdown')} className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800">
+                    下载 Markdown
+                  </button>
+                  <button onClick={() => downloadArtifact('docx')} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 hover:border-gray-300">
+                    下载 DOCX
+                  </button>
+                </div>
+                <article
+                  className="prose prose-sm max-w-none break-words prose-headings:text-gray-900 prose-p:leading-7 prose-p:text-gray-700 prose-li:leading-7 prose-li:marker:text-gray-300 prose-code:break-words prose-pre:whitespace-pre-wrap"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(draft) }}
+                />
               </div>
-            </details>
-          )}
-        </aside>
+            )}
+          </div>
+        )}
       </div>
+    </div>
+  );
+
+  return (
+    <div className="relative mx-auto flex h-[calc(100dvh-6rem)] max-w-[1800px] overflow-hidden bg-gray-50 lg:h-[calc(100vh-4rem)]">
+      {leftSidebarOpen && (
+        <>
+          <button
+            type="button"
+            aria-label="关闭研究控制台"
+            className="fixed inset-0 z-30 bg-black/30 lg:hidden"
+            onClick={() => setLeftSidebarOpen(false)}
+          />
+          <aside className="fixed inset-y-0 left-0 z-40 w-80 max-w-[86vw] border-r border-gray-200 shadow-xl lg:static lg:z-auto lg:w-[280px] lg:max-w-none lg:flex-shrink-0 lg:shadow-none">
+            {renderLeftSidebar()}
+          </aside>
+        </>
+      )}
+
+      <main className="flex min-w-0 flex-1 flex-col bg-white">
+        <header className="flex flex-col gap-3 border-b border-gray-100 px-3 py-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-start gap-2">
+            <button
+              onClick={() => setLeftSidebarOpen(prev => !prev)}
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+              aria-label="切换研究控制台"
+            >
+              <MenuIcon />
+            </button>
+            <div className="min-w-0">
+              <div className="text-[10px] font-medium uppercase text-gray-400">Research Chat</div>
+              <h1 className="mt-0.5 truncate text-base font-semibold text-gray-900">{session?.topic || '从一个研究问题开始'}</h1>
+              <p className="mt-0.5 text-xs text-gray-500">
+                {graph
+                  ? `${graph.nodes.length} 节点 / ${graph.edges.length} 超边 / ${openGaps.length} 个开放缺口 / ${evidence.length} 条证据`
+                  : '确认范围后，检索计划会作为对话卡片出现在这里。'}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {sources.map(source => (
+              <span key={source} className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{source}</span>
+            ))}
+            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs text-blue-600">{depth}</span>
+            <button
+              onClick={() => setRightSidebarOpen(prev => !prev)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+              aria-label="切换研究上下文"
+            >
+              <PanelIcon />
+            </button>
+            <Link href="/search" className="hidden rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 sm:inline-flex">
+              轻量搜索
+            </Link>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto bg-gray-50/60 px-3 py-4 sm:px-4">
+          <div className="mx-auto max-w-4xl space-y-4">
+            {!session && (
+              <div className="mx-auto mt-12 max-w-2xl rounded-lg border border-dashed border-gray-200 bg-white p-8 text-center">
+                <h3 className="text-base font-medium text-gray-800">输入研究主题，然后让 Synap 先做预检索</h3>
+                <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-gray-500">
+                  它会生成研究方向卡片，你确认范围后，再进入多轮检索、证据填充和报告生成。
+                </p>
+                {!leftSidebarOpen && (
+                  <button
+                    onClick={() => setLeftSidebarOpen(true)}
+                    className="mt-4 rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                  >
+                    打开研究控制台
+                  </button>
+                )}
+              </div>
+            )}
+
+            {timeline.map(item => (
+              <div key={item.id} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[92%] rounded-lg px-3 py-2 text-sm shadow-sm sm:max-w-[86%] ${
+                  item.role === 'user'
+                    ? 'bg-gray-900 text-white'
+                    : item.role === 'system'
+                      ? 'border border-gray-200 bg-white text-gray-600'
+                      : 'bg-blue-50 text-gray-800'
+                }`}>
+                  <div className="font-medium">{item.title}</div>
+                  {item.body && <div className="mt-1 whitespace-pre-line text-xs leading-5 opacity-80">{item.body}</div>}
+                  {item.meta && <div className="mt-1 text-[10px] opacity-60">{item.meta}</div>}
+                </div>
+              </div>
+            ))}
+
+            {graph && (
+              <div className="rounded-lg border border-blue-100 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-900">下一轮检索计划</h3>
+                    <p className="mt-1 text-xs text-gray-500">
+                      这里是可交互修改区。先规划下一轮，改掉不准确的 query，再按当前计划检索。
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={planNextRound}
+                      disabled={running}
+                      className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
+                    >
+                      只规划下一轮
+                    </button>
+                    <button
+                      onClick={() => runRound(undefined, roundPlan.length ? roundPlan : undefined)}
+                      disabled={running}
+                      className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                    >
+                      {running ? '检索中...' : roundPlan.length ? '按当前计划检索' : '规划并检索'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 rounded-lg bg-gray-50 p-3 md:grid-cols-[1fr_220px]">
+                  <div>
+                    <h4 className="text-xs font-medium text-gray-500">本轮来源偏好</h4>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {SOURCE_OPTIONS.map(opt => (
+                        <button
+                          key={opt.value}
+                          onClick={() => setSources(prev => toggleInList(prev, opt.value))}
+                          className={`rounded-full border px-3 py-1.5 text-xs ${
+                            sources.includes(opt.value) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="text-xs font-medium text-gray-500">
+                    本轮深度
+                    <select
+                      value={depth}
+                      onChange={e => setDepth(e.target.value as ResearchSessionDepth)}
+                      className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                    >
+                      {DEPTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {(roundPlan.length ? roundPlan : [{
+                    perspective: '等待规划',
+                    reason: '点击“只规划下一轮”后，这里会出现可编辑的检索问题。',
+                    queries: graph.nextSearchTasks?.slice(0, 2) || [],
+                    preferredSources: sources,
+                  }]).map((item, index) => (
+                    <div key={`${item.perspective}-${index}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                      <div className="flex items-start gap-2">
+                        {roundPlan.length ? (
+                          <input
+                            value={item.perspective}
+                            onChange={event => updatePlanField(index, 'perspective', event.target.value)}
+                            className="min-w-0 flex-1 rounded border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700 outline-none focus:border-blue-300"
+                          />
+                        ) : (
+                          <div className="min-w-0 flex-1 text-xs font-medium text-gray-700">{item.perspective}</div>
+                        )}
+                        {roundPlan.length > 0 && (
+                          <button
+                            onClick={() => removePlanItem(index)}
+                            className="rounded border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-500 hover:border-red-200 hover:text-red-600"
+                          >
+                            删除
+                          </button>
+                        )}
+                      </div>
+                      {roundPlan.length ? (
+                        <textarea
+                          value={item.reason}
+                          onChange={event => updatePlanField(index, 'reason', event.target.value)}
+                          className="mt-2 min-h-14 w-full resize-none rounded border border-gray-200 bg-white px-2 py-1 text-[11px] leading-5 text-gray-600 outline-none focus:border-blue-300"
+                        />
+                      ) : (
+                        <p className="mt-1 text-[11px] leading-5 text-gray-500">{item.reason}</p>
+                      )}
+                      <div className="mt-2 space-y-2">
+                        {item.queries.slice(0, 2).map((query, queryIndex) => (
+                          roundPlan.length ? (
+                            <input
+                              key={`${index}-${queryIndex}`}
+                              value={query}
+                              onChange={event => updatePlanQuery(index, queryIndex, event.target.value)}
+                              className="w-full rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-blue-300"
+                            />
+                          ) : (
+                            <div key={query} className="rounded bg-white px-2 py-1.5 text-xs text-gray-600">{query}</div>
+                          )
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {roundPlan.length > 0 && (
+                    <button
+                      onClick={addPlanItem}
+                      className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-xs text-gray-500 hover:border-blue-300 hover:text-blue-600"
+                    >
+                      添加自定义检索问题
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {draft && (
+              <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-900">报告文件已生成</h3>
+                    <p className="mt-1 text-xs text-gray-500">可以下载文件，或在右侧“报告”面板预览。</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => downloadArtifact('markdown')} className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800">下载 Markdown</button>
+                    <button onClick={() => downloadArtifact('docx')} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">下载 DOCX</button>
+                    <button
+                      onClick={() => {
+                        setRightPanelTab('report');
+                        setRightSidebarOpen(true);
+                      }}
+                      className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300"
+                    >
+                      查看报告
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        {graph && (
+          <div className="border-t border-gray-100 bg-white px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4 lg:pb-3">
+            <div className="mx-auto flex max-w-4xl flex-wrap gap-2">
+              <button
+                onClick={planNextRound}
+                disabled={running}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
+              >
+                只规划下一轮
+              </button>
+              <button
+                onClick={() => runRound(undefined, roundPlan.length ? roundPlan : undefined)}
+                disabled={running}
+                className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+              >
+                {running ? '检索中...' : roundPlan.length ? '按当前计划检索' : '规划并检索'}
+              </button>
+              <button
+                onClick={autoContinue}
+                disabled={running || autoRunning}
+                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {autoRunning ? '自动研究中...' : '自动跑完'}
+              </button>
+              <button
+                onClick={generateDraft}
+                disabled={loading || evidence.length === 0}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
+              >
+                生成报告文件
+              </button>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {rightSidebarOpen && (
+        <>
+          <button
+            type="button"
+            aria-label="关闭研究上下文"
+            className="fixed inset-0 z-30 bg-black/30 lg:hidden"
+            onClick={() => setRightSidebarOpen(false)}
+          />
+          <aside className="fixed inset-y-0 right-0 z-40 w-[360px] max-w-[90vw] border-l border-gray-200 shadow-xl lg:static lg:z-auto lg:w-[360px] lg:flex-shrink-0 lg:shadow-none">
+            {renderRightPanel()}
+          </aside>
+        </>
+      )}
     </div>
   );
 }
