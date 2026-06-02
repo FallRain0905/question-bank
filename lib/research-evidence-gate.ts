@@ -188,7 +188,9 @@ function fallbackGate(
   graph: ResearchGraphTemplate,
   sources: ResearchSource[],
   plannedQueries: PlannedResearchQuery[] = [],
-  fallbackReason = 'LLM landscape gate unavailable or returned an invalid response.'
+  fallbackReason = 'LLM landscape gate unavailable or returned an invalid response.',
+  llmStatus: EvidenceGateResult['llmStatus'] = 'exception',
+  llmAttempted = true
 ): EvidenceGateResult {
   const openGaps = getOpenGaps(graph, 6);
   const accepted: AcceptedResearchEvidence[] = [];
@@ -245,7 +247,7 @@ function fallbackGate(
     });
   }
 
-  return { accepted, rejected, fallback: true, fallbackReason };
+  return { accepted, rejected, fallback: true, fallbackReason, llmAttempted, llmStatus };
 }
 
 function normalizeGateResult(parsed: any, sources: ResearchSource[]): EvidenceGateResult | null {
@@ -295,14 +297,14 @@ function normalizeGateResult(parsed: any, sources: ResearchSource[]): EvidenceGa
       .map(source => ({ sourceId: source.id, reason: 'Not accepted by landscape gate.' })),
   ].filter(item => sourceIds.has(item.sourceId) && !acceptedIds.has(item.sourceId));
 
-  return { accepted, rejected };
+  return { accepted, rejected, fallback: false, llmAttempted: true, llmStatus: 'used' };
 }
 
 export async function runEvidenceGate(options: EvidenceGateOptions): Promise<EvidenceGateResult> {
   const { llmConfig, scope, graph, sources, plannedQueries } = options;
   if (sources.length === 0) return { accepted: [], rejected: [] };
   if (!llmConfig?.apiKey || !llmConfig.endpoint || !llmConfig.defaultModel) {
-    return fallbackGate(scope, graph, sources, plannedQueries, 'LLM settings are incomplete, so the rule fallback was used.');
+    return fallbackGate(scope, graph, sources, plannedQueries, 'LLM settings are incomplete, so the rule fallback was used.', 'missing_config', false);
   }
 
   const openGaps = getOpenGaps(graph, 6);
@@ -358,12 +360,13 @@ ${sourceContext}`;
         max_tokens: 2800,
       }),
     });
-    if (!res.ok) return fallbackGate(scope, graph, sources, plannedQueries, `LLM landscape gate request failed with HTTP ${res.status}.`);
+    if (!res.ok) return fallbackGate(scope, graph, sources, plannedQueries, `LLM landscape gate request failed with HTTP ${res.status}.`, 'http_error', true);
     const data = await res.json();
     const parsed = parseJsonObject(data.choices?.[0]?.message?.content || '');
+    if (!parsed) return fallbackGate(scope, graph, sources, plannedQueries, 'LLM landscape gate did not return parseable JSON.', 'invalid_json', true);
     const normalized = normalizeGateResult(parsed, sources);
-    return normalized || fallbackGate(scope, graph, sources, plannedQueries, 'LLM landscape gate returned JSON that did not match the expected schema.');
+    return normalized || fallbackGate(scope, graph, sources, plannedQueries, 'LLM landscape gate returned JSON that did not match the expected schema.', 'invalid_schema', true);
   } catch (err: any) {
-    return fallbackGate(scope, graph, sources, plannedQueries, `LLM landscape gate failed: ${err?.message || 'unknown error'}.`);
+    return fallbackGate(scope, graph, sources, plannedQueries, `LLM landscape gate failed: ${err?.message || 'unknown error'}.`, 'exception', true);
   }
 }

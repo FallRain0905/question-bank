@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getUserEmbeddingConfig, getUserLLMConfig, getUserResearchToolConfig } from '@/lib/user-settings';
 import { planResearchQueries, retrieveResearchSources } from '@/lib/research-retrieval';
+import type { ResearchRetrievalDebugEvent } from '@/lib/research-retrieval';
 import { runEvidenceGate } from '@/lib/research-evidence-gate';
 import { researchDbErrorResponse } from '@/lib/research-api-errors';
 import { sanitizeForJsonb } from '@/lib/json-sanitize';
@@ -51,6 +52,18 @@ async function getAuthedClient(req: NextRequest) {
 
 function sseEvent(event: string, data: object): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function countSources(sources: ResearchSource[]) {
+  return sources.reduce<Record<string, number>>((acc, source) => {
+    const key = source.sourceProvider || source.type || 'unknown';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function logResearchRun(sessionId: string, label: string, payload: Record<string, any>) {
+  console.info(`[research:${sessionId}] ${label}`, JSON.stringify(payload));
 }
 
 function preferredSourcesFromScope(scope: ResearchScope) {
@@ -245,6 +258,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         getUserLLMConfig(auth.token),
         getUserResearchToolConfig(auth.token),
       ]);
+      await send('debug', {
+        stage: 'config',
+        llmGateWillAttempt: Boolean(llmConfig?.apiKey && llmConfig?.endpoint && llmConfig?.defaultModel),
+        hasTavily: Boolean(toolConfig?.tavilyApiKey),
+        hasSemanticScholar: Boolean(toolConfig?.semanticScholarApiKey),
+        includeGithub: scope.sources.includes('github') || body.includeGithub === true,
+      });
 
       const planningContext = buildPlanningContext(scope, graph);
       const planOverride = Array.isArray(body.planOverride) ? body.planOverride : null;
@@ -282,6 +302,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         tasks: safePlan.flatMap(item => item.queries),
         plannedQueries: safePlan,
       });
+      await send('debug', {
+        stage: 'plan',
+        count: safePlan.length,
+        plan: safePlan.map(item => ({
+          perspective: item.perspective,
+          queries: item.queries,
+          preferredSources: item.preferredSources,
+        })),
+      });
+      logResearchRun(id, 'plan', {
+        topic: scope.topic,
+        depth: scope.depth,
+        sources: scope.sources,
+        queries: safePlan.flatMap(item => item.queries),
+      });
 
       if (body.planOnly === true) {
         await send('done', { plannedQueries: safePlan, query: plannedSearchQuery, graph });
@@ -290,6 +325,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
 
       await send('status', { stage: 'searching', message: '正在检索论文摘要、Web 摘录和实践来源' });
+      const retrievalDebug: ResearchRetrievalDebugEvent[] = [];
       const sourcesFromRetrieval = await retrieveResearchSources({
         query: `${scope.topic} ${scope.focus.join(' ')}`,
         mode: sourcePrefsToMode(scope.sources),
@@ -300,6 +336,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         plan: safePlan,
         includeGithub: scope.sources.includes('github') || body.includeGithub === true,
         planningContext,
+        debugEvents: retrievalDebug,
       });
 
       let sources: ResearchSource[] = sanitizeForJsonb(sourcesFromRetrieval);
@@ -310,6 +347,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         ]);
       }
 
+      await send('debug', {
+        stage: 'retrieval',
+        events: retrievalDebug,
+        finalSources: {
+          total: sources.length,
+          countsByProvider: countSources(sources),
+        },
+      });
+      logResearchRun(id, 'retrieval', {
+        events: retrievalDebug,
+        finalTotal: sources.length,
+        finalByProvider: countSources(sources),
+      });
       for (const source of sources) await send('source', { source });
 
       await send('status', { stage: 'gate', message: '正在筛选能支撑领域认知框架的来源' });
@@ -325,8 +375,32 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         rejected: gate.rejected.length,
         fallback: gate.fallback === true,
         fallbackReason: gate.fallbackReason || '',
+        llmAttempted: gate.llmAttempted === true,
+        llmStatus: gate.llmStatus || '',
         acceptedSamples: summarizeGateItems(gate.accepted, sources, 8),
         rejectedSamples: summarizeGateItems(gate.rejected, sources, 8),
+      });
+      await send('debug', {
+        stage: 'gate',
+        llmAttempted: gate.llmAttempted === true,
+        llmStatus: gate.llmStatus || '',
+        fallback: gate.fallback === true,
+        fallbackReason: gate.fallbackReason || '',
+        accepted: gate.accepted.length,
+        rejected: gate.rejected.length,
+        acceptedByInsightType: gate.accepted.reduce<Record<string, number>>((acc: Record<string, number>, item: any) => {
+          const key = item.insightType || 'unknown';
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+        }, {}),
+      });
+      logResearchRun(id, 'gate', {
+        llmAttempted: gate.llmAttempted === true,
+        llmStatus: gate.llmStatus || '',
+        fallback: gate.fallback === true,
+        fallbackReason: gate.fallbackReason || '',
+        accepted: gate.accepted.length,
+        rejected: gate.rejected.length,
       });
 
       await send('status', { stage: 'extracting', message: '正在把通过筛选的来源写入领域认知图' });

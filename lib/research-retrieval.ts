@@ -28,7 +28,38 @@ interface RetrievalOptions {
   supabase?: SupabaseLike;
   includeGithub?: boolean;
   planningContext?: ResearchPlanningContext;
+  debugEvents?: ResearchRetrievalDebugEvent[];
 }
+
+export type ResearchRetrievalDebugEvent =
+  | {
+      stage: 'query';
+      perspective: string;
+      query: string;
+      preferredSources: string[];
+      requestedProviders: string[];
+      countsByProvider: Record<string, number>;
+      total: number;
+    }
+  | {
+      stage: 'recommendations';
+      seedIds: string[];
+      count: number;
+    }
+  | {
+      stage: 'crawl';
+      crawlTargets: number;
+      crawled: number;
+    }
+  | {
+      stage: 'final';
+      rawCount: number;
+      uniqueCount: number;
+      rankedCount: number;
+      finalCount: number;
+      countsByProvider: Record<string, number>;
+      countsByType: Record<string, number>;
+    };
 
 interface DepthConfig {
   perspectives: number;
@@ -122,6 +153,14 @@ function sourcePrefsForPlanItem(item: PlannedResearchQuery, mode: ResearchMode) 
 
 function wantsSource(preferred: Set<string>, source: string, fallback: boolean) {
   return preferred.size === 0 ? fallback : preferred.has(source);
+}
+
+function countBy<T>(items: T[], keyFn: (item: T) => string | undefined | null) {
+  return items.reduce<Record<string, number>>((acc, item) => {
+    const key = keyFn(item) || 'unknown';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
 }
 
 function cleanRetrievalQuery(raw: string) {
@@ -619,7 +658,7 @@ function rankSources(sources: ResearchSource[], userQuery: string) {
 }
 
 export async function retrieveResearchSources(options: RetrievalOptions & { plan: PlannedResearchQuery[] }) {
-  const { query, mode, depth, toolConfig, supabase, plan, includeGithub } = options;
+  const { query, mode, depth, toolConfig, supabase, plan, includeGithub, debugEvents } = options;
   const config = DEPTH_CONFIG[depth];
   const academic = mode === 'academic' || mode === 'both';
   const web = mode === 'general' || mode === 'both';
@@ -631,34 +670,53 @@ export async function retrieveResearchSources(options: RetrievalOptions & { plan
       const searchQuery = cleanRetrievalQuery(plannedQuery);
       if (!searchQuery) continue;
       const searches: Promise<ResearchSource[]>[] = [];
+      const requestedProviders: string[] = [];
       if (web && (wantsSource(preferred, 'tavily', web) || wantsSource(preferred, 'crawled_web', web))) {
+        requestedProviders.push('tavily');
         searches.push(searchTavily(searchQuery, toolConfig.tavilyApiKey, config.perSourceLimit));
       }
       if (includeGithub && wantsSource(preferred, 'github', false)) {
+        requestedProviders.push('github');
         searches.push(searchGitHub(searchQuery, toolConfig.githubToken, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
       }
       if (academic) {
         if (wantsSource(preferred, 'semantic_scholar', academic)) {
+          requestedProviders.push('semantic_scholar');
           searches.push(searchSemanticScholar(searchQuery, toolConfig.semanticScholarApiKey, config.perSourceLimit));
         }
         if (wantsSource(preferred, 'openalex', academic)) {
+          requestedProviders.push('openalex');
           searches.push(searchOpenAlex(searchQuery, config.perSourceLimit));
         }
         if (wantsSource(preferred, 'arxiv', academic)) {
+          requestedProviders.push('arxiv');
           searches.push(searchArxiv(searchQuery, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
         }
         if (wantsSource(preferred, 'local_papers', academic)) {
+          requestedProviders.push('local_papers');
           searches.push(searchLocalPapers(searchQuery, supabase, Math.max(2, Math.ceil(config.perSourceLimit / 2))));
         }
       }
       const results = await Promise.all(searches);
-      rawSources.push(...results.flat().map(source => attachMeta(source, item, searchQuery)));
+      const querySources = results.flat().map(source => attachMeta(source, item, searchQuery));
+      debugEvents?.push({
+        stage: 'query',
+        perspective: item.perspective,
+        query: searchQuery,
+        preferredSources: Array.from(preferred),
+        requestedProviders,
+        countsByProvider: countBy(querySources, source => source.sourceProvider || source.type),
+        total: querySources.length,
+      });
+      rawSources.push(...querySources);
     }
   }
 
   const seedIds = extractSemanticScholarIds(rawSources);
   if (academic) {
-    rawSources.push(...(await recommendSemanticScholar(seedIds, toolConfig.semanticScholarApiKey, config.perSourceLimit)));
+    const recommended = await recommendSemanticScholar(seedIds, toolConfig.semanticScholarApiKey, config.perSourceLimit);
+    debugEvents?.push({ stage: 'recommendations', seedIds, count: recommended.length });
+    rawSources.push(...recommended);
   }
 
   const unique = uniqueItems(rawSources, source => source.doi || source.url || source.title);
@@ -666,13 +724,28 @@ export async function retrieveResearchSources(options: RetrievalOptions & { plan
     .filter(source => source.sourceProvider === 'tavily')
     .slice(0, config.crawlLimit);
   const crawled = await Promise.all(crawlTargets.map(source => crawlSource(source, query, config.maxChars)));
+  debugEvents?.push({
+    stage: 'crawl',
+    crawlTargets: crawlTargets.length,
+    crawled: crawled.filter(source => source.sourceProvider === 'crawled_web').length,
+  });
   const crawledIds = new Set(crawled.map(source => source.id));
   const merged = unique.map(source => crawledIds.has(source.id) ? crawled.find(item => item.id === source.id)! : source);
 
   const ranked = rankSources(merged, query);
   const relevant = ranked.filter(source => termScore(source, query) > 0 || (source.score || 0) >= 4);
   const finalSources = relevant.length >= Math.min(4, ranked.length) ? relevant : ranked;
-  return finalSources.slice(0, depth === 'deep' ? 20 : depth === 'medium' ? 12 : 8);
+  const limited = finalSources.slice(0, depth === 'deep' ? 20 : depth === 'medium' ? 12 : 8);
+  debugEvents?.push({
+    stage: 'final',
+    rawCount: rawSources.length,
+    uniqueCount: unique.length,
+    rankedCount: ranked.length,
+    finalCount: limited.length,
+    countsByProvider: countBy(limited, source => source.sourceProvider || source.type),
+    countsByType: countBy(limited, source => source.type),
+  });
+  return limited;
 }
 
 export async function runResearchRetrieval(options: RetrievalOptions) {

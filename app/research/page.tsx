@@ -67,8 +67,15 @@ type GateDiagnostics = {
   rejected: number;
   fallback: boolean;
   fallbackReason?: string;
+  llmAttempted?: boolean;
+  llmStatus?: string;
   acceptedSamples: GateSample[];
   rejectedSamples: GateSample[];
+};
+
+type ResearchDebugEvent = {
+  stage: string;
+  [key: string]: any;
 };
 
 function toggleInList<T extends string>(items: T[], value: T) {
@@ -126,6 +133,7 @@ export default function ResearchPage() {
   const [roundSources, setRoundSources] = useState<ResearchSource[]>([]);
   const [roundPlan, setRoundPlan] = useState<PlannedResearchQuery[]>([]);
   const [gateDiagnostics, setGateDiagnostics] = useState<GateDiagnostics | null>(null);
+  const [debugEvents, setDebugEvents] = useState<ResearchDebugEvent[]>([]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [draft, setDraft] = useState('');
   const [statusText, setStatusText] = useState('');
@@ -190,6 +198,7 @@ export default function ResearchPage() {
     setEvidence([]);
     setRoundSources([]);
     setGateDiagnostics(null);
+    setDebugEvents([]);
     setRoundPlan([]);
     setGraph(null);
     setTimeline([{ id: timelineId(), role: 'user', title: nextTopic, body: '\u65b0\u7684\u7814\u7a76\u4e3b\u9898' }]);
@@ -308,6 +317,7 @@ export default function ResearchPage() {
     setRunning(true);
     setError('');
     setRoundPlan([]);
+    setDebugEvents([]);
     setStatusText('正在规划下一轮检索问题...');
     pushTimeline({
       role: 'assistant',
@@ -363,6 +373,9 @@ export default function ResearchPage() {
           setStatusText(data.message || data.stage);
           pushTimeline({ role: 'assistant', title: data.message || data.stage, meta: data.stage });
         }
+        if (eventType === 'debug') {
+          setDebugEvents(prev => [...prev, data]);
+        }
         if (eventType === 'tasks' && data.plannedQueries) {
           setRoundPlan(data.plannedQueries);
           pushTimeline({
@@ -393,6 +406,8 @@ export default function ResearchPage() {
             rejected: data.rejected || 0,
             fallback: data.fallback === true,
             fallbackReason: data.fallbackReason || '',
+            llmAttempted: data.llmAttempted === true,
+            llmStatus: data.llmStatus || '',
             acceptedSamples: data.acceptedSamples || [],
             rejectedSamples: data.rejectedSamples || [],
           };
@@ -404,7 +419,9 @@ export default function ResearchPage() {
             title: 'Landscape gate 已完成',
             body: [
               `通过 ${diagnostics.accepted} 个来源，拒绝 ${diagnostics.rejected} 个噪音来源。`,
-              diagnostics.fallback ? `使用规则 fallback：${diagnostics.fallbackReason || '无原因信息'}` : '使用 LLM landscape gate。',
+              diagnostics.fallback
+                ? `Gate 未使用 LLM 结果：${diagnostics.fallbackReason || '无原因信息'}`
+                : `Gate 已使用 LLM：${diagnostics.llmStatus || 'used'}`,
               diagnostics.acceptedSamples.length ? `通过样例：\n${diagnostics.acceptedSamples.map(item => `- ${item.title} (${item.sourceType || item.provider}${item.insightType ? ` / ${item.insightType}` : ''}): ${item.reason}`).join('\n')}` : '',
               diagnostics.rejectedSamples.length ? `拒绝样例：\n${diagnostics.rejectedSamples.slice(0, 4).map(item => `- ${item.title}: ${item.reason}`).join('\n')}` : '',
             ].filter(Boolean).join('\n\n'),
@@ -439,6 +456,8 @@ export default function ResearchPage() {
     setError('');
     setRoundSources([]);
     setGateDiagnostics(null);
+    setDebugEvents([]);
+    setDebugEvents([]);
     if (!planOverride) setRoundPlan([]);
     setStatusText('正在启动一轮图谱驱动检索...');
     pushTimeline({
@@ -838,7 +857,9 @@ export default function ResearchPage() {
                   Landscape gate: {gateDiagnostics.accepted} 通过 / {gateDiagnostics.rejected} 拒绝
                 </div>
                 <div className="mt-1 text-[11px] text-amber-700">
-                  {gateDiagnostics.fallback ? `规则 fallback：${gateDiagnostics.fallbackReason || '无原因信息'}` : '使用 LLM landscape gate。'}
+                  {gateDiagnostics.fallback
+                    ? `未使用 LLM 结果：${gateDiagnostics.fallbackReason || '无原因信息'}`
+                    : `已使用 LLM：${gateDiagnostics.llmStatus || 'used'}`}
                 </div>
                 <div className="mt-3 space-y-2">
                   {gateDiagnostics.acceptedSamples.slice(0, 4).map(item => (
@@ -854,6 +875,58 @@ export default function ResearchPage() {
                     <div key={`rejected-${item.sourceId}`} className="rounded-md bg-white/80 p-2 text-[11px] text-red-800">
                       <div className="font-medium">拒绝：{item.title}</div>
                       <div className="mt-1">{item.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {debugEvents.length > 0 && (
+              <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                <div className="text-xs font-medium text-blue-800">调试日志</div>
+                <div className="mt-2 space-y-2">
+                  {debugEvents.slice(-8).map((event, index) => (
+                    <div key={`${event.stage}-${index}`} className="rounded-md bg-white/80 p-2 text-[11px] text-blue-900">
+                      <div className="font-medium">{event.stage}</div>
+                      {event.stage === 'config' && (
+                        <div className="mt-1 leading-5">
+                          LLM gate: {event.llmGateWillAttempt ? '会调用' : '不会调用'}；
+                          Tavily: {event.hasTavily ? '有 key' : '无 key'}；
+                          Semantic Scholar: {event.hasSemanticScholar ? '有 key' : '无 key'}
+                        </div>
+                      )}
+                      {event.stage === 'plan' && (
+                        <div className="mt-1 space-y-1">
+                          {(event.plan || []).slice(0, 6).map((item: any, itemIndex: number) => (
+                            <div key={`${item.perspective}-${itemIndex}`}>
+                              <span className="font-medium">{item.perspective}</span>
+                              <div className="text-blue-700">{(item.queries || []).join(' | ')}</div>
+                              <div className="text-blue-500">{(item.preferredSources || []).join(', ')}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {event.stage === 'retrieval' && (
+                        <div className="mt-1 space-y-1">
+                          <div>最终来源：{event.finalSources?.total || 0}；{JSON.stringify(event.finalSources?.countsByProvider || {})}</div>
+                          {(event.events || []).filter((item: any) => item.stage === 'query').slice(0, 8).map((item: any, itemIndex: number) => (
+                            <div key={`${item.query}-${itemIndex}`} className="border-t border-blue-100 pt-1">
+                              <div className="font-medium">{item.query}</div>
+                              <div>requested: {(item.requestedProviders || []).join(', ') || 'none'}</div>
+                              <div>returned: {item.total} {JSON.stringify(item.countsByProvider || {})}</div>
+                            </div>
+                          ))}
+                          {(event.events || []).filter((item: any) => item.stage !== 'query').map((item: any, itemIndex: number) => (
+                            <div key={`${item.stage}-${itemIndex}`} className="text-blue-700">{item.stage}: {JSON.stringify(item)}</div>
+                          ))}
+                        </div>
+                      )}
+                      {event.stage === 'gate' && (
+                        <div className="mt-1 leading-5">
+                          LLM attempted: {event.llmAttempted ? 'yes' : 'no'}；status: {event.llmStatus || 'unknown'}；
+                          accepted: {event.accepted}；rejected: {event.rejected}；
+                          fallback: {event.fallback ? 'yes' : 'no'}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

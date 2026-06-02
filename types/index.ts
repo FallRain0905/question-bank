@@ -341,6 +341,8 @@ export interface EvidenceGateResult {
   rejected: RejectedResearchSource[];
   fallback?: boolean;
   fallbackReason?: string;
+  llmAttempted?: boolean;
+  llmStatus?: 'used' | 'missing_config' | 'http_error' | 'invalid_json' | 'invalid_schema' | 'exception';
 }
 
 export type ResearchSessionStatus =
