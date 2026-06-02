@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfig } from '@/lib/user-settings';
-import { evidenceRowsToTyped, outputTypeLabel } from '@/lib/research-workflow';
+import { evidenceRowsToTyped } from '@/lib/research-workflow';
 import { researchDbErrorResponse } from '@/lib/research-api-errors';
 import { sanitizeForJsonb } from '@/lib/json-sanitize';
 import type { ResearchGraphTemplate, ResearchScope } from '@/types';
@@ -32,85 +32,117 @@ function evidenceCoverage(graph: ResearchGraphTemplate) {
       const gapIds = Array.isArray(edge.metadata?.gapIds) ? edge.metadata.gapIds : [];
       return gapIds.includes(gap.id);
     });
-    return `${gap.label}: ${gap.status}, accepted evidence=${relatedEdges.length}`;
+    const insightTypes = Array.from(new Set(relatedEdges.map(edge => edge.metadata?.insightType).filter(Boolean)));
+    const sourceTypes = Array.from(new Set(relatedEdges.map(edge => edge.metadata?.sourceType).filter(Boolean)));
+    return `${gap.label}: ${gap.status}, sources=${relatedEdges.length}, insightTypes=${insightTypes.join('/') || 'none'}, sourceTypes=${sourceTypes.join('/') || 'none'}`;
   }).join('\n');
 }
 
+function groupEvidence(evidence: any[]) {
+  const groups: Record<string, any[]> = {
+    representative_paper: [],
+    trend: [],
+    method: [],
+    application: [],
+    metric: [],
+    limitation: [],
+    web_insight: [],
+    open_question: [],
+  };
+  for (const item of evidence) {
+    const type = item.metadata?.insightType || (item.metadata?.type === 'paper' ? 'representative_paper' : 'web_insight');
+    if (!groups[type]) groups[type] = [];
+    groups[type].push(item);
+  }
+  return groups;
+}
+
+function sourceLine(item: any, index: number) {
+  const meta = item.metadata || {};
+  const sourceType = meta.type === 'paper' ? '论文' : meta.provider === 'github' ? 'GitHub' : 'Web';
+  const year = meta.year ? `, ${meta.year}` : '';
+  const citation = meta.citationCount ? `, cited ${meta.citationCount}` : '';
+  return `[${index}] ${item.claim}
+Source: ${meta.title || item.source_id} (${sourceType}${year}${citation})
+Provider: ${meta.provider || ''}
+URL: ${meta.url || ''}
+InsightType: ${meta.insightType || ''}
+TrendCluster: ${meta.trendCluster || ''}
+Tags: ${[...(meta.methodTags || []), ...(meta.applicationTags || []), ...(meta.metricTags || [])].join(', ')}
+Snippet: ${item.snippet}`;
+}
+
 function fallbackDraft(scope: ResearchScope, graph: ResearchGraphTemplate, evidence: any[]) {
-  const topEvidence = evidence.slice(0, 10);
-  return `# ${scope.topic}
+  const groups = groupEvidence(evidence);
+  const topPapers = groups.representative_paper.slice(0, 5);
+  const webItems = groups.web_insight.slice(0, 5);
+  const methods = [...groups.method, ...groups.trend].slice(0, 6);
+  const limits = [...groups.limitation, ...groups.open_question].slice(0, 5);
 
-## 带引用回答
-本次研究围绕「${scope.topic}」展开，重点关注 ${scope.focus.join('、') || '用户指定方向'}。当前通过 evidence gate 的证据共有 ${evidence.length} 条，研究图中包含 ${graph.nodes.length} 个节点和 ${graph.edges.length} 条关系。
+  return `# ${scope.topic}：领域认知简报
 
-${evidence.length < 3 ? '当前证据不足以形成完整报告，以下内容只能作为初步草稿。' : '以下结论仅基于已通过相关性筛选的证据。'}
+> 这是一份基于摘要级论文元数据和 Web 摘录生成的初步领域地图，不等同于完整综述。当前通过筛选的来源共 ${evidence.length} 个。
 
-## Evidence Board
-${topEvidence.map((item, index) => `- [${index + 1}] ${item.claim}\n  来源：${item.metadata?.title || item.source_id}\n  相关性：${item.metadata?.relevanceScore || item.confidence}`).join('\n') || '- 暂无通过筛选的证据。'}
+## 领域概览
+当前资料围绕「${scope.topic}」建立了初步认知框架，重点方向包括：${scope.focus.join('、') || '领域概览、主流方法、近期趋势和限制'}。
 
-## 证据覆盖说明
-${evidenceCoverage(graph)}
+## 主流方向与近期趋势
+${methods.map((item, index) => `- ${item.claim} [${index + 1}]`).join('\n') || '- 目前通过筛选的趋势/方法来源不足，需要继续检索。'}
 
-## 技术报告草稿
-### 1. 研究范围
-输出形式：${outputTypeLabel(scope.outputType)}。信息源：${scope.sources.join(', ')}。
+## 代表论文入口
+${topPapers.map((item, index) => {
+  const meta = item.metadata || {};
+  return `- ${meta.title || item.source_id}${meta.year ? ` (${meta.year})` : ''}${meta.citationCount ? `，引用 ${meta.citationCount}` : ''} [${index + 1}]`;
+}).join('\n') || '- 暂无足够代表论文入口。'}
 
-### 2. 当前研究缺口
-${graph.gaps.filter(gap => gap.status !== 'filled').map(gap => `- ${gap.label}: ${gap.reason}`).join('\n') || '- 当前主要缺口已初步填充。'}
+## Web/产业/实践信号
+${webItems.map((item, index) => `- ${item.claim} [${topPapers.length + index + 1}]`).join('\n') || '- 暂无足够 Web 实践信号。'}
 
-### 3. 下一步建议
-继续围绕未填充缺口运行检索轮次，并优先补充代表性综述、可引用论文、评价指标和数据库/benchmark。`;
+## 常见指标、限制与开放问题
+${limits.map((item, index) => `- ${item.claim} [${topPapers.length + webItems.length + index + 1}]`).join('\n') || '- 限制和开放问题仍需补充。'}
+
+## 推荐下一步
+${graph.gaps.filter(gap => gap.status !== 'filled').map(gap => `- 继续补充：${gap.label}。建议 query：${gap.suggestedQueries[0] || scope.topic}`).join('\n') || '- 当前认知框架已达到初步覆盖，可以选择代表论文进入阅读器做全文深读。'}
+
+## 来源索引
+${evidence.slice(0, 16).map((item, index) => sourceLine(item, index + 1)).join('\n\n') || '暂无通过筛选的来源。'}
+`;
 }
 
 async function generateDraftWithLLM(llmConfig: any, scope: ResearchScope, graph: ResearchGraphTemplate, evidence: any[]) {
   if (!llmConfig?.apiKey || !llmConfig?.endpoint) return fallbackDraft(scope, graph, evidence);
 
-  const evidenceContext = evidence.slice(0, 28).map((item, index) => {
-    const meta = item.metadata || {};
-    return `[${index + 1}] ${item.claim}
-Source: ${meta.title || item.source_id}
-Provider: ${meta.provider || ''}
-URL: ${meta.url || ''}
-Relevance: ${meta.relevanceScore || item.confidence}
-Gap IDs: ${(meta.gapIds || []).join(', ')}
-Gate reason: ${meta.gateReason || ''}
-Snippet: ${item.snippet}`;
-  }).join('\n\n');
+  const evidenceContext = evidence.slice(0, 32).map((item, index) => sourceLine(item, index + 1)).join('\n\n');
 
-  const prompt = `You are a rigorous Chinese research assistant writing a research draft from accepted evidence only.
+  const prompt = `你是严谨的中文科研助手。请只基于已通过 landscape gate 的来源，写一份短的“领域认知简报”。
 
-Rules:
-- Respond in Chinese.
-- Start directly with a Markdown title using the user's original topic.
-- Do not write greetings.
-- Do not describe Synap, Research Graph, Graph Schema, or Evidence Board as the user's research objective.
-- Do not rewrite the topic as "constructing a knowledge graph" unless the user's topic explicitly asks for knowledge graphs.
-- Use only accepted evidence below. Do not mention rejected or unavailable sources as facts.
-- If accepted evidence is insufficient, explicitly say the report is preliminary and list concrete next searches.
-- Use citations like [1], [2] and keep claims tied to source numbers.
+要求：
+- 直接用 Markdown 输出。
+- 标题必须是用户原始主题，不要写寒暄。
+- 这是领域态势简报，不是完整综述，不要假装已经阅读全文。
+- 论文来源只代表 title/abstract/metadata 层面的摘要级判断。
+- Web 来源用于补充产业、实践、标准、项目、技术博客或趋势信号。
+- 不要把 Synap 或任何内部工具名当成用户研究目标。
+- 如果证据不足，要明确写“初步判断”，并给出下一轮具体检索建议。
+- 每个重要判断尽量使用 [1]、[2] 这样的来源编号。
+- 全文控制在 800-1500 字。
 
-User original topic: ${scope.topic}
-Selected focus: ${scope.focus.join('、') || '未指定'}
-Expected output type: ${outputTypeLabel(scope.outputType)}
-Evidence count: ${evidence.length}
-Evidence coverage:
+用户原始主题：${scope.topic}
+用户选择方向：${scope.focus.join('、') || '未指定'}
+来源数量：${evidence.length}
+覆盖情况：
 ${evidenceCoverage(graph)}
 
-Required sections:
-## 带引用回答
-Answer the original topic directly. If evidence is thin, say so early.
+建议章节：
+## 领域概览
+## 主流方向与近期趋势
+## 代表论文入口
+## Web/产业/实践信号
+## 常见指标、限制与开放问题
+## 推荐下一步
 
-## Evidence Board
-Organize as claim - evidence - source number - relevance.
-
-## 证据覆盖说明
-Summarize which gaps are filled, partial, or still open.
-
-## 技术报告草稿
-Include background, key technical routes, evidence synthesis, limitations, and next retrieval suggestions.
-
-Accepted evidence:
-${evidenceContext}`;
+已通过筛选的来源：
+${evidenceContext || '无'}`;
 
   try {
     const res = await fetch(llmConfig.endpoint, {
@@ -120,7 +152,7 @@ ${evidenceContext}`;
         model: llmConfig.defaultModel,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
-        max_tokens: 6000,
+        max_tokens: 3600,
       }),
     });
     if (!res.ok) return fallbackDraft(scope, graph, evidence);
@@ -146,7 +178,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (sessionError) return researchDbErrorResponse(sessionError);
   if (!session) return NextResponse.json({ error: 'Research session not found' }, { status: 404 });
   if (!session.scope || !session.graph_template) {
-    return NextResponse.json({ error: 'Research graph is not ready yet' }, { status: 400 });
+    return NextResponse.json({ error: 'Research landscape graph is not ready yet' }, { status: 400 });
   }
 
   const { data: evidenceRows, error: evidenceError } = await auth.supabase

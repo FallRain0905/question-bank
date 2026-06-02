@@ -65,26 +65,25 @@ async function getDirectionCardsWithLLM(
 ): Promise<ResearchDirectionCard[]> {
   const fallback = getDirectionCards(topic, quickScanSources.length);
   const sourceTitles = quickScanSources
-    .slice(0, 5)
-    .map((source, index) => `[${index + 1}] ${source.title || ''} ${source.snippet || ''}`.slice(0, 260))
+    .slice(0, 6)
+    .map((source, index) => `[${index + 1}] ${source.title || ''} ${source.snippet || source.abstract || ''}`.slice(0, 300))
     .join('\n');
   const directionList = fallback
     .map(card => `${card.id}: ${card.title} - ${card.description}`)
     .join('\n');
 
-  const prompt = `你是科研研究范围分析器。请根据用户原始主题和预检索线索，判断哪些研究方向应该推荐。
-
-只返回 JSON：
-{"recommendations":[{"id":"direction id","recommended":true,"description":"一句贴合主题的中文说明"}]}
+  const prompt = `你是科研领域认知范围分析器。请根据用户原始主题和预检索线索，判断哪些研究方向最适合生成一份短的领域认知简报。
+只返回 JSON：{"recommendations":[{"id":"direction id","recommended":true,"description":"一句贴合主题的中文说明"}]}
 
 可选方向：
 ${directionList}
 
 规则：
 - 只能使用上面列出的 id。
-- 至少推荐 1 个，最多推荐 3 个。
-- 不要因为系统内部使用研究图，就推荐“论文图结构”；只有当用户主题明确包含论文语料、图结构、知识图谱、超图、RAG 时才推荐 paper_graph。
-- 对普通领域研究，例如“CCUS 重点是碳捕集”，优先考虑理论基础、领域应用、实验评估，不要改写为“构建知识图谱”。
+- 至少推荐 1 个，最多推荐 4 个。
+- 普通领域主题优先推荐“领域概览 / 主流方法 / 近期趋势 / 指标与限制”。
+- 如果用户关心产业、工具、实现、标准或开源，再推荐“Web/产业动态”。
+- 不要因为系统内部使用研究图，就把用户主题改写成“构建知识图谱”。
 - description 要解释为什么这个方向适合用户主题。
 
 用户原始主题：${topic}
@@ -148,7 +147,7 @@ export async function POST(req: NextRequest) {
       toolConfig,
       supabase: auth.supabase,
     });
-    quickScanSources = quickScan.sources.slice(0, 6);
+    quickScanSources = quickScan.sources.slice(0, 8);
   } catch {
     quickScanSources = [];
   }

@@ -25,9 +25,9 @@ const SOURCE_OPTIONS: { value: ResearchSourcePreference; label: string }[] = [
 ];
 
 const OUTPUT_OPTIONS: { value: ResearchOutputType; label: string }[] = [
-  { value: 'technical_report', label: '\u6280\u672f\u62a5\u544a' },
-  { value: 'system_design', label: '\u7cfb\u7edf\u8bbe\u8ba1' },
-  { value: 'literature_review', label: '\u6587\u732e\u7efc\u8ff0' },
+  { value: 'technical_report', label: '领域认知简报' },
+  { value: 'system_design', label: '技术路线图' },
+  { value: 'literature_review', label: '文献入口地图' },
   { value: 'concise_answer', label: '\u7b80\u6d01\u56de\u7b54' },
   { value: 'comparison_table', label: '\u5bf9\u6bd4\u8868' },
 ];
@@ -52,6 +52,10 @@ type GateSample = {
   sourceId: string;
   title: string;
   provider: string;
+  sourceKind?: string;
+  sourceType?: string;
+  insightType?: string;
+  trendCluster?: string;
   url?: string;
   snippet?: string;
   reason: string;
@@ -115,7 +119,7 @@ export default function ResearchPage() {
   const [sources, setSources] = useState<ResearchSourcePreference[]>(['papers', 'web', 'github', 'local_kb']);
   const [outputType, setOutputType] = useState<ResearchOutputType>('technical_report');
   const [depth, setDepth] = useState<ResearchSessionDepth>('standard');
-  const [constraints, setConstraints] = useState('Prefer citable evidence\nEvery round should fill a research graph gap');
+  const [constraints, setConstraints] = useState('只生成领域认知简报，不写完整综述\n论文只使用摘要和元数据，Web 来源用于补充趋势和实践信号');
   const [quickScanSources, setQuickScanSources] = useState<ResearchSource[]>([]);
   const [graph, setGraph] = useState<ResearchGraphTemplate | null>(null);
   const [evidence, setEvidence] = useState<ResearchEvidence[]>([]);
@@ -238,14 +242,14 @@ export default function ResearchPage() {
     if (!session) return;
     setLoading(true);
     setError('');
-    setStatusText('正在生成研究超图模板...');
+    setStatusText('正在生成领域认知图模板...');
     try {
       const headers = await authHeaders();
       const res = await fetch(`/api/research/sessions/${session.id}/scope`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify({
-          focus: selectedFocus.length ? selectedFocus : ['系统架构', '论文图结构'],
+          focus: selectedFocus.length ? selectedFocus : ['领域概览', '主流方法', '近期趋势'],
           sources,
           outputType,
           timeRange: 'recent_3_years',
@@ -258,7 +262,7 @@ export default function ResearchPage() {
 
       setSession(data.session);
       setGraph(data.graphTemplate);
-      setStatusText('研究超图模板已生成，可以在对话流中规划下一轮检索。');
+      setStatusText('领域认知图已生成，可以在对话流中规划下一轮检索。');
       pushTimeline({
         role: 'assistant',
         title: '研究范围已确认',
@@ -363,7 +367,7 @@ export default function ResearchPage() {
           setRoundPlan(data.plannedQueries);
           pushTimeline({
             role: 'assistant',
-            title: executeSearch ? 'I will search with this plan' : 'Next-round search plan is ready',
+            title: executeSearch ? '我会按当前计划检索' : '下一轮检索计划已生成',
             body: data.plannedQueries
               .flatMap((item: PlannedResearchQuery) => item.queries)
               .slice(0, 8)
@@ -375,12 +379,12 @@ export default function ResearchPage() {
           setRoundSources(prev => [...prev, data.source]);
           pushTimeline({
             role: 'system',
-            title: `Found source: ${data.source.title}`,
+            title: `发现来源：${data.source.title}`,
             body: [
               data.source.query ? `query: ${data.source.query}` : '',
               (data.source.fullTextExcerpt || data.source.snippet || '').slice(0, 260),
             ].filter(Boolean).join('\n'),
-            meta: data.source.sourceProvider || data.source.type,
+            meta: [data.source.sourceProvider || data.source.type, data.source.sourceKind].filter(Boolean).join(' / '),
           });
         }
         if (eventType === 'gate') {
@@ -397,14 +401,14 @@ export default function ResearchPage() {
           setRightSidebarOpen(true);
           pushTimeline({
             role: 'assistant',
-            title: 'Evidence gate completed',
+            title: 'Landscape gate 已完成',
             body: [
-              `Passed ${diagnostics.accepted} sources, rejected ${diagnostics.rejected} sources.`,
-              diagnostics.fallback ? `Rule fallback was used: ${diagnostics.fallbackReason || 'reason unavailable'}` : 'LLM evidence gate was used.',
-              diagnostics.acceptedSamples.length ? `Accepted samples:\n${diagnostics.acceptedSamples.map(item => `- ${item.title}: ${item.reason}`).join('\n')}` : '',
-              diagnostics.rejectedSamples.length ? `Rejected samples:\n${diagnostics.rejectedSamples.slice(0, 4).map(item => `- ${item.title}: ${item.reason}`).join('\n')}` : '',
+              `通过 ${diagnostics.accepted} 个来源，拒绝 ${diagnostics.rejected} 个噪音来源。`,
+              diagnostics.fallback ? `使用规则 fallback：${diagnostics.fallbackReason || '无原因信息'}` : '使用 LLM landscape gate。',
+              diagnostics.acceptedSamples.length ? `通过样例：\n${diagnostics.acceptedSamples.map(item => `- ${item.title} (${item.sourceType || item.provider}${item.insightType ? ` / ${item.insightType}` : ''}): ${item.reason}`).join('\n')}` : '',
+              diagnostics.rejectedSamples.length ? `拒绝样例：\n${diagnostics.rejectedSamples.slice(0, 4).map(item => `- ${item.title}: ${item.reason}`).join('\n')}` : '',
             ].filter(Boolean).join('\n\n'),
-            meta: 'evidence gate',
+            meta: 'landscape gate',
           });
         }
         if (eventType === 'graph' && data.graph) setGraph(data.graph);
@@ -418,8 +422,8 @@ export default function ResearchPage() {
           if (executeSearch && data.sources) {
             pushTimeline({
               role: 'assistant',
-              title: 'Search round completed',
-              body: `Found ${data.sources.length} candidate sources. Evidence and graph updates now follow the gate result.`,
+              title: '本轮检索完成',
+              body: `找到 ${data.sources.length} 个候选来源，领域认知图已按筛选结果更新。`,
             });
           }
         }
@@ -479,7 +483,7 @@ export default function ResearchPage() {
     if (!session) return;
     setLoading(true);
     setError('');
-    setStatusText('正在基于研究图谱和 evidence board 生成草稿文件...');
+    setStatusText('正在基于领域认知图生成简报文件...');
     try {
       const headers = await authHeaders();
       const res = await fetch(`/api/research/sessions/${session.id}/draft`, {
@@ -487,23 +491,23 @@ export default function ResearchPage() {
         headers,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(formatApiError(data, '生成草稿失败'));
+      if (!res.ok) throw new Error(formatApiError(data, '生成领域简报失败'));
 
       setSession(data.session);
       setDraft(data.draft || '');
       setEvidence(data.evidence || evidence);
       setGraph(data.session?.graph_template || graph);
-      setStatusText('草稿文件已生成。');
+      setStatusText('领域认知简报已生成。');
       setRightPanelTab('report');
       setRightSidebarOpen(true);
       pushTimeline({
         role: 'assistant',
-        title: '报告草稿已生成',
+        title: '领域认知简报已生成',
         body: '默认作为文件产物交付。你可以下载 Markdown 或 DOCX，也可以在右侧报告面板预览。',
       });
       loadSessions();
     } catch (err: any) {
-      setError(err.message || '生成草稿失败');
+      setError(err.message || '生成领域简报失败');
     } finally {
       setLoading(false);
     }
@@ -831,21 +835,24 @@ export default function ResearchPage() {
             {gateDiagnostics && (
               <div className="mb-3 rounded-lg border border-amber-100 bg-amber-50 p-3">
                 <div className="text-xs font-medium text-amber-800">
-                  Gate: {gateDiagnostics.accepted} accepted / {gateDiagnostics.rejected} rejected
+                  Landscape gate: {gateDiagnostics.accepted} 通过 / {gateDiagnostics.rejected} 拒绝
                 </div>
                 <div className="mt-1 text-[11px] text-amber-700">
-                  {gateDiagnostics.fallback ? `Rule fallback: ${gateDiagnostics.fallbackReason || 'reason unavailable'}` : 'LLM evidence gate was used.'}
+                  {gateDiagnostics.fallback ? `规则 fallback：${gateDiagnostics.fallbackReason || '无原因信息'}` : '使用 LLM landscape gate。'}
                 </div>
                 <div className="mt-3 space-y-2">
                   {gateDiagnostics.acceptedSamples.slice(0, 4).map(item => (
                     <div key={`accepted-${item.sourceId}`} className="rounded-md bg-white/80 p-2 text-[11px] text-green-800">
-                      <div className="font-medium">Accepted: {item.title}</div>
+                      <div className="font-medium">通过：{item.title}</div>
+                      <div className="mt-0.5 text-[10px] text-green-700">
+                        {[item.provider, item.sourceKind, item.insightType, item.trendCluster].filter(Boolean).join(' / ')}
+                      </div>
                       <div className="mt-1">{item.reason}</div>
                     </div>
                   ))}
                   {gateDiagnostics.rejectedSamples.slice(0, 5).map(item => (
                     <div key={`rejected-${item.sourceId}`} className="rounded-md bg-white/80 p-2 text-[11px] text-red-800">
-                      <div className="font-medium">Rejected: {item.title}</div>
+                      <div className="font-medium">拒绝：{item.title}</div>
                       <div className="mt-1">{item.reason}</div>
                     </div>
                   ))}
@@ -1155,7 +1162,7 @@ export default function ResearchPage() {
               <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 className="text-sm font-medium text-gray-900">报告文件已生成</h3>
+                    <h3 className="text-sm font-medium text-gray-900">领域认知简报已生成</h3>
                     <p className="mt-1 text-xs text-gray-500">可以下载文件，或在右侧“报告”面板预览。</p>
                   </div>
                   <div className="flex flex-wrap gap-2">

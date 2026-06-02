@@ -170,40 +170,43 @@ function contextualFallbackPlan(query: string, mode: ResearchMode, depth: Resear
 
   const candidates = [
     {
-      perspective: 'Direct evidence',
-      reason: 'Search for sources that answer the user question directly.',
-      queries: [query],
+      perspective: 'Representative papers',
+      reason: 'Find high-signal papers that sketch the field and its main directions.',
+      queries: [`"${topic}" review recent advances`, `"${topic}" representative papers methods`],
+      preferredSources: ['papers'],
     },
     {
-      perspective: 'Terminology and mechanisms',
-      reason: 'Search for the core concepts, mechanisms, and technical vocabulary.',
-      queries: [`${query} mechanism concepts`],
+      perspective: 'Recent trends',
+      reason: 'Find recent research and web signals that reveal what is becoming popular.',
+      queries: [`"${topic}" recent progress trends`, `"${topic}" emerging methods 2024 2025`],
+      preferredSources: ['papers', 'web'],
     },
     {
-      perspective: 'Applications and value',
-      reason: 'Search for practical use cases and domain value.',
-      queries: [`${query} applications value`],
+      perspective: 'Main methods',
+      reason: 'Map the dominant method families, mechanisms, and technical routes.',
+      queries: [`"${topic}" methods taxonomy`, `"${topic}" mechanism applications performance`],
+      preferredSources: ['papers', 'web'],
     },
     {
-      perspective: 'Recent progress',
-      reason: 'Search for newer work and emerging results.',
-      queries: [`${query} recent progress`],
+      perspective: 'Web and practice signals',
+      reason: 'Use web sources to capture industry, standards, project, and implementation context.',
+      queries: [`"${topic}" industry practice report`, `"${topic}" technical blog standard project`],
+      preferredSources: ['web', 'github'],
     },
     {
-      perspective: 'Limitations and comparisons',
-      reason: 'Search for tradeoffs and comparison points.',
-      queries: [`${query} limitations comparison`],
+      perspective: 'Metrics and limitations',
+      reason: 'Identify common metrics, evaluation dimensions, bottlenecks, and open questions.',
+      queries: [`"${topic}" metrics benchmark limitations`, `"${topic}" challenges open questions comparison`],
+      preferredSources: ['papers', 'web'],
     },
     {
-      perspective: 'Research methods',
-      reason: 'Search for methods, datasets, and evaluation details.',
-      queries: [`${query} methods evaluation`],
+      perspective: 'Recommended entry points',
+      reason: 'Find sources useful for quickly understanding the field before deep reading.',
+      queries: [`"${topic}" overview tutorial survey`, `"${topic}" landscape introduction`],
+      preferredSources: preferredSourcesForMode(mode),
     },
   ];
-  return candidates.slice(0, DEPTH_CONFIG[depth].perspectives).map(item => ({
-    ...item,
-    preferredSources: preferredSourcesForMode(mode),
-  }));
+  return candidates.slice(0, DEPTH_CONFIG[depth].perspectives);
 }
 
 function cleanPlan(plan: any, query: string, mode: ResearchMode, depth: ResearchDepth, planningContext?: ResearchPlanningContext): PlannedResearchQuery[] {
@@ -251,7 +254,7 @@ ${planningContext.openGaps.map(gap => `  - ${gap.id}: ${gap.label}; ${gap.reason
 - Forbidden query terms: ${planningContext.forbiddenTerms.join(' | ') || BAD_RETRIEVAL_QUERY_PARTS.join(' | ')}
 ` : '';
 
-  const prompt = `Create a research retrieval plan for the user question.
+  const prompt = `Create a research landscape retrieval plan for the user question.
 
 Return only JSON:
 {"perspectives":[{"perspective":"...","reason":"...","queries":["original-language query","English academic query"],"preferredSources":["..."]}]}
@@ -262,6 +265,10 @@ Rules:
 - Query 1 should preserve the user's language/context when useful.
 - Query 2 should be concise English academic/web search wording.
 - Every query must stay anchored to the original topic and selected focus.
+- The goal is a short field landscape brief, not a full literature review.
+- Cover representative papers, recent trends, main method families, web/practice signals, metrics, limitations, and open questions when possible.
+- Papers use metadata and abstracts only; do not plan PDF download, full-text extraction, or full-paper embedding.
+- Web sources are as important as papers when the selected sources include web.
 - Gap labels are planning context only; do not copy gap labels or status words into queries.
 - Do not introduce knowledge graph, graph schema, hypergraph, RAG, or paper-graph topics unless the original topic or selected focus explicitly asks for them.
 - preferredSources can use: ${sources}.
@@ -319,6 +326,7 @@ async function searchTavily(query: string, apiKey: string, limit: number): Promi
       url: r.url,
       type: 'web' as const,
       sourceProvider: 'tavily' as const,
+      sourceKind: 'web_snippet' as const,
       score: Number(r.score || 0),
     }));
   } catch {
@@ -327,13 +335,17 @@ async function searchTavily(query: string, apiKey: string, limit: number): Promi
 }
 
 function mapScholarPaper(p: any, provider: ResearchSource['sourceProvider']): ResearchSource {
+  const abstract = String(p.abstract || '').slice(0, 1800);
   return {
     id: `${provider}-${p.paperId || encodeURIComponent(p.title || 'paper').slice(0, 40)}`,
     title: p.title || 'Paper',
-    snippet: (p.abstract || '').slice(0, 700),
+    snippet: abstract.slice(0, 700),
     url: p.url || (p.paperId ? `https://www.semanticscholar.org/paper/${p.paperId}` : ''),
     type: 'paper',
     sourceProvider: provider,
+    sourceKind: 'paper_metadata',
+    abstract,
+    externalIds: p.externalIds || (p.paperId ? { semanticScholarPaperId: p.paperId } : undefined),
     authors: p.authors?.map((a: any) => a.name).filter(Boolean),
     year: p.year,
     venue: p.venue,
@@ -349,7 +361,7 @@ async function searchSemanticScholar(query: string, apiKey: string, limit: numbe
     const url = `https://api.semanticscholar.org/graph/v1/paper/search?${new URLSearchParams({
       query,
       limit: String(limit),
-      fields: 'title,abstract,url,year,authors,citationCount,venue',
+      fields: 'title,abstract,url,year,authors,citationCount,venue,externalIds',
     })}`;
     const res = await fetch(url, { headers });
     if (!res.ok) return [];
@@ -375,7 +387,7 @@ async function recommendSemanticScholar(seedIds: string[], apiKey: string, limit
     if (apiKey) headers['x-api-key'] = apiKey;
     const url = `https://api.semanticscholar.org/recommendations/v1/papers?${new URLSearchParams({
       limit: String(limit),
-      fields: 'title,abstract,url,year,authors,citationCount,venue',
+      fields: 'title,abstract,url,year,authors,citationCount,venue,externalIds',
     })}`;
     const res = await fetch(url, {
       method: 'POST',
@@ -416,6 +428,12 @@ async function searchOpenAlex(query: string, limit: number): Promise<ResearchSou
       url: w.doi || w.id || '',
       type: 'paper' as const,
       sourceProvider: 'openalex' as const,
+      sourceKind: 'paper_metadata' as const,
+      abstract: openAlexAbstract(w.abstract_inverted_index).slice(0, 1800),
+      externalIds: {
+        openAlex: w.id,
+        doi: w.doi,
+      },
       authors: (w.authorships || []).map((a: any) => a.author?.display_name).filter(Boolean),
       year: w.publication_year,
       venue: w.primary_location?.source?.display_name,
@@ -466,6 +484,9 @@ async function searchArxiv(query: string, limit: number): Promise<ResearchSource
         url: id,
         type: 'paper' as const,
         sourceProvider: 'arxiv' as const,
+        sourceKind: 'paper_metadata' as const,
+        abstract: summary.slice(0, 1800),
+        externalIds: id ? { arxiv: id } : undefined,
         year,
         score: year ? Math.max(0, year - 2015) / 20 : 0,
       };
@@ -493,6 +514,8 @@ async function searchLocalPapers(query: string, supabase: SupabaseLike | undefin
       url: p.arxiv_url || p.pdf_url || '',
       type: 'paper' as const,
       sourceProvider: 'local_papers' as const,
+      sourceKind: 'paper_metadata' as const,
+      abstract: (p.abstract_en || p.summary_zh || '').slice(0, 1800),
       year: p.published_at ? Number(String(p.published_at).slice(0, 4)) : undefined,
       score: 1,
     }));
@@ -529,6 +552,7 @@ async function searchGitHub(query: string, token: string | undefined, limit: num
       url: repo.html_url || '',
       type: 'web' as const,
       sourceProvider: 'github' as const,
+      sourceKind: 'github_repo' as const,
       score: Math.log10(Number(repo.stargazers_count || 0) + 1),
     }));
   } catch {
@@ -556,6 +580,7 @@ async function crawlSource(source: ResearchSource, query: string, maxChars: numb
       snippet: excerpt.slice(0, 700) || source.snippet,
       fullTextExcerpt: excerpt,
       sourceProvider: 'crawled_web',
+      sourceKind: 'web_excerpt',
       score: (source.score || 0) + 1,
     };
   } catch {

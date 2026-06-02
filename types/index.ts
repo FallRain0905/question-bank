@@ -287,11 +287,14 @@ export interface ResearchSource {
   url: string;
   type: 'web' | 'paper';
   sourceProvider?: 'tavily' | 'semantic_scholar' | 'semantic_scholar_recommendation' | 'openalex' | 'arxiv' | 'local_papers' | 'crawled_web' | 'github' | 'local_kb';
+  sourceKind?: 'paper_metadata' | 'web_snippet' | 'web_excerpt' | 'github_repo' | 'local_kb';
   perspective?: string;
   query?: string;
   fullTextExcerpt?: string;
+  abstract?: string;
   score?: number;
   doi?: string;
+  externalIds?: Record<string, string>;
   authors?: string[];
   year?: number;
   venue?: string;
@@ -321,6 +324,11 @@ export interface AcceptedResearchEvidence {
   evidenceSnippet: string;
   nodeTypes: string[];
   reason: string;
+  insightType?: 'representative_paper' | 'method' | 'trend' | 'application' | 'metric' | 'limitation' | 'web_insight' | 'open_question';
+  trendCluster?: string;
+  methodTags?: string[];
+  applicationTags?: string[];
+  metricTags?: string[];
 }
 
 export interface RejectedResearchSource {

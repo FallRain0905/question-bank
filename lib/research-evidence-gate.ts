@@ -24,19 +24,47 @@ interface EvidenceGateOptions {
 }
 
 const MIN_RELEVANCE = 0.5;
-const NODE_TYPES = ['Paper', 'Method', 'Component', 'GraphSchema', 'Claim', 'Evidence', 'Metric', 'Dataset', 'OpenSourceProject', 'Limitation'];
+const LANDSCAPE_NODE_TYPES = [
+  'RepresentativePaper',
+  'WebInsight',
+  'Method',
+  'ApplicationArea',
+  'Metric',
+  'Trend',
+  'Limitation',
+  'OpenQuestion',
+  'OpenSourceProject',
+];
+
 const GENERIC_TERMS = new Set([
   '研究', '论文', '材料', '方法', '系统', '应用', '评估', '指标', '综述', '技术', '路线', '核心', '代表性',
   'research', 'paper', 'papers', 'method', 'methods', 'system', 'systems', 'review', 'survey', 'recent',
   'study', 'studies', 'application', 'applications', 'evaluation', 'metric', 'metrics', 'core',
+  'agent', 'agents', 'synthesis', 'evidence', 'structure', 'limitations', 'challenges', 'stability',
+  'scalability', 'advances', 'open', 'implementation', 'framework', 'frameworks', 'planning',
 ]);
 
 const TERM_ALIASES: Array<[RegExp, string[]]> = [
-  [/mof|金属有机框架/i, ['mof', 'mofs', 'metal organic framework', 'metal-organic framework', 'metal organic frameworks', 'metal-organic frameworks']],
-  [/ccus|碳捕集|碳封存|碳利用/i, ['ccus', 'carbon capture', 'carbon capture utilization and storage', 'carbon capture and storage', 'co2 capture']],
-  [/rag|检索增强/i, ['rag', 'retrieval augmented generation', 'retrieval-augmented generation']],
+  [/mof|金属有机框架/i, ['mof', 'mofs', 'metal organic framework', 'metal-organic framework', 'metal organic frameworks', 'metal-organic frameworks', '金属有机框架']],
+  [/ccus|碳捕集|碳封存|碳利用/i, ['ccus', 'carbon capture', 'carbon capture utilization and storage', 'carbon capture and storage', 'co2 capture', 'carbon capture storage', '碳捕集']],
+  [/rag|检索增强/i, ['rag', 'retrieval augmented generation', 'retrieval-augmented generation', '检索增强生成']],
   [/超图|hypergraph/i, ['hypergraph', 'hypergraphs', 'higher order relation', 'higher-order relation', '超图']],
   [/知识图谱|knowledge graph/i, ['knowledge graph', 'knowledge graphs', 'kg', '知识图谱']],
+];
+
+const INSIGHT_RULES: Array<{
+  type: NonNullable<AcceptedResearchEvidence['insightType']>;
+  nodeTypes: string[];
+  terms: RegExp[];
+}> = [
+  { type: 'representative_paper', nodeTypes: ['RepresentativePaper', 'Trend'], terms: [/review|survey|overview|representative|citation|综述|代表|进展/i] },
+  { type: 'trend', nodeTypes: ['Trend'], terms: [/trend|recent|emerging|advance|progress|hot|frontier|趋势|热点|前沿|进展/i] },
+  { type: 'method', nodeTypes: ['Method'], terms: [/method|approach|technique|route|mechanism|model|算法|方法|路线|机制|工艺/i] },
+  { type: 'application', nodeTypes: ['ApplicationArea'], terms: [/application|case|industry|practice|use case|应用|场景|产业|实践/i] },
+  { type: 'metric', nodeTypes: ['Metric'], terms: [/metric|benchmark|performance|capacity|selectivity|accuracy|指标|性能|基准|评价/i] },
+  { type: 'limitation', nodeTypes: ['Limitation'], terms: [/limitation|challenge|barrier|risk|cost|bottleneck|限制|挑战|瓶颈|成本|风险/i] },
+  { type: 'web_insight', nodeTypes: ['WebInsight'], terms: [/blog|report|standard|documentation|industry|project|white paper|报告|标准|项目|文档/i] },
+  { type: 'open_question', nodeTypes: ['OpenQuestion'], terms: [/future|open question|future direction|unresolved|gap|未来|开放问题|空白/i] },
 ];
 
 function parseJsonObject(text: string) {
@@ -52,6 +80,7 @@ function parseJsonObject(text: string) {
 function sourceText(source: ResearchSource, maxChars = 1200) {
   return [
     source.title,
+    source.abstract,
     source.snippet,
     source.fullTextExcerpt,
     source.authors?.join(', '),
@@ -63,7 +92,7 @@ function sourceText(source: ResearchSource, maxChars = 1200) {
 function tokenize(text: string) {
   const normalized = String(text || '')
     .toLowerCase()
-    .replace(/["'“”‘’()（）【】[\]{}]/g, ' ');
+    .replace(/["'“”‘’()（）【】\[\]{}]/g, ' ');
   const tokens: string[] = [];
 
   for (const match of normalized.matchAll(/[a-z0-9]+|[\u4e00-\u9fa5]+/g)) {
@@ -89,6 +118,17 @@ function tokenize(text: string) {
   return Array.from(new Set(tokens.filter(term => term.length > 1 && !GENERIC_TERMS.has(term))));
 }
 
+function tokenizeTopic(text: string) {
+  const normalized = String(text || '').toLowerCase();
+  const terms = tokenize(normalized);
+  const rawAcronyms = (normalized.match(/\b[a-z0-9]{2,12}\b/g) || [])
+    .filter(term => !GENERIC_TERMS.has(term));
+  const aliases = TERM_ALIASES
+    .filter(([pattern]) => pattern.test(normalized))
+    .flatMap(([, values]) => values);
+  return Array.from(new Set([...terms, ...rawAcronyms, ...aliases].filter(term => term.length > 1)));
+}
+
 function overlapScore(terms: string[], haystack: string) {
   if (terms.length === 0) return { score: 0, hits: [] as string[] };
   const hits = terms.filter(term => haystack.includes(term));
@@ -99,25 +139,48 @@ function overlapScore(terms: string[], haystack: string) {
 }
 
 function lexicalRelevance(source: ResearchSource, scope: ResearchScope, plannedQueries: PlannedResearchQuery[]) {
-  const haystack = sourceText(source, 4000).toLowerCase();
+  const haystack = sourceText(source, 4200).toLowerCase();
   const title = String(source.title || '').toLowerCase();
-  const topicTerms = tokenize(`${scope.topic} ${scope.focus.join(' ')}`);
+  const topicTerms = tokenizeTopic(scope.topic);
+  const focusTerms = tokenize(scope.focus.join(' '));
   const queryTerms = tokenize([
     source.query || '',
     ...plannedQueries.flatMap(item => item.queries || []),
   ].join(' '));
   const topic = overlapScore(topicTerms, haystack);
+  const focus = overlapScore(focusTerms, haystack);
   const query = overlapScore(queryTerms, haystack);
   const titleTopic = overlapScore(topicTerms, title);
+  const titleFocus = overlapScore(focusTerms, title);
   const titleQuery = overlapScore(queryTerms, title);
-  const score = Math.max(
+  const anchorScore = Math.max(topic.score, titleTopic.score + 0.12);
+  const supportScore = Math.max(
+    focus.score * 0.65,
     topic.score,
     query.score * 0.8,
     titleTopic.score + 0.12,
+    titleFocus.score * 0.65 + 0.08,
     titleQuery.score * 0.8 + 0.08
   );
-  const hits = Array.from(new Set([...topic.hits, ...query.hits, ...titleTopic.hits, ...titleQuery.hits])).slice(0, 8);
-  return { score: Math.min(1, score), hits };
+  const score = Math.min(1, anchorScore * 0.65 + supportScore * 0.35);
+  const hits = Array.from(new Set([...topic.hits, ...focus.hits, ...query.hits, ...titleTopic.hits, ...titleFocus.hits, ...titleQuery.hits])).slice(0, 8);
+  const anchorHits = Array.from(new Set([...topic.hits, ...titleTopic.hits])).slice(0, 8);
+  return { score, supportScore: Math.min(1, supportScore), anchorScore: Math.min(1, anchorScore), hits, anchorHits };
+}
+
+function detectInsight(source: ResearchSource) {
+  const text = sourceText(source, 5000);
+  const matched = INSIGHT_RULES.find(rule => rule.terms.some(term => term.test(text)));
+  if (matched) return matched;
+  if (source.type === 'paper') return INSIGHT_RULES[0];
+  if (source.sourceProvider === 'github') return { type: 'web_insight' as const, nodeTypes: ['OpenSourceProject', 'WebInsight'], terms: [] };
+  return { type: 'web_insight' as const, nodeTypes: ['WebInsight'], terms: [] };
+}
+
+function keywordTags(text: string, limit = 6) {
+  return tokenize(text)
+    .filter(term => term.length > 2 || /^[\u4e00-\u9fa5]{2,}$/.test(term))
+    .slice(0, limit);
 }
 
 function fallbackGate(
@@ -125,40 +188,60 @@ function fallbackGate(
   graph: ResearchGraphTemplate,
   sources: ResearchSource[],
   plannedQueries: PlannedResearchQuery[] = [],
-  fallbackReason = 'LLM gate unavailable or returned an invalid response.'
+  fallbackReason = 'LLM landscape gate unavailable or returned an invalid response.'
 ): EvidenceGateResult {
-  const openGaps = getOpenGaps(graph, 5);
+  const openGaps = getOpenGaps(graph, 6);
   const accepted: AcceptedResearchEvidence[] = [];
   const rejected: RejectedResearchSource[] = [];
 
   for (const source of sources) {
     const relevance = lexicalRelevance(source, scope, plannedQueries);
-    const hasContent = Boolean((source.snippet || source.fullTextExcerpt || '').trim());
+    const hasContent = Boolean((source.abstract || source.snippet || source.fullTextExcerpt || '').trim());
     const isAcademic = source.type === 'paper' || ['semantic_scholar', 'semantic_scholar_recommendation', 'openalex', 'arxiv', 'local_papers'].includes(source.sourceProvider || '');
-    const threshold = isAcademic ? 0.08 : source.sourceProvider === 'github' ? 0.2 : 0.14;
+    const anchorThreshold = isAcademic ? 0.08 : source.sourceProvider === 'github' ? 0.16 : 0.12;
+    const supportThreshold = isAcademic ? 0.12 : source.sourceProvider === 'github' ? 0.2 : 0.16;
+    const insight = detectInsight(source);
     const hasSpecificTitleMatch = relevance.hits.length > 0 && Boolean(source.title?.trim());
+    const hasTopicAnchor = relevance.anchorScore >= anchorThreshold || relevance.anchorHits.length > 0;
+    const hasLandscapeSignal = insight.type !== 'web_insight' || source.type === 'web' || source.sourceProvider === 'github';
+    const hasGapSupport = relevance.supportScore >= supportThreshold || relevance.score >= Math.max(anchorThreshold, supportThreshold);
 
-    if ((!hasContent && !hasSpecificTitleMatch) || relevance.score < threshold) {
+    if ((!hasContent && !hasSpecificTitleMatch) || !hasTopicAnchor || !hasGapSupport || !hasLandscapeSignal) {
       rejected.push({
         sourceId: source.id,
-        reason: hasContent
-          ? `主题/检索词匹配不足，规则 gate 拒绝。score=${relevance.score.toFixed(2)}，命中=${relevance.hits.join(', ') || '无'}`
-          : `缺少摘要或正文，且标题未命中核心主题词。score=${relevance.score.toFixed(2)}，命中=${relevance.hits.join(', ') || '无'}`,
+        reason: `Rule landscape gate rejected: topicAnchor=${relevance.anchorScore.toFixed(2)}, support=${relevance.supportScore.toFixed(2)}, score=${relevance.score.toFixed(2)}, insight=${insight.type}, anchorHits=${relevance.anchorHits.join(', ') || 'none'}, hits=${relevance.hits.join(', ') || 'none'}`,
       });
       continue;
     }
 
-    const gapIds = openGaps.slice(0, source.type === 'paper' ? 2 : 1).map(gap => gap.id);
+    const text = sourceText(source, 1800);
+    const sourceGapIds = openGaps
+      .filter(gap => {
+        if (source.type === 'paper' && gap.preferredSources.includes('papers')) return true;
+        if (source.type === 'web' && (gap.preferredSources.includes('web') || gap.preferredSources.includes('github'))) return true;
+        return false;
+      })
+      .slice(0, source.type === 'paper' ? 2 : 1)
+      .map(gap => gap.id);
+    const gapIds = sourceGapIds.length ? sourceGapIds : openGaps.slice(0, 1).map(gap => gap.id);
+
     accepted.push({
       sourceId: source.id,
       relevanceScore: Math.max(MIN_RELEVANCE, Math.min(0.9, 0.52 + relevance.score)),
       gapIds,
       claim: source.type === 'paper'
-        ? `论文「${source.title}」提供了与「${scope.topic}」相关的研究证据。`
-        : `来源「${source.title}」包含与「${scope.topic}」相关的信息。`,
-      evidenceSnippet: (source.fullTextExcerpt || source.snippet || source.title).slice(0, 1200),
-      nodeTypes: source.type === 'paper' ? ['Paper', 'Claim', 'Evidence'] : ['Claim', 'Evidence'],
-      reason: `LLM gate 不可用，使用规则 fallback 通过。score=${relevance.score.toFixed(2)}，命中=${relevance.hits.join(', ') || '无'}`,
+        ? `论文「${source.title}」为「${scope.topic}」的领域认知提供摘要级线索。`
+        : `Web 来源「${source.title}」为「${scope.topic}」补充实践或趋势信号。`,
+      evidenceSnippet: text.slice(0, 1200),
+      nodeTypes: source.sourceProvider === 'github'
+        ? Array.from(new Set(['OpenSourceProject', ...insight.nodeTypes]))
+        : insight.nodeTypes,
+      reason: `Rule landscape fallback accepted: insight=${insight.type}, topicAnchor=${relevance.anchorScore.toFixed(2)}, support=${relevance.supportScore.toFixed(2)}, hits=${relevance.hits.join(', ') || 'none'}`,
+      insightType: insight.type,
+      trendCluster: source.perspective || insight.type.replace(/_/g, ' '),
+      methodTags: insight.type === 'method' || source.type === 'paper' ? keywordTags(text, 5) : [],
+      applicationTags: insight.type === 'application' ? keywordTags(text, 5) : [],
+      metricTags: insight.type === 'metric' ? keywordTags(text, 5) : [],
     });
   }
 
@@ -167,7 +250,8 @@ function fallbackGate(
 
 function normalizeGateResult(parsed: any, sources: ResearchSource[]): EvidenceGateResult | null {
   const sourceIds = new Set(sources.map(source => source.id));
-  if (!Array.isArray(parsed?.accepted) || !Array.isArray(parsed?.rejected)) return null;
+  if (!parsed || !Array.isArray(parsed.accepted)) return null;
+  const rejectedRows = Array.isArray(parsed.rejected) ? parsed.rejected : [];
 
   const accepted: AcceptedResearchEvidence[] = parsed.accepted
     .map((item: any) => ({
@@ -177,9 +261,14 @@ function normalizeGateResult(parsed: any, sources: ResearchSource[]): EvidenceGa
       claim: String(item?.claim || '').trim(),
       evidenceSnippet: String(item?.evidenceSnippet || '').trim(),
       nodeTypes: Array.isArray(item?.nodeTypes)
-        ? item.nodeTypes.map((type: any) => String(type || '').trim()).filter((type: string) => NODE_TYPES.includes(type))
+        ? item.nodeTypes.map((type: any) => String(type || '').trim()).filter((type: string) => LANDSCAPE_NODE_TYPES.includes(type))
         : [],
       reason: String(item?.reason || '').trim(),
+      insightType: item?.insightType,
+      trendCluster: String(item?.trendCluster || '').trim(),
+      methodTags: Array.isArray(item?.methodTags) ? item.methodTags.map((tag: any) => String(tag || '').trim()).filter(Boolean).slice(0, 8) : [],
+      applicationTags: Array.isArray(item?.applicationTags) ? item.applicationTags.map((tag: any) => String(tag || '').trim()).filter(Boolean).slice(0, 8) : [],
+      metricTags: Array.isArray(item?.metricTags) ? item.metricTags.map((tag: any) => String(tag || '').trim()).filter(Boolean).slice(0, 8) : [],
     }))
     .filter((item: AcceptedResearchEvidence) =>
       sourceIds.has(item.sourceId) &&
@@ -188,17 +277,22 @@ function normalizeGateResult(parsed: any, sources: ResearchSource[]): EvidenceGa
       item.claim &&
       item.evidenceSnippet
     )
-    .slice(0, 18);
+    .map((item: AcceptedResearchEvidence) => ({
+      ...item,
+      nodeTypes: item.nodeTypes.length ? item.nodeTypes : ['WebInsight'],
+      insightType: item.insightType || 'web_insight',
+    }))
+    .slice(0, 20);
 
   const acceptedIds = new Set(accepted.map(item => item.sourceId));
   const rejected: RejectedResearchSource[] = [
-    ...parsed.rejected.map((item: any) => ({
+    ...rejectedRows.map((item: any) => ({
       sourceId: String(item?.sourceId || '').trim(),
-      reason: String(item?.reason || '不满足 evidence gate 相关性要求。').trim(),
+      reason: String(item?.reason || 'Did not satisfy the landscape gate.').trim(),
     })),
     ...sources
       .filter(source => !acceptedIds.has(source.id))
-      .map(source => ({ sourceId: source.id, reason: '未通过 evidence gate。' })),
+      .map(source => ({ sourceId: source.id, reason: 'Not accepted by landscape gate.' })),
   ].filter(item => sourceIds.has(item.sourceId) && !acceptedIds.has(item.sourceId));
 
   return { accepted, rejected };
@@ -215,7 +309,9 @@ export async function runEvidenceGate(options: EvidenceGateOptions): Promise<Evi
   const sourceContext = sources.slice(0, 24).map((source, index) => `[${index + 1}]
 sourceId: ${source.id}
 title: ${source.title}
+type: ${source.type}
 provider: ${source.sourceProvider || source.type}
+sourceKind: ${source.sourceKind || ''}
 year: ${source.year || ''}
 citations: ${source.citationCount || ''}
 query: ${source.query || ''}
@@ -223,20 +319,23 @@ text:
 ${sourceText(source)}
 `).join('\n');
 
-  const prompt = `You are a strict but fair evidence gate for a research assistant.
+  const prompt = `You are a strict but fair landscape gate for a research assistant.
+The product is building a short field landscape brief, not a full literature review.
+Paper sources only contain metadata and abstracts. Web sources contain snippets or short crawled excerpts. Both papers and web sources are valuable.
+
 Return only JSON:
-{"accepted":[{"sourceId":"...","relevanceScore":0.0,"gapIds":["..."],"claim":"...","evidenceSnippet":"...","nodeTypes":["Paper","Method","Claim","Evidence","Metric","Dataset","Limitation","OpenSourceProject"],"reason":"..."}],"rejected":[{"sourceId":"...","reason":"..."}]}
+{"accepted":[{"sourceId":"...","relevanceScore":0.0,"gapIds":["..."],"claim":"...","evidenceSnippet":"...","nodeTypes":["RepresentativePaper","WebInsight","Method","ApplicationArea","Metric","Trend","Limitation","OpenQuestion","OpenSourceProject"],"insightType":"representative_paper|method|trend|application|metric|limitation|web_insight|open_question","trendCluster":"...","methodTags":["..."],"applicationTags":["..."],"metricTags":["..."],"reason":"..."}],"rejected":[{"sourceId":"...","reason":"..."}]}
 
 Rules:
 - The user's original topic is authoritative: ${scope.topic}
 - Selected focus: ${scope.focus.join(' / ') || 'not specified'}
-- Accept sources that directly help answer the topic or one of the planned queries.
-- Do not reject a source merely because the user's topic is Chinese and the source is English; map common academic aliases and acronyms.
-- Reject sources from unrelated domains even if they match generic words.
+- Accept sources that help map the field landscape: representative papers, recent trends, main method families, web/practice signals, metrics, limitations, or open questions.
+- Reject sources from unrelated domains even if they match generic words such as agent, synthesis, evidence, stability, limitation, or framework.
+- Do not require PDF/full text. Abstract-level paper evidence is enough for a preliminary landscape brief.
+- Web sources can support industry/practice/project/standard/trend insights if topic-relevant.
 - relevanceScore must be between 0 and 1. Accept only if score >= ${MIN_RELEVANCE}.
-- evidenceSnippet must be a short, faithful excerpt or abstract summary from the source text.
+- evidenceSnippet must be a short faithful excerpt or abstract summary from the source text.
 - Assign each accepted source to one or more open gap ids.
-- If the source has no usable abstract/snippet/body, reject it unless the title is highly specific to the topic.
 - Do not invent facts beyond the source text.
 
 Open gaps:
@@ -256,15 +355,15 @@ ${sourceContext}`;
         model: llmConfig.defaultModel,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0,
-        max_tokens: 2200,
+        max_tokens: 2800,
       }),
     });
-    if (!res.ok) return fallbackGate(scope, graph, sources, plannedQueries, `LLM gate request failed with HTTP ${res.status}.`);
+    if (!res.ok) return fallbackGate(scope, graph, sources, plannedQueries, `LLM landscape gate request failed with HTTP ${res.status}.`);
     const data = await res.json();
     const parsed = parseJsonObject(data.choices?.[0]?.message?.content || '');
     const normalized = normalizeGateResult(parsed, sources);
-    return normalized || fallbackGate(scope, graph, sources, plannedQueries, 'LLM gate returned JSON that did not match the expected schema.');
+    return normalized || fallbackGate(scope, graph, sources, plannedQueries, 'LLM landscape gate returned JSON that did not match the expected schema.');
   } catch (err: any) {
-    return fallbackGate(scope, graph, sources, plannedQueries, `LLM gate failed: ${err?.message || 'unknown error'}.`);
+    return fallbackGate(scope, graph, sources, plannedQueries, `LLM landscape gate failed: ${err?.message || 'unknown error'}.`);
   }
 }

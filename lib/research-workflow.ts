@@ -17,93 +17,91 @@ import type { ResearchDepth, ResearchMode } from '@/lib/research-retrieval';
 
 const NODE_TYPES = [
   'Problem',
-  'Paper',
+  'TopicCluster',
   'Method',
-  'Component',
-  'GraphSchema',
-  'Claim',
-  'Evidence',
+  'ApplicationArea',
   'Metric',
-  'Dataset',
-  'OpenSourceProject',
+  'Trend',
+  'RepresentativePaper',
+  'WebInsight',
   'Limitation',
-  'ResearchGap',
+  'OpenQuestion',
+  'OpenSourceProject',
+  'Evidence',
 ];
 
 const HYPEREDGE_TYPES = [
-  'PAPER_PROPOSES_METHOD',
-  'METHOD_HAS_COMPONENT',
-  'CLAIM_SUPPORTED_BY_EVIDENCE',
+  'PAPER_SUPPORTS_TREND',
+  'WEB_SUPPORTS_TREND',
+  'METHOD_USED_IN_AREA',
   'METHOD_EVALUATED_BY_METRIC',
-  'GRAPH_SCHEMA_SUPPORTS_TASK',
-  'PROJECT_IMPLEMENTS_METHOD',
-  'METHOD_HAS_LIMITATION',
-  'EVIDENCE_FILLS_GAP',
+  'TREND_HAS_LIMITATION',
+  'SOURCE_SUPPORTS_INSIGHT',
 ];
 
 export const DEFAULT_DIRECTIONS: ResearchDirectionCard[] = [
   {
-    id: 'theory',
-    title: '理论基础',
-    description: '梳理概念来源、关键定义、理论机制和基础综述。',
+    id: 'landscape',
+    title: '领域概览',
+    description: '快速建立主题边界、核心概念、主要方向和推荐入口。',
     recommended: false,
-    graphFocus: ['Problem', 'Method', 'Claim', 'Evidence'],
+    graphFocus: ['TopicCluster', 'Trend', 'RepresentativePaper', 'WebInsight'],
     sourceHints: ['papers', 'web'],
   },
   {
-    id: 'architecture',
-    title: '系统架构',
-    description: '研究系统组件、数据流、Agent 流程和工程实现。',
+    id: 'methods',
+    title: '主流方法',
+    description: '梳理当前常见方法、技术路线、机制和适用场景。',
     recommended: false,
-    graphFocus: ['Method', 'Component', 'OpenSourceProject', 'Limitation'],
-    sourceHints: ['papers', 'github', 'web'],
+    graphFocus: ['Method', 'ApplicationArea', 'Metric'],
+    sourceHints: ['papers', 'web'],
   },
   {
-    id: 'paper_graph',
-    title: '论文图结构',
-    description: '聚焦论文语料如何建模为图、超图或证据结构。',
+    id: 'recent_trends',
+    title: '近期趋势',
+    description: '关注最近几年升温的方向、热点问题和新兴路线。',
     recommended: false,
-    graphFocus: ['GraphSchema', 'Paper', 'Evidence', 'Metric'],
-    sourceHints: ['papers', 'local_kb'],
+    graphFocus: ['Trend', 'RepresentativePaper', 'WebInsight'],
+    sourceHints: ['papers', 'web'],
   },
   {
-    id: 'evaluation',
-    title: '实验评估',
-    description: '关注数据集、指标、baseline、实验结论和复现实验。',
+    id: 'papers',
+    title: '代表论文',
+    description: '找出摘要级即可判断价值的代表论文、综述和高引用入口。',
     recommended: false,
-    graphFocus: ['Dataset', 'Metric', 'Claim', 'Limitation'],
+    graphFocus: ['RepresentativePaper', 'Method', 'Trend'],
     sourceHints: ['papers'],
   },
   {
-    id: 'open_source',
-    title: '开源实现',
-    description: '检索可参考项目、许可证、活跃度和工程取舍。',
+    id: 'practice',
+    title: 'Web/产业动态',
+    description: '补充技术博客、机构报告、标准、项目文档和实践信号。',
     recommended: false,
-    graphFocus: ['OpenSourceProject', 'Component', 'Method', 'Limitation'],
-    sourceHints: ['github', 'web'],
+    graphFocus: ['WebInsight', 'ApplicationArea', 'OpenSourceProject'],
+    sourceHints: ['web', 'github'],
   },
   {
-    id: 'application',
-    title: '领域应用',
-    description: '关注科研、化工、医学、能源等场景中的价值和约束。',
+    id: 'limits',
+    title: '指标与限制',
+    description: '关注常见评价指标、瓶颈、风险、成本和开放问题。',
     recommended: false,
-    graphFocus: ['Problem', 'Paper', 'Claim', 'ResearchGap'],
-    sourceHints: ['papers', 'web', 'local_kb'],
+    graphFocus: ['Metric', 'Limitation', 'OpenQuestion'],
+    sourceHints: ['papers', 'web'],
   },
 ];
 
 export const CLARIFICATION_QUESTIONS = [
   {
     id: 'focus',
-    question: '这次研究优先解决什么问题？',
+    question: '这次研究优先建立哪部分认知框架？',
     type: 'multi_choice',
-    options: ['系统架构', '论文图结构', '理论基础', '实验评估', '开源实现'],
+    options: ['领域概览', '主流方法', '近期趋势', '代表论文', 'Web/产业动态', '指标与限制'],
   },
   {
     id: 'output',
     question: '最终输出更接近哪一种？',
     type: 'single_choice',
-    options: ['技术方案', '文献综述', '简洁回答', '对比表'],
+    options: ['领域认知简报', '技术路线图', '对比表', '深入阅读清单'],
   },
   {
     id: 'sources',
@@ -130,24 +128,16 @@ function topicMatches(topic: string, patterns: RegExp[]) {
   return patterns.some(pattern => pattern.test(topic));
 }
 
-function hasFocus(focus: string[], label: string) {
-  return focus.some(item => item === label || item.includes(label));
-}
-
-function needsArchitecture(topic: string, focus: string[]) {
-  return hasFocus(focus, '系统架构') || topicMatches(topic, [/系统|架构|平台|agent|workflow|pipeline|implementation|实现|工程/i]);
-}
-
-function needsPaperGraph(topic: string, focus: string[]) {
-  return hasFocus(focus, '论文图结构') || topicMatches(topic, [/论文语料|文献图|知识图谱|图结构|超图|hypergraph|graph schema|graph rag|hyper-rag/i]);
-}
-
-function needsEvaluation(topic: string, focus: string[]) {
-  return hasFocus(focus, '实验评估') || topicMatches(topic, [/评估|实验|benchmark|metric|指标|性能|对比|评价/i]);
+function hasFocus(focus: string[], labels: string[]) {
+  return focus.some(item => labels.some(label => item === label || item.includes(label)));
 }
 
 function needsOpenSource(topic: string, focus: string[]) {
-  return hasFocus(focus, '开源实现') || topicMatches(topic, [/github|开源|repo|代码|实现/i]);
+  return hasFocus(focus, ['Web/产业动态', '开源实现']) || topicMatches(topic, [/github|开源|repo|代码|实现|project/i]);
+}
+
+function needsMetrics(topic: string, focus: string[]) {
+  return hasFocus(focus, ['指标与限制']) || topicMatches(topic, [/指标|评估|评价|性能|benchmark|metric|limitation|challenge/i]);
 }
 
 export function normalizeResearchSessionDepth(depth: unknown): ResearchSessionDepth {
@@ -170,24 +160,20 @@ export function sourcePrefsToMode(sources: ResearchSourcePreference[]): Research
 
 export function getDirectionCards(topic: string, sourceCount = 0): ResearchDirectionCard[] {
   const lower = topic.toLowerCase();
-  const asksArchitecture = needsArchitecture(lower, []);
-  const asksPaperGraph = needsPaperGraph(lower, []);
-  const asksEvaluation = needsEvaluation(lower, []);
-  const asksOpenSource = needsOpenSource(lower, []);
-  const asksTheory = topicMatches(lower, [/理论|基础|定义|concept|机制|原理|what is/i]);
-  const broadDomain = !asksArchitecture && !asksPaperGraph && !asksEvaluation && !asksOpenSource;
+  const broadDomain = !topicMatches(lower, [/系统架构|论文图|知识图谱|超图|agent|github|开源|评估|benchmark|metric/i]);
+  const asksPractice = needsOpenSource(lower, []);
+  const asksMetrics = needsMetrics(lower, []);
 
   return DEFAULT_DIRECTIONS.map(card => ({
     ...card,
     recommended:
       card.recommended ||
-      (card.id === 'architecture' && asksArchitecture) ||
-      (card.id === 'paper_graph' && asksPaperGraph) ||
-      (card.id === 'open_source' && asksOpenSource) ||
-      (card.id === 'evaluation' && asksEvaluation) ||
-      (card.id === 'theory' && (asksTheory || broadDomain)) ||
-      (card.id === 'application' && broadDomain) ||
-      (sourceCount > 0 && card.id === 'evaluation' && asksEvaluation),
+      (card.id === 'landscape' && (broadDomain || sourceCount > 0)) ||
+      (card.id === 'methods' && broadDomain) ||
+      (card.id === 'recent_trends' && broadDomain) ||
+      (card.id === 'practice' && asksPractice) ||
+      (card.id === 'limits' && asksMetrics) ||
+      (card.id === 'papers' && topicMatches(lower, [/论文|文献|paper|literature|survey|review/i])),
   }));
 }
 
@@ -206,11 +192,14 @@ export function buildResearchScope(topic: string, patch?: Partial<ResearchScope>
   return {
     topic,
     focus,
-    sources: sources.length ? sources : ['papers', 'web', 'github', 'local_kb'],
+    sources: sources.length ? sources : ['papers', 'web'],
     outputType: patch?.outputType || 'technical_report',
     timeRange: patch?.timeRange || 'recent_3_years',
     depth: normalizeResearchSessionDepth(patch?.depth),
-    constraints: patch?.constraints || ['优先保留可引用证据', '每轮检索都服务于补全研究图谱缺口'],
+    constraints: patch?.constraints || [
+      '只生成领域认知简报，不写完整综述',
+      '论文只使用摘要和元数据，Web 来源用于补充趋势和实践信号',
+    ],
   };
 }
 
@@ -231,115 +220,103 @@ function topicQuery(topic: string, suffix: string) {
 }
 
 export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate {
-  const includeArchitecture = needsArchitecture(scope.topic, scope.focus);
-  const includePaperGraph = needsPaperGraph(scope.topic, scope.focus);
-  const includeEvaluation = needsEvaluation(scope.topic, scope.focus);
   const includeOpenSource = needsOpenSource(scope.topic, scope.focus) || scope.sources.includes('github');
+  const includeMetrics = needsMetrics(scope.topic, scope.focus);
   const nodes: ResearchGraphNode[] = [
     {
       id: `problem-${safeId(scope.topic)}`,
       type: 'Problem',
       label: scope.topic,
       status: 'seed',
-      metadata: { focus: scope.focus, outputType: scope.outputType },
+      metadata: { focus: scope.focus, outputType: scope.outputType, graphKind: 'research_landscape' },
     },
   ];
 
   const requiredSlots = unique([
-    '代表性论文',
-    '核心方法',
-    '证据链',
-    ...(includePaperGraph ? ['论文图结构设计'] : ['技术路线', '应用场景']),
-    ...(includeArchitecture ? ['系统组件', '工程实现'] : []),
-    ...(includeEvaluation ? ['评价指标', '数据集'] : []),
-    ...(includeOpenSource ? ['开源项目'] : []),
-    '局限性',
+    '领域概览',
+    '近期趋势',
+    '主流方法',
+    '代表论文',
+    'Web/实践信号',
+    includeMetrics ? '评价指标' : '常见判断维度',
+    '限制与开放问题',
+    ...(includeOpenSource ? ['开源/项目动态'] : []),
   ]);
 
   const gaps: ResearchGap[] = [
     gap(
-      'gap-papers',
-      '代表性论文不足',
-      '需要补齐综述、代表性论文和方法来源。',
-      ['Paper', 'Method'],
+      'gap-landscape',
+      '领域概览不足',
+      '需要形成该领域的大方向、核心问题和快速入口。',
+      ['TopicCluster', 'Trend', 'RepresentativePaper', 'WebInsight'],
       [
-        topicQuery(scope.topic, 'review synthesis applications'),
-        topicQuery(scope.topic, 'representative papers methods advances'),
+        topicQuery(scope.topic, 'overview landscape main directions'),
+        topicQuery(scope.topic, 'review recent advances field overview'),
       ],
-      ['papers'],
+      ['papers', 'web'],
+      'high'
+    ),
+    gap(
+      'gap-trends',
+      '近期趋势不足',
+      '需要识别最近几年升温的研究热点、产业信号和新兴方法。',
+      ['Trend', 'RepresentativePaper', 'WebInsight'],
+      [
+        topicQuery(scope.topic, 'recent progress emerging trends'),
+        topicQuery(scope.topic, '2024 2025 advances industry report'),
+      ],
+      ['papers', 'web'],
       'high'
     ),
     gap(
       'gap-methods',
-      '核心技术路线不足',
-      '需要补齐该主题下的主要方法、机制、适用场景和代表性证据。',
-      ['Method', 'Claim', 'Evidence'],
+      '主流方法分类不足',
+      '需要补齐该领域常见方法、技术路线、机制和适用场景。',
+      ['Method', 'ApplicationArea', 'Metric'],
       [
-        topicQuery(scope.topic, 'synthesis methods structure property relationship'),
-        topicQuery(scope.topic, 'mechanism applications performance evidence'),
+        topicQuery(scope.topic, 'methods taxonomy mechanism applications'),
+        topicQuery(scope.topic, 'technical routes performance comparison'),
       ],
       ['papers', 'web', 'local_kb'],
       'high'
     ),
+    gap(
+      'gap-papers',
+      '代表论文不足',
+      '需要摘要级代表论文、综述、高引用或近期入口论文来支撑认知地图。',
+      ['RepresentativePaper', 'Method', 'Trend'],
+      [
+        topicQuery(scope.topic, 'representative papers review survey'),
+        topicQuery(scope.topic, 'highly cited recent papers methods'),
+      ],
+      ['papers'],
+      'medium'
+    ),
+    gap(
+      'gap-web',
+      'Web 实践信号不足',
+      '需要 Web 来源补充产业动态、报告、标准、项目文档或实践经验。',
+      ['WebInsight', 'ApplicationArea', 'OpenSourceProject'],
+      [
+        topicQuery(scope.topic, 'industry practice report standard'),
+        topicQuery(scope.topic, 'technical blog project documentation'),
+      ],
+      includeOpenSource ? ['web', 'github'] : ['web'],
+      'medium'
+    ),
+    gap(
+      'gap-limits',
+      '指标与限制不足',
+      '需要补齐评价指标、瓶颈、风险、成本和开放问题。',
+      ['Metric', 'Limitation', 'OpenQuestion'],
+      [
+        topicQuery(scope.topic, 'metrics benchmark limitations challenges'),
+        topicQuery(scope.topic, 'open questions bottlenecks future directions'),
+      ],
+      ['papers', 'web'],
+      'medium'
+    ),
   ];
-
-  if (includePaperGraph) {
-    gaps.push(gap(
-      'gap-graph-schema',
-      '论文图结构证据不足',
-      '需要明确 Paper / Method / Evidence / GraphSchema 如何连接。',
-      ['GraphSchema', 'Evidence'],
-      [
-        topicQuery(scope.topic, 'paper corpus graph schema evidence graph'),
-        topicQuery(scope.topic, 'scientific literature graph representation extraction'),
-      ],
-      ['papers', 'web', 'local_kb'],
-      'high'
-    ));
-  }
-
-  if (includeArchitecture) {
-    gaps.push(gap(
-      'gap-architecture',
-      '系统架构组件不足',
-      '需要补齐组件、数据流、Agent 流程和工程实现。',
-      ['Component', 'Method', 'OpenSourceProject'],
-      [
-        topicQuery(scope.topic, 'system architecture implementation pipeline'),
-        topicQuery(scope.topic, 'open source implementation engineering workflow'),
-      ],
-      ['web', 'github'],
-      'high'
-    ));
-  }
-
-  if (includeEvaluation) {
-    gaps.push(gap(
-      'gap-evaluation',
-      '评价指标和局限性不足',
-      '需要补齐 metric、benchmark、dataset、limitation。',
-      ['Metric', 'Dataset', 'Limitation'],
-      [
-        topicQuery(scope.topic, 'characterization BET adsorption stability performance metrics'),
-        topicQuery(scope.topic, 'database benchmark dataset evaluation limitation'),
-      ],
-      ['papers', 'web'],
-      'medium'
-    ));
-  } else {
-    gaps.push(gap(
-      'gap-limitations',
-      '局限性和适用边界不足',
-      '需要补齐当前方法的限制、成本、风险和适用条件。',
-      ['Limitation', 'Evidence'],
-      [
-        topicQuery(scope.topic, 'limitations challenges stability scalability'),
-        topicQuery(scope.topic, 'comparison tradeoffs barriers future directions'),
-      ],
-      ['papers', 'web'],
-      'medium'
-    ));
-  }
 
   return {
     nodeTypes: NODE_TYPES,
@@ -365,28 +342,45 @@ export function getOpenGaps(graph: ResearchGraphTemplate, limit = 3) {
 }
 
 export function buildSearchQueryFromGraph(scope: ResearchScope, graph: ResearchGraphTemplate) {
-  const gapQueries = getOpenGaps(graph, scope.depth === 'deep' ? 4 : 3)
+  const gapQueries = getOpenGaps(graph, scope.depth === 'deep' ? 5 : 4)
     .flatMap(item => item.suggestedQueries)
-    .slice(0, scope.depth === 'fast' ? 2 : scope.depth === 'deep' ? 6 : 4);
+    .slice(0, scope.depth === 'fast' ? 2 : scope.depth === 'deep' ? 8 : 5);
   return unique([scope.topic, ...gapQueries]).join(' ');
 }
 
 function sourceNodeType(source: ResearchSource, evidence?: AcceptedResearchEvidence) {
-  if (evidence?.nodeTypes?.includes('OpenSourceProject')) return 'OpenSourceProject';
-  if (source.sourceProvider === 'github') return 'OpenSourceProject';
-  if (evidence?.nodeTypes?.includes('Paper')) return 'Paper';
-  if (source.type === 'paper') return 'Paper';
-  return 'Evidence';
+  if (source.sourceProvider === 'github' || evidence?.nodeTypes?.includes('OpenSourceProject')) return 'OpenSourceProject';
+  if (source.type === 'paper') return 'RepresentativePaper';
+  return 'WebInsight';
 }
 
-function sanitizeNodeTypes(types: string[], source: ResearchSource) {
+function insightNodeType(evidence: AcceptedResearchEvidence) {
+  if (evidence.insightType === 'method') return 'Method';
+  if (evidence.insightType === 'application') return 'ApplicationArea';
+  if (evidence.insightType === 'metric') return 'Metric';
+  if (evidence.insightType === 'limitation') return 'Limitation';
+  if (evidence.insightType === 'open_question') return 'OpenQuestion';
+  return 'Trend';
+}
+
+function sanitizeNodeTypes(types: string[], source: ResearchSource, evidence: AcceptedResearchEvidence) {
   const allowed = new Set(NODE_TYPES);
   const nodes = types.filter(type => allowed.has(type));
-  if (source.type === 'paper' && !nodes.includes('Paper')) nodes.unshift('Paper');
-  if (source.sourceProvider === 'github' && !nodes.includes('OpenSourceProject')) nodes.unshift('OpenSourceProject');
-  if (!nodes.includes('Claim')) nodes.push('Claim');
+  const sourceType = sourceNodeType(source, evidence);
+  if (!nodes.includes(sourceType)) nodes.unshift(sourceType);
+  const insightType = insightNodeType(evidence);
+  if (!nodes.includes(insightType)) nodes.push(insightType);
   if (!nodes.includes('Evidence')) nodes.push('Evidence');
-  return unique(nodes).slice(0, 5);
+  return unique(nodes).slice(0, 6);
+}
+
+function edgeTypeFor(source: ResearchSource, evidence: AcceptedResearchEvidence) {
+  if (evidence.insightType === 'method') return 'METHOD_USED_IN_AREA';
+  if (evidence.insightType === 'metric') return 'METHOD_EVALUATED_BY_METRIC';
+  if (evidence.insightType === 'limitation' || evidence.insightType === 'open_question') return 'TREND_HAS_LIMITATION';
+  if (source.type === 'paper') return 'PAPER_SUPPORTS_TREND';
+  if (source.type === 'web') return 'WEB_SUPPORTS_TREND';
+  return 'SOURCE_SUPPORTS_INSIGHT';
 }
 
 export function applySourcesToGraph(
@@ -405,30 +399,44 @@ export function applySourcesToGraph(
   };
 
   const sourceMap = new Map(sources.map(source => [source.id, source]));
-  const evidenceInserts = acceptedEvidence.slice(0, scope.depth === 'deep' ? 18 : 12).flatMap(evidence => {
+  const evidenceInserts = acceptedEvidence.slice(0, scope.depth === 'deep' ? 24 : 16).flatMap(evidence => {
     const source = sourceMap.get(evidence.sourceId);
     if (!source) return [];
 
-    const nodeTypes = sanitizeNodeTypes(evidence.nodeTypes || [], source);
-    const sourceNodeId = `${sourceNodeType(source, evidence).toLowerCase()}-${safeId(source.id || source.title)}`;
+    const nodeTypes = sanitizeNodeTypes(evidence.nodeTypes || [], source, evidence);
+    const sourceType = sourceNodeType(source, evidence);
+    const sourceNodeId = `${sourceType.toLowerCase()}-${safeId(source.id || source.title)}`;
+    const trendLabel = evidence.trendCluster || source.perspective || evidence.insightType || scope.topic;
+    const trendNodeId = `trend-${safeId(trendLabel)}`;
     const evidenceNodeId = `evidence-${safeId(source.id || source.title)}`;
-    const claimNodeId = `claim-${safeId(evidence.claim || source.title)}`;
+    const insightNodeId = `${insightNodeType(evidence).toLowerCase()}-${safeId(evidence.claim || source.title)}-${safeId(source.id).slice(0, 12)}`;
 
     const nodesToAdd: ResearchGraphNode[] = [
       {
         id: sourceNodeId,
-        type: sourceNodeType(source, evidence),
+        type: sourceType,
         label: source.title,
         status: 'filled',
         metadata: {
           url: source.url,
           provider: source.sourceProvider,
+          sourceKind: source.sourceKind,
           year: source.year,
+          venue: source.venue,
           citationCount: source.citationCount,
           authors: source.authors,
+          doi: source.doi,
           gapIds: evidence.gapIds,
           relevanceScore: evidence.relevanceScore,
+          insightType: evidence.insightType,
         },
+      },
+      {
+        id: trendNodeId,
+        type: 'Trend',
+        label: trendLabel,
+        status: 'partial',
+        metadata: { gapIds: evidence.gapIds, insightType: evidence.insightType },
       },
       {
         id: evidenceNodeId,
@@ -438,21 +446,18 @@ export function applySourcesToGraph(
         metadata: { sourceId: source.id, url: source.url, gapIds: evidence.gapIds },
       },
       {
-        id: claimNodeId,
-        type: 'Claim',
+        id: insightNodeId,
+        type: insightNodeType(evidence),
         label: evidence.claim.slice(0, 100),
-        status: 'filled',
-        metadata: { sourceId: source.id, gapIds: evidence.gapIds },
+        status: 'partial',
+        metadata: {
+          sourceId: source.id,
+          gapIds: evidence.gapIds,
+          methodTags: evidence.methodTags || [],
+          applicationTags: evidence.applicationTags || [],
+          metricTags: evidence.metricTags || [],
+        },
       },
-      ...nodeTypes
-        .filter(type => !['Paper', 'OpenSourceProject', 'Evidence', 'Claim'].includes(type))
-        .map(type => ({
-          id: `${type.toLowerCase()}-${safeId(evidence.claim || source.title)}-${safeId(source.id).slice(0, 12)}`,
-          type,
-          label: evidence.claim.slice(0, 80),
-          status: 'partial' as const,
-          metadata: { sourceId: source.id, gapIds: evidence.gapIds },
-        })),
     ];
 
     for (const node of nodesToAdd) {
@@ -461,17 +466,22 @@ export function applySourcesToGraph(
 
     const edge: ResearchHyperedge = {
       id: `edge-${safeId(source.id || source.title)}-${safeId(evidence.gapIds.join('-'))}`,
-      type: 'CLAIM_SUPPORTED_BY_EVIDENCE',
-      label: '证据支持结论',
-      nodeIds: [claimNodeId, evidenceNodeId, sourceNodeId],
+      type: edgeTypeFor(source, evidence),
+      label: '来源支撑领域洞察',
+      nodeIds: [sourceNodeId, trendNodeId, insightNodeId, evidenceNodeId],
       evidenceIds: [source.id],
       confidence: evidence.relevanceScore,
       metadata: {
         provider: source.sourceProvider,
+        sourceType: source.type,
+        sourceKind: source.sourceKind,
         query: source.query,
         gapIds: evidence.gapIds,
         relevanceScore: evidence.relevanceScore,
         reason: evidence.reason,
+        insightType: evidence.insightType,
+        trendCluster: evidence.trendCluster,
+        nodeTypes,
       },
     };
     if (!nextGraph.edges.some(existing => existing.id === edge.id)) nextGraph.edges.push(edge);
@@ -488,15 +498,22 @@ export function applySourcesToGraph(
         url: source.url,
         type: source.type,
         provider: source.sourceProvider,
+        sourceKind: source.sourceKind,
         year: source.year,
         venue: source.venue,
         citationCount: source.citationCount,
         authors: source.authors,
+        doi: source.doi,
         query: source.query,
         perspective: source.perspective,
         relevanceScore: evidence.relevanceScore,
         gapIds: evidence.gapIds,
         nodeTypes,
+        insightType: evidence.insightType,
+        trendCluster: evidence.trendCluster,
+        methodTags: evidence.methodTags || [],
+        applicationTags: evidence.applicationTags || [],
+        metricTags: evidence.metricTags || [],
         gateReason: evidence.reason,
       },
     }];
@@ -506,7 +523,7 @@ export function applySourcesToGraph(
   nextGraph.nextSearchTasks = nextGraph.gaps
     .filter(item => item.status !== 'filled')
     .flatMap(item => item.suggestedQueries.slice(0, 1))
-    .slice(0, 5);
+    .slice(0, 6);
 
   return { graph: nextGraph, evidenceInserts };
 }
@@ -517,11 +534,19 @@ export function evaluateGaps(_scope: ResearchScope, graph: ResearchGraphTemplate
       const gapIds = Array.isArray(edge.metadata?.gapIds) ? edge.metadata.gapIds : [];
       return gapIds.includes(gapItem.id);
     });
+    const sourceTypes = new Set(relatedEdges.map(edge => String(edge.metadata?.sourceType || '')));
+    const insightTypes = new Set(relatedEdges.map(edge => String(edge.metadata?.insightType || '')));
     const scores = relatedEdges.map(edge => Number(edge.metadata?.relevanceScore || edge.confidence || 0)).filter(Boolean);
     const average = scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 0;
+    const hasSourceMix = sourceTypes.has('paper') && sourceTypes.has('web');
+    const coverage =
+      relatedEdges.length +
+      Math.min(2, insightTypes.size) +
+      (hasSourceMix ? 1 : 0) +
+      (average >= 0.65 ? 1 : 0);
     const status: ResearchGap['status'] =
-      relatedEdges.length >= 2 && average >= 0.55 ? 'filled' :
-      relatedEdges.length >= 1 ? 'partial' :
+      coverage >= 5 ? 'filled' :
+      coverage >= 2 ? 'partial' :
       'open';
     return { ...gapItem, status };
   });
@@ -564,10 +589,10 @@ export function evidenceRowsToTyped(rows: any[]): ResearchEvidence[] {
 
 export function outputTypeLabel(outputType: ResearchOutputType) {
   const labels: Record<ResearchOutputType, string> = {
-    concise_answer: '简洁回答',
-    technical_report: '技术报告',
-    literature_review: '文献综述',
-    system_design: '系统设计方案',
+    concise_answer: '简短回答',
+    technical_report: '领域认知简报',
+    literature_review: '文献入口地图',
+    system_design: '技术路线图',
     comparison_table: '对比表',
   };
   return labels[outputType];

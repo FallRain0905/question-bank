@@ -15,21 +15,21 @@ import {
   researchDepthToRetrievalDepth,
   sourcePrefsToMode,
 } from '@/lib/research-workflow';
-import type { PlannedResearchQuery, ResearchGraphTemplate, ResearchPlanningContext, ResearchScope, ResearchSource } from '@/types';
+import type { AcceptedResearchEvidence, PlannedResearchQuery, ResearchGraphTemplate, ResearchPlanningContext, ResearchScope, ResearchSource } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const FORBIDDEN_QUERY_TERMS = [
-  '代表性论文不足',
-  '核心技术路线不足',
-  '论文图结构证据不足',
-  '系统架构组件不足',
-  '评价指标和局限性不足',
-  '局限性和适用边界不足',
+  '代表论文不足',
+  '主流方法分类不足',
+  '近期趋势不足',
+  'Web 实践信号不足',
+  '指标与限制不足',
+  '领域概览不足',
   '证据不足',
-  '待规划',
   '当前缺口',
+  '待规划',
 ];
 
 function clientForToken(token: string) {
@@ -100,8 +100,8 @@ function normalizeRetrievalPlan(plan: PlannedResearchQuery[], scope: ResearchSco
         .slice(0, 2);
 
       return {
-        perspective: String(item.perspective || '定向检索').trim(),
-        reason: String(item.reason || '补齐当前研究图谱缺口的可引用证据。').trim(),
+        perspective: String(item.perspective || 'Landscape search').trim(),
+        reason: String(item.reason || 'Fill the current field landscape coverage gap.').trim(),
         queries,
         preferredSources: Array.isArray(item.preferredSources) && item.preferredSources.length
           ? item.preferredSources.map(source => String(source || '').trim()).filter(Boolean)
@@ -124,7 +124,7 @@ function buildPlanningContext(scope: ResearchScope, graph: ResearchGraphTemplate
 }
 
 function summarizeGateItems(
-  items: Array<{ sourceId: string; reason: string; relevanceScore?: number }>,
+  items: Array<Partial<AcceptedResearchEvidence> & { sourceId: string; reason: string; relevanceScore?: number }>,
   sources: ResearchSource[],
   limit: number
 ) {
@@ -135,8 +135,12 @@ function summarizeGateItems(
       sourceId: item.sourceId,
       title: source?.title || item.sourceId,
       provider: source?.sourceProvider || source?.type || 'source',
+      sourceKind: source?.sourceKind || '',
+      sourceType: source?.type || '',
+      insightType: item.insightType || '',
+      trendCluster: item.trendCluster || '',
       url: source?.url || '',
-      snippet: (source?.fullTextExcerpt || source?.snippet || '').slice(0, 360),
+      snippet: (source?.fullTextExcerpt || source?.abstract || source?.snippet || '').slice(0, 360),
       reason: item.reason,
       relevanceScore: item.relevanceScore,
     };
@@ -187,6 +191,7 @@ async function queryLocalKb(
       url: '',
       type: 'web' as const,
       sourceProvider: 'local_kb' as const,
+      sourceKind: 'local_kb' as const,
       fullTextExcerpt: String(unit.content || '').slice(0, 2000),
       score: 1.5,
     }));
@@ -234,7 +239,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .eq('user_id', auth.user.id);
 
       const fallbackSearchQuery = cleanSearchQuery(String(body.query || buildSearchQueryFromGraph(scope, graph)), scope);
-      await send('status', { stage: 'planning', message: '正在根据当前研究缺口生成检索计划' });
+      await send('status', { stage: 'planning', message: '正在根据领域认知缺口生成检索计划' });
 
       const [llmConfig, toolConfig] = await Promise.all([
         getUserLLMConfig(auth.token),
@@ -271,7 +276,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       })), scope);
       const plannedSearchQuery = safePlan.flatMap(item => item.queries).join(' | ') || fallbackSearchQuery;
 
-      await send('status', { stage: 'planning', message: '本轮检索计划已生成，可以编辑后执行' });
+      await send('status', { stage: 'planning', message: '本轮领域检索计划已生成，可以编辑后执行' });
       await send('tasks', {
         query: plannedSearchQuery,
         tasks: safePlan.flatMap(item => item.queries),
@@ -284,7 +289,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return;
       }
 
-      await send('status', { stage: 'searching', message: '正在调用统一研究检索管线' });
+      await send('status', { stage: 'searching', message: '正在检索论文摘要、Web 摘录和实践来源' });
       const sourcesFromRetrieval = await retrieveResearchSources({
         query: `${scope.topic} ${scope.focus.join(' ')}`,
         mode: sourcePrefsToMode(scope.sources),
@@ -307,7 +312,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       for (const source of sources) await send('source', { source });
 
-      await send('status', { stage: 'gate', message: '正在筛选相关证据并拒绝噪音来源' });
+      await send('status', { stage: 'gate', message: '正在筛选能支撑领域认知框架的来源' });
       const gate = sanitizeForJsonb(await runEvidenceGate({
         llmConfig,
         scope,
@@ -320,11 +325,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         rejected: gate.rejected.length,
         fallback: gate.fallback === true,
         fallbackReason: gate.fallbackReason || '',
-        acceptedSamples: summarizeGateItems(gate.accepted, sources, 6),
+        acceptedSamples: summarizeGateItems(gate.accepted, sources, 8),
         rejectedSamples: summarizeGateItems(gate.rejected, sources, 8),
       });
 
-      await send('status', { stage: 'extracting', message: '正在把通过筛选的证据写入研究图谱' });
+      await send('status', { stage: 'extracting', message: '正在把通过筛选的来源写入领域认知图' });
       const applied = applySourcesToGraph(scope, graph, sources, gate.accepted);
       graph = sanitizeForJsonb(applied.graph);
       const evidencePayload = sanitizeForJsonb(applied.evidenceInserts.map(item => ({
@@ -350,7 +355,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const round = buildResearchRound(graph, plannedSearchQuery, sources.length, evidenceRows.length);
       graph.rounds = [...(graph.rounds || []), round];
 
-      await send('status', { stage: 'graph', message: '正在更新检索超图并评估证据覆盖' });
+      await send('status', { stage: 'graph', message: '正在更新领域认知图并评估覆盖度' });
       await send('graph', { graph });
       await send('evidence', { evidence: evidenceRowsToTyped(evidenceRows) });
       await send('gaps', { gaps: graph.gaps });
