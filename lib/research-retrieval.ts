@@ -81,10 +81,26 @@ const BAD_RETRIEVAL_QUERY_PARTS = [
   '系统架构组件不足',
   '评价指标和局限性不足',
   '局限性和适用边界不足',
+  '代表论文不足',
+  '主流方法分类不足',
+  '近期趋势不足',
+  'Web 实践信号不足',
+  '指标与限制不足',
+  '领域概览不足',
   '证据不足',
   '待规划',
   '当前缺口',
   '不足',
+];
+
+const MATERIAL_QUERY_PATTERNS = [
+  /\bsynthesis\b/i,
+  /structure[-\s]?property/i,
+  /\bBET\b/i,
+  /\badsorption\b/i,
+  /\bcharacterization\b/i,
+  /\bcatalyst|catalysis\b/i,
+  /合成|结构.?性能|吸附|表征|催化|材料制备/,
 ];
 
 function normalizeMode(mode: unknown): ResearchMode {
@@ -169,6 +185,46 @@ function cleanRetrievalQuery(raw: string) {
   return query.replace(/\s+/g, ' ').trim();
 }
 
+function isMaterialTopic(topic: string) {
+  return /mof|材料|化学|化工|催化|电池|吸附|碳捕集|ccus|纳米|晶体|metal|material|chem|catal|adsorption|battery/i.test(topic);
+}
+
+function isDomainPollutedQuery(query: string, topic: string) {
+  return !isMaterialTopic(topic) && MATERIAL_QUERY_PATTERNS.some(pattern => pattern.test(query));
+}
+
+function topicSearchText(topic: string) {
+  const lower = topic.toLowerCase();
+  const aliases: Array<[RegExp, string]> = [
+    [/机器学习|machine learning/i, 'machine learning'],
+    [/深度学习|deep learning/i, 'deep learning'],
+    [/人工智能|artificial intelligence|\bai\b/i, 'artificial intelligence'],
+    [/大语言模型|llm|large language model/i, 'large language models'],
+    [/强化学习|reinforcement learning/i, 'reinforcement learning'],
+    [/知识图谱|knowledge graph/i, 'knowledge graph'],
+    [/超图|hypergraph/i, 'hypergraph'],
+    [/碳捕集|ccus|carbon capture/i, 'carbon capture'],
+    [/金属有机框架|mof/i, 'metal-organic frameworks'],
+  ];
+  return aliases.find(([pattern]) => pattern.test(lower))?.[1] || topic;
+}
+
+function landscapeQueries(topic: string, originalSuffix: string, englishSuffix: string) {
+  return Array.from(new Set([
+    cleanRetrievalQuery(`${topic} ${originalSuffix}`),
+    cleanRetrievalQuery(`${topicSearchText(topic)} ${englishSuffix}`),
+  ].filter(Boolean)));
+}
+
+function cleanPlannedQueries(queries: string[], topic: string, limit = 2) {
+  return Array.from(new Set(
+    queries
+      .map(cleanRetrievalQuery)
+      .filter(Boolean)
+      .filter(query => !isDomainPollutedQuery(query, topic))
+  )).slice(0, limit);
+}
+
 function contextualFallbackPlan(query: string, mode: ResearchMode, depth: ResearchDepth, planningContext?: ResearchPlanningContext): PlannedResearchQuery[] {
   const topic = planningContext?.topic?.trim() || query.trim();
   const openGaps = planningContext?.openGaps || [];
@@ -177,31 +233,32 @@ function contextualFallbackPlan(query: string, mode: ResearchMode, depth: Resear
     if (gap.id === 'gap-papers') {
       return {
         perspective: gap.label,
-        reason: gap.reason || '补齐代表性综述和论文来源。',
-        queries: [`"${topic}" review synthesis applications`, `"${topic}" representative papers methods advances`],
+        reason: gap.reason || 'Find representative papers, surveys, and recent entry points.',
+        queries: landscapeQueries(topic, '代表论文 综述 近期进展', 'representative papers survey recent advances'),
         preferredSources,
       };
     }
     if (gap.id === 'gap-methods') {
       return {
         perspective: gap.label,
-        reason: gap.reason || '补齐核心方法、机制和应用场景。',
-        queries: [`"${topic}" synthesis methods structure property relationship`, `"${topic}" mechanism applications performance evidence`],
+        reason: gap.reason || 'Map major method families, applications, and evaluation dimensions.',
+        queries: landscapeQueries(topic, '主流方法 分类 应用', 'main methods taxonomy applications'),
         preferredSources,
       };
     }
     if (gap.id === 'gap-evaluation') {
       return {
         perspective: gap.label,
-        reason: gap.reason || '补齐评价指标、数据库和 benchmark。',
-        queries: [`"${topic}" characterization BET adsorption stability performance metrics`, `"${topic}" database benchmark dataset evaluation limitation`],
+        reason: gap.reason || 'Find evaluation metrics, benchmarks, and limitations.',
+        queries: landscapeQueries(topic, '评价指标 benchmark 局限', 'evaluation metrics benchmarks limitations'),
         preferredSources,
       };
     }
+    const suggested = cleanPlannedQueries(gap.suggestedQueries || [], topic);
     return {
       perspective: gap.label || '定向检索',
       reason: gap.reason || '补齐当前研究缺口的可引用证据。',
-      queries: (gap.suggestedQueries?.length ? gap.suggestedQueries : [`"${topic}" review evidence`, `"${topic}" methods limitations`]).slice(0, 2),
+      queries: suggested.length ? suggested : landscapeQueries(topic, '领域概览 方法 趋势', 'overview methods trends limitations'),
       preferredSources,
     };
   });
@@ -211,37 +268,37 @@ function contextualFallbackPlan(query: string, mode: ResearchMode, depth: Resear
     {
       perspective: 'Representative papers',
       reason: 'Find high-signal papers that sketch the field and its main directions.',
-      queries: [`"${topic}" review recent advances`, `"${topic}" representative papers methods`],
+      queries: landscapeQueries(topic, '代表论文 综述 近期进展', 'representative papers survey recent advances'),
       preferredSources: ['papers'],
     },
     {
       perspective: 'Recent trends',
       reason: 'Find recent research and web signals that reveal what is becoming popular.',
-      queries: [`"${topic}" recent progress trends`, `"${topic}" emerging methods 2024 2025`],
+      queries: landscapeQueries(topic, '近期趋势 热点 进展', 'recent trends emerging methods 2024 2025'),
       preferredSources: ['papers', 'web'],
     },
     {
       perspective: 'Main methods',
       reason: 'Map the dominant method families, mechanisms, and technical routes.',
-      queries: [`"${topic}" methods taxonomy`, `"${topic}" mechanism applications performance`],
+      queries: landscapeQueries(topic, '主流方法 分类 应用', 'main methods taxonomy applications'),
       preferredSources: ['papers', 'web'],
     },
     {
       perspective: 'Web and practice signals',
       reason: 'Use web sources to capture industry, standards, project, and implementation context.',
-      queries: [`"${topic}" industry practice report`, `"${topic}" technical blog standard project`],
+      queries: landscapeQueries(topic, '产业 实践 报告 工具', 'industry practice report technical blog tools'),
       preferredSources: ['web', 'github'],
     },
     {
       perspective: 'Metrics and limitations',
       reason: 'Identify common metrics, evaluation dimensions, bottlenecks, and open questions.',
-      queries: [`"${topic}" metrics benchmark limitations`, `"${topic}" challenges open questions comparison`],
+      queries: landscapeQueries(topic, '评价指标 局限 开放问题', 'metrics benchmarks limitations open questions'),
       preferredSources: ['papers', 'web'],
     },
     {
       perspective: 'Recommended entry points',
       reason: 'Find sources useful for quickly understanding the field before deep reading.',
-      queries: [`"${topic}" overview tutorial survey`, `"${topic}" landscape introduction`],
+      queries: landscapeQueries(topic, '入门 概览 教程', 'overview introduction tutorial landscape'),
       preferredSources: preferredSourcesForMode(mode),
     },
   ];
@@ -258,7 +315,7 @@ function cleanPlan(plan: any, query: string, mode: ResearchMode, depth: Research
       perspective: String(row?.perspective || '').trim(),
       reason: String(row?.reason || '').trim(),
       queries: Array.isArray(row?.queries)
-        ? row.queries.map((q: any) => cleanRetrievalQuery(String(q || ''))).filter(Boolean).slice(0, 2)
+        ? cleanPlannedQueries(row.queries.map((q: any) => String(q || '')), planningContext?.topic || query, 2)
         : [],
       preferredSources: Array.isArray(row?.preferredSources)
         ? row.preferredSources.map((s: any) => String(s || '').trim()).filter(Boolean)
@@ -269,7 +326,7 @@ function cleanPlan(plan: any, query: string, mode: ResearchMode, depth: Research
       ...row,
       queries: row.queries.filter(queryText => {
         const lower = queryText.toLowerCase();
-        return !forbidden.some(term => term && lower.includes(term));
+        return !forbidden.some(term => term && lower.includes(term)) && !isDomainPollutedQuery(queryText, planningContext?.topic || query);
       }),
     }))
     .filter((row: PlannedResearchQuery) => row.queries.length > 0)

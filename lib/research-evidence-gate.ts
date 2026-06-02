@@ -287,13 +287,16 @@ function normalizeGateResult(parsed: any, sources: ResearchSource[]): EvidenceGa
     .slice(0, 20);
 
   const acceptedIds = new Set(accepted.map(item => item.sourceId));
-  const rejected: RejectedResearchSource[] = [
-    ...rejectedRows.map((item: any) => ({
+  const explicitRejected: RejectedResearchSource[] = rejectedRows.map((item: any) => ({
       sourceId: String(item?.sourceId || '').trim(),
       reason: String(item?.reason || 'Did not satisfy the landscape gate.').trim(),
-    })),
+    }))
+    .filter((item: RejectedResearchSource) => sourceIds.has(item.sourceId) && !acceptedIds.has(item.sourceId));
+  const explicitRejectedIds = new Set(explicitRejected.map(item => item.sourceId));
+  const rejected: RejectedResearchSource[] = [
+    ...explicitRejected,
     ...sources
-      .filter(source => !acceptedIds.has(source.id))
+      .filter(source => !acceptedIds.has(source.id) && !explicitRejectedIds.has(source.id))
       .map(source => ({ sourceId: source.id, reason: 'Not accepted by landscape gate.' })),
   ].filter(item => sourceIds.has(item.sourceId) && !acceptedIds.has(item.sourceId));
 
