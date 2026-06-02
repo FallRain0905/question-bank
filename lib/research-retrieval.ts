@@ -103,6 +103,8 @@ const MATERIAL_QUERY_PATTERNS = [
   /合成|结构.?性能|吸附|表征|催化|材料制备/,
 ];
 
+const REVIEW_TERMS = /\breview\b|\bsurvey\b|\boverview\b|\btutorial\b|\btaxonomy\b|\broadmap\b|\blandscape\b|综述|述评|概览|教程|分类/i;
+
 function normalizeMode(mode: unknown): ResearchMode {
   return mode === 'academic' || mode === 'general' || mode === 'both' ? mode : 'both';
 }
@@ -199,8 +201,11 @@ function topicSearchText(topic: string) {
     [/机器学习|machine learning/i, 'machine learning'],
     [/深度学习|deep learning/i, 'deep learning'],
     [/人工智能|artificial intelligence|\bai\b/i, 'artificial intelligence'],
-    [/大语言模型|llm|large language model/i, 'large language models'],
+    [/大语言模型|大型语言模型|llm|large language model/i, 'large language models'],
     [/强化学习|reinforcement learning/i, 'reinforcement learning'],
+    [/自监督学习|self-supervised learning/i, 'self-supervised learning'],
+    [/联邦学习|federated learning/i, 'federated learning'],
+    [/自动机器学习|automl|automated machine learning/i, 'automated machine learning'],
     [/知识图谱|knowledge graph/i, 'knowledge graph'],
     [/超图|hypergraph/i, 'hypergraph'],
     [/碳捕集|ccus|carbon capture/i, 'carbon capture'],
@@ -214,6 +219,49 @@ function landscapeQueries(topic: string, originalSuffix: string, englishSuffix: 
     cleanRetrievalQuery(`${topic} ${originalSuffix}`),
     cleanRetrievalQuery(`${topicSearchText(topic)} ${englishSuffix}`),
   ].filter(Boolean)));
+}
+
+function reviewFirstQueries(topic: string, englishSuffix: string) {
+  const englishTopic = topicSearchText(topic);
+  return Array.from(new Set([
+    cleanRetrievalQuery(`${topic} review survey overview`),
+    cleanRetrievalQuery(`${englishTopic} ${englishSuffix}`),
+  ].filter(Boolean)));
+}
+
+function gapAwareQueries(gapId: string, topic: string) {
+  if (gapId === 'gap-papers') {
+    return reviewFirstQueries(topic, 'survey review overview highly cited papers');
+  }
+  if (gapId === 'gap-landscape') {
+    return reviewFirstQueries(topic, 'field survey overview research landscape main directions');
+  }
+  if (gapId === 'gap-trends') {
+    return reviewFirstQueries(topic, 'recent advances survey emerging trends 2024 2025 2026');
+  }
+  if (gapId === 'gap-methods') {
+    return reviewFirstQueries(topic, 'methods taxonomy benchmark comparative survey');
+  }
+  if (gapId === 'gap-evaluation' || gapId === 'gap-limits') {
+    return reviewFirstQueries(topic, 'evaluation benchmarks limitations challenges survey');
+  }
+  if (gapId === 'gap-web') {
+    return landscapeQueries(topic, 'industry report practice standard tools', 'industry report practice standard tools');
+  }
+  return landscapeQueries(topic, 'overview methods trends', 'overview methods trends limitations');
+}
+
+function gapPromptHint(gap: ResearchPlanningContext['openGaps'][number]) {
+  const hints: Record<string, string> = {
+    'gap-landscape': 'field overview; prefer review/survey/overview sources that describe the whole field',
+    'gap-trends': 'recent trends; prefer recent surveys, annual reports, and trend/roadmap sources',
+    'gap-methods': 'method taxonomy; prefer survey, taxonomy, benchmark, or comparison sources',
+    'gap-papers': 'representative papers; first search review/survey/overview/high-citation entry papers, not narrow application papers',
+    'gap-web': 'web/practice signal; prefer industry reports, standards, project docs, official docs, or serious technical reports',
+    'gap-limits': 'metrics and limitations; prefer benchmark/evaluation/limitation surveys or standards',
+    'gap-evaluation': 'metrics and limitations; prefer benchmark/evaluation/limitation surveys or standards',
+  };
+  return hints[gap.id] || 'field landscape gap';
 }
 
 function cleanPlannedQueries(queries: string[], topic: string, limit = 2) {
@@ -234,7 +282,7 @@ function contextualFallbackPlan(query: string, mode: ResearchMode, depth: Resear
       return {
         perspective: gap.label,
         reason: gap.reason || 'Find representative papers, surveys, and recent entry points.',
-        queries: landscapeQueries(topic, '代表论文 综述 近期进展', 'representative papers survey recent advances'),
+        queries: gapAwareQueries(gap.id, topic),
         preferredSources,
       };
     }
@@ -242,7 +290,7 @@ function contextualFallbackPlan(query: string, mode: ResearchMode, depth: Resear
       return {
         perspective: gap.label,
         reason: gap.reason || 'Map major method families, applications, and evaluation dimensions.',
-        queries: landscapeQueries(topic, '主流方法 分类 应用', 'main methods taxonomy applications'),
+        queries: gapAwareQueries(gap.id, topic),
         preferredSources,
       };
     }
@@ -250,7 +298,7 @@ function contextualFallbackPlan(query: string, mode: ResearchMode, depth: Resear
       return {
         perspective: gap.label,
         reason: gap.reason || 'Find evaluation metrics, benchmarks, and limitations.',
-        queries: landscapeQueries(topic, '评价指标 benchmark 局限', 'evaluation metrics benchmarks limitations'),
+        queries: gapAwareQueries(gap.id, topic),
         preferredSources,
       };
     }
@@ -258,7 +306,7 @@ function contextualFallbackPlan(query: string, mode: ResearchMode, depth: Resear
     return {
       perspective: gap.label || '定向检索',
       reason: gap.reason || '补齐当前研究缺口的可引用证据。',
-      queries: suggested.length ? suggested : landscapeQueries(topic, '领域概览 方法 趋势', 'overview methods trends limitations'),
+      queries: suggested.length ? suggested : gapAwareQueries(gap.id, topic),
       preferredSources,
     };
   });
@@ -268,19 +316,19 @@ function contextualFallbackPlan(query: string, mode: ResearchMode, depth: Resear
     {
       perspective: 'Representative papers',
       reason: 'Find high-signal papers that sketch the field and its main directions.',
-      queries: landscapeQueries(topic, '代表论文 综述 近期进展', 'representative papers survey recent advances'),
+      queries: gapAwareQueries('gap-papers', topic),
       preferredSources: ['papers'],
     },
     {
       perspective: 'Recent trends',
       reason: 'Find recent research and web signals that reveal what is becoming popular.',
-      queries: landscapeQueries(topic, '近期趋势 热点 进展', 'recent trends emerging methods 2024 2025'),
+      queries: gapAwareQueries('gap-trends', topic),
       preferredSources: ['papers', 'web'],
     },
     {
       perspective: 'Main methods',
       reason: 'Map the dominant method families, mechanisms, and technical routes.',
-      queries: landscapeQueries(topic, '主流方法 分类 应用', 'main methods taxonomy applications'),
+      queries: gapAwareQueries('gap-methods', topic),
       preferredSources: ['papers', 'web'],
     },
     {
@@ -292,13 +340,13 @@ function contextualFallbackPlan(query: string, mode: ResearchMode, depth: Resear
     {
       perspective: 'Metrics and limitations',
       reason: 'Identify common metrics, evaluation dimensions, bottlenecks, and open questions.',
-      queries: landscapeQueries(topic, '评价指标 局限 开放问题', 'metrics benchmarks limitations open questions'),
+      queries: gapAwareQueries('gap-limits', topic),
       preferredSources: ['papers', 'web'],
     },
     {
       perspective: 'Recommended entry points',
       reason: 'Find sources useful for quickly understanding the field before deep reading.',
-      queries: landscapeQueries(topic, '入门 概览 教程', 'overview introduction tutorial landscape'),
+      queries: gapAwareQueries('gap-landscape', topic),
       preferredSources: preferredSourcesForMode(mode),
     },
   ];
@@ -345,7 +393,7 @@ Research context:
 - Original topic: ${planningContext.topic}
 - Selected focus: ${planningContext.focus.join(' / ') || 'not specified'}
 - Open gaps:
-${planningContext.openGaps.map(gap => `  - ${gap.id}: ${gap.label}; ${gap.reason}; suggested=${gap.suggestedQueries.join(' | ')}`).join('\n') || '  - none'}
+${planningContext.openGaps.map(gap => `  - ${gap.id}: ${gapPromptHint(gap)}; suggested=${cleanPlannedQueries(gap.suggestedQueries, planningContext.topic, 2).join(' | ') || gapAwareQueries(gap.id, planningContext.topic).join(' | ')}`).join('\n') || '  - none'}
 - Recent queries to avoid: ${planningContext.priorQueries.join(' | ') || 'none'}
 - Forbidden query terms: ${planningContext.forbiddenTerms.join(' | ') || BAD_RETRIEVAL_QUERY_PARTS.join(' | ')}
 ` : '';
@@ -362,6 +410,9 @@ Rules:
 - Query 2 should be concise English academic/web search wording.
 - Every query must stay anchored to the original topic and selected focus.
 - The goal is a short field landscape brief, not a full literature review.
+- For academic paper searches, prefer review, survey, overview, taxonomy, benchmark, roadmap, or highly cited entry papers before narrow application papers.
+- Representative-paper queries must contain at least one intent word such as review, survey, overview, taxonomy, benchmark, highly cited, seminal, or roadmap.
+- Narrow domain-application papers are only useful as application examples; they must not be used as representative papers for a broad field.
 - Cover representative papers, recent trends, main method families, web/practice signals, metrics, limitations, and open questions when possible.
 - Papers use metadata and abstracts only; do not plan PDF download, full-text extraction, or full-paper embedding.
 - Web sources are as important as papers when the selected sources include web.
@@ -397,6 +448,17 @@ function attachMeta(source: ResearchSource, plan: PlannedResearchQuery, query: s
     perspective: source.perspective || plan.perspective,
     query: source.query || query,
   };
+}
+
+function isReviewLikeSource(source: ResearchSource) {
+  return REVIEW_TERMS.test([
+    source.title,
+    source.abstract,
+    source.snippet,
+    source.query,
+    source.perspective,
+    source.venue,
+  ].filter(Boolean).join(' '));
 }
 
 async function searchTavily(query: string, apiKey: string, limit: number): Promise<ResearchSource[]> {
@@ -708,10 +770,31 @@ function rankSources(sources: ResearchSource[], userQuery: string) {
       score: (source.score || 0)
         + (providerWeight[source.sourceProvider || ''] || 1)
         + termScore(source, userQuery)
+        + (source.type === 'paper' && isReviewLikeSource(source) ? 2.5 : 0)
+        + (source.type === 'paper' && REVIEW_TERMS.test(source.query || '') ? 1 : 0)
         + Math.min(2, Number(source.citationCount || 0) / 500)
         + (source.year ? Math.max(0, source.year - 2020) / 10 : 0),
     }))
     .sort((a, b) => (b.score || 0) - (a.score || 0));
+}
+
+function selectLandscapeSources(sources: ResearchSource[], max: number) {
+  const selected: ResearchSource[] = [];
+  const seen = new Set<string>();
+  const add = (source: ResearchSource) => {
+    if (selected.length >= max || seen.has(source.id)) return;
+    selected.push(source);
+    seen.add(source.id);
+  };
+  const reviewPapers = sources.filter(source => source.type === 'paper' && isReviewLikeSource(source));
+  const papers = sources.filter(source => source.type === 'paper');
+  const web = sources.filter(source => source.type === 'web');
+
+  reviewPapers.slice(0, Math.min(4, Math.ceil(max / 3))).forEach(add);
+  papers.slice(0, Math.min(6, Math.ceil(max / 2))).forEach(add);
+  web.slice(0, Math.min(6, Math.ceil(max / 2))).forEach(add);
+  sources.forEach(add);
+  return selected.slice(0, max);
 }
 
 export async function retrieveResearchSources(options: RetrievalOptions & { plan: PlannedResearchQuery[] }) {
@@ -792,7 +875,8 @@ export async function retrieveResearchSources(options: RetrievalOptions & { plan
   const ranked = rankSources(merged, query);
   const relevant = ranked.filter(source => termScore(source, query) > 0 || (source.score || 0) >= 4);
   const finalSources = relevant.length >= Math.min(4, ranked.length) ? relevant : ranked;
-  const limited = finalSources.slice(0, depth === 'deep' ? 20 : depth === 'medium' ? 12 : 8);
+  const limit = depth === 'deep' ? 20 : depth === 'medium' ? 12 : 8;
+  const limited = selectLandscapeSources(finalSources, limit);
   debugEvents?.push({
     stage: 'final',
     rawCount: rawSources.length,

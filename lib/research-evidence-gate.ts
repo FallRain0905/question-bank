@@ -24,6 +24,7 @@ interface EvidenceGateOptions {
 }
 
 const MIN_RELEVANCE = 0.5;
+const REVIEW_TERMS = /\breview\b|\bsurvey\b|\boverview\b|\btutorial\b|\btaxonomy\b|\broadmap\b|\blandscape\b|综述|述评|概览|教程|分类/i;
 const LANDSCAPE_NODE_TYPES = [
   'RepresentativePaper',
   'WebInsight',
@@ -87,6 +88,12 @@ function sourceText(source: ResearchSource, maxChars = 1200) {
     source.venue,
     source.year ? String(source.year) : '',
   ].filter(Boolean).join('\n').slice(0, maxChars);
+}
+
+function isRepresentativePaperCandidate(source: ResearchSource) {
+  if (source.type !== 'paper') return false;
+  const text = sourceText(source, 2600);
+  return REVIEW_TERMS.test(text) || Number(source.citationCount || 0) >= 500;
 }
 
 function tokenize(text: string) {
@@ -171,8 +178,11 @@ function lexicalRelevance(source: ResearchSource, scope: ResearchScope, plannedQ
 function detectInsight(source: ResearchSource) {
   const text = sourceText(source, 5000);
   const matched = INSIGHT_RULES.find(rule => rule.terms.some(term => term.test(text)));
+  if (source.type === 'paper' && matched?.type === 'representative_paper' && !isRepresentativePaperCandidate(source)) {
+    return { type: 'application' as const, nodeTypes: ['ApplicationArea', 'Method'], terms: [] };
+  }
   if (matched) return matched;
-  if (source.type === 'paper') return INSIGHT_RULES[0];
+  if (source.type === 'paper') return { type: 'method' as const, nodeTypes: ['Method', 'ApplicationArea'], terms: [] };
   if (source.sourceProvider === 'github') return { type: 'web_insight' as const, nodeTypes: ['OpenSourceProject', 'WebInsight'], terms: [] };
   return { type: 'web_insight' as const, nodeTypes: ['WebInsight'], terms: [] };
 }
@@ -252,6 +262,7 @@ function fallbackGate(
 
 function normalizeGateResult(parsed: any, sources: ResearchSource[]): EvidenceGateResult | null {
   const sourceIds = new Set(sources.map(source => source.id));
+  const sourceById = new Map(sources.map(source => [source.id, source]));
   if (!parsed || !Array.isArray(parsed.accepted)) return null;
   const rejectedRows = Array.isArray(parsed.rejected) ? parsed.rejected : [];
 
@@ -272,6 +283,20 @@ function normalizeGateResult(parsed: any, sources: ResearchSource[]): EvidenceGa
       applicationTags: Array.isArray(item?.applicationTags) ? item.applicationTags.map((tag: any) => String(tag || '').trim()).filter(Boolean).slice(0, 8) : [],
       metricTags: Array.isArray(item?.metricTags) ? item.metricTags.map((tag: any) => String(tag || '').trim()).filter(Boolean).slice(0, 8) : [],
     }))
+    .map((item: AcceptedResearchEvidence) => {
+      const source = sourceById.get(item.sourceId);
+      if (source?.type === 'paper' && item.insightType === 'representative_paper' && !isRepresentativePaperCandidate(source)) {
+        const gapIds = item.gapIds.filter(id => id !== 'gap-papers');
+        return {
+          ...item,
+          gapIds: gapIds.length ? gapIds : ['gap-trends'],
+          nodeTypes: ['ApplicationArea', 'Method'],
+          insightType: 'application' as const,
+          reason: `${item.reason} Reclassified: this is a topic-relevant application paper, not a review/survey/high-citation representative entry paper.`,
+        };
+      }
+      return item;
+    })
     .filter((item: AcceptedResearchEvidence) =>
       sourceIds.has(item.sourceId) &&
       item.relevanceScore >= MIN_RELEVANCE &&
@@ -335,6 +360,8 @@ Rules:
 - The user's original topic is authoritative: ${scope.topic}
 - Selected focus: ${scope.focus.join(' / ') || 'not specified'}
 - Accept sources that help map the field landscape: representative papers, recent trends, main method families, web/practice signals, metrics, limitations, or open questions.
+- For insightType=representative_paper, accept papers only when they are review/survey/overview/taxonomy/roadmap/tutorial papers, or clearly high-citation/seminal entry papers.
+- A narrow paper that merely applies the topic to medicine, geology, chemistry, finance, or another external domain is application evidence, not a representative paper for the field.
 - Reject sources from unrelated domains even if they match generic words such as agent, synthesis, evidence, stability, limitation, or framework.
 - Do not require PDF/full text. Abstract-level paper evidence is enough for a preliminary landscape brief.
 - Web sources can support industry/practice/project/standard/trend insights if topic-relevant.

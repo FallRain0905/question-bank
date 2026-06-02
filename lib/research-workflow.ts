@@ -250,8 +250,8 @@ export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate 
       '需要形成该领域的大方向、核心问题和快速入口。',
       ['TopicCluster', 'Trend', 'RepresentativePaper', 'WebInsight'],
       [
-        topicQuery(scope.topic, 'overview landscape main directions'),
-        topicQuery(scope.topic, 'review recent advances field overview'),
+        topicQuery(scope.topic, 'review survey overview research landscape'),
+        topicQuery(scope.topic, 'field survey main directions recent advances'),
       ],
       ['papers', 'web'],
       'high'
@@ -262,8 +262,8 @@ export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate 
       '需要识别最近几年升温的研究热点、产业信号和新兴方法。',
       ['Trend', 'RepresentativePaper', 'WebInsight'],
       [
-        topicQuery(scope.topic, 'recent progress emerging trends'),
-        topicQuery(scope.topic, '2024 2025 advances industry report'),
+        topicQuery(scope.topic, 'recent advances survey emerging trends 2024 2025 2026'),
+        topicQuery(scope.topic, 'roadmap trend report state of the art'),
       ],
       ['papers', 'web'],
       'high'
@@ -274,8 +274,8 @@ export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate 
       '需要补齐该领域常见方法、技术路线、机制和适用场景。',
       ['Method', 'ApplicationArea', 'Metric'],
       [
-        topicQuery(scope.topic, 'methods taxonomy mechanism applications'),
-        topicQuery(scope.topic, 'technical routes performance comparison'),
+        topicQuery(scope.topic, 'methods taxonomy benchmark survey'),
+        topicQuery(scope.topic, 'comparative review method families evaluation'),
       ],
       ['papers', 'web', 'local_kb'],
       'high'
@@ -286,8 +286,8 @@ export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate 
       '需要摘要级代表论文、综述、高引用或近期入口论文来支撑认知地图。',
       ['RepresentativePaper', 'Method', 'Trend'],
       [
-        topicQuery(scope.topic, 'representative papers review survey'),
-        topicQuery(scope.topic, 'highly cited recent papers methods'),
+        topicQuery(scope.topic, 'review survey overview highly cited papers'),
+        topicQuery(scope.topic, 'seminal papers taxonomy state of the art'),
       ],
       ['papers'],
       'medium'
@@ -310,8 +310,8 @@ export function buildGraphTemplate(scope: ResearchScope): ResearchGraphTemplate 
       '需要补齐评价指标、瓶颈、风险、成本和开放问题。',
       ['Metric', 'Limitation', 'OpenQuestion'],
       [
-        topicQuery(scope.topic, 'metrics benchmark limitations challenges'),
-        topicQuery(scope.topic, 'open questions bottlenecks future directions'),
+        topicQuery(scope.topic, 'evaluation benchmark limitations survey'),
+        topicQuery(scope.topic, 'open questions challenges future directions review'),
       ],
       ['papers', 'web'],
       'medium'
