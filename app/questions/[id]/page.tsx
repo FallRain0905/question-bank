@@ -7,6 +7,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import Link from 'next/link';
 import { formatFileSize } from '@/lib/upload';
+import { renderLatexText } from '@/lib/render-markdown';
 import type { QuestionWithTags, CommentWithUser } from '@/types';
 import { UserAvatar, UserTag } from '@/components/UserAvatar';
 
@@ -358,318 +359,385 @@ export default function QuestionDetailPage() {
 
   // 状态显示配置
   const statusConfig: Record<string, { text: string; className: string }> = {
-    pending: { text: '待审核', className: 'bg-yellow-900/30 text-yellow-400 border-yellow-800' },
-    approved: { text: '已审核', className: 'bg-green-900/30 text-green-400 border-green-800' },
-    rejected: { text: '已拒绝', className: 'bg-red-900/30 text-red-400 border-red-800' },
+    pending: { text: '待审核', className: 'border-yellow-200 bg-yellow-50 text-yellow-700' },
+    approved: { text: '已审核', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+    rejected: { text: '已拒绝', className: 'border-red-200 bg-red-50 text-red-700' },
   };
 
   const statusInfo = statusConfig[question.status] || statusConfig.pending;
+  const createdAt = formatDistanceToNow(new Date(question.created_at), { locale: zhCN, addSuffix: true });
+  const questionFilesCount = [question.question_file_url, question.question_image_url].filter(Boolean).length;
+  const answerFilesCount = [question.answer_file_url, question.answer_image_url].filter(Boolean).length;
 
   return (
-    <div className="min-h-[calc(100vh-64px)] bg-brand-950">
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* 返回按钮 */}
-        <Link
-          href="/search"
-          className="inline-flex items-center text-brand-300 hover:text-brand-50 mb-6"
-        >
-          ← 返回题库
-        </Link>
-
-        {/* 题目内容 */}
-        <div className="bg-brand-800/50 rounded-xl shadow-sm border border-brand-800 p-6 mb-6">
-          {/* 状态提示和操作按钮 */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              {question.status !== 'approved' && (
-                <span className={`px-3 py-1 text-xs rounded border ${statusInfo.className}`}>
-                  {statusInfo.text}
-                </span>
-              )}
-              {question.tags.map((tag) => (
-                <span
-                  key={tag.id}
-                  className="px-3 py-1 text-sm bg-brand-600/30 text-brand-500 rounded-full"
-                >
-                  {tag.name}
-                </span>
-              ))}
+    <div className="min-h-[calc(100vh-64px)] bg-gray-50">
+      <div className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-6 lg:px-8">
+        <div className="mb-4 flex flex-col gap-3 border-b border-gray-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <Link href="/questions" className="inline-flex items-center text-sm text-gray-500 hover:text-gray-900">
+              <svg className="mr-1 h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+              返回题库
+            </Link>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-semibold text-gray-900 sm:text-2xl">题目详情</h1>
+              <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${statusInfo.className}`}>
+                {statusInfo.text}
+              </span>
             </div>
-            <div className="flex items-center gap-2">
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={handleFavorite}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+                isFavorited
+                  ? 'border-yellow-200 bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900'
+              }`}
+            >
+              <svg className="h-4 w-4" fill={isFavorited ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.6.6 0 011.04 0l2.1 4.255 4.698.683a.6.6 0 01.333 1.024l-3.399 3.313.802 4.68a.6.6 0 01-.87.632L12 15.886l-4.202 2.21a.6.6 0 01-.87-.632l.802-4.69-3.4-3.313a.6.6 0 01.333-1.024l4.698-.683 2.12-4.255z" />
+              </svg>
+              {isFavorited ? '已收藏' : '收藏'}
+            </button>
+            {isOwner && (
               <button
-                onClick={handleFavorite}
-                className={`p-2 rounded-lg transition ${
-                  isFavorited ? 'text-yellow-500 bg-yellow-50' : 'text-brand-500 hover:text-yellow-500 hover:bg-brand-950'
-                }`}
-                title="收藏"
+                onClick={handleDelete}
+                className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-red-600 transition hover:bg-red-50"
               >
-                {isFavorited ? '⭐' : '☆'}
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M10 11v6m4-6v6M9 7V5h6v2m-8 0l1 13h8l1-13" />
+                </svg>
+                删除
               </button>
-              {isOwner && (
-                <button
-                  onClick={handleDelete}
-                  className="p-2 text-brand-500 hover:text-red-400 hover:bg-brand-950 rounded-lg transition"
-                  title="删除"
-                >
-                  🗑️
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* 待审核提示 */}
-          {question.status === 'pending' && isOwner && (
-            <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-800/50 rounded-lg">
-              <p className="text-sm text-yellow-300">
-                ⏳ 您的题目正在等待审核，审核通过后其他用户才能查看。公开题目需要审核后才能在题库中显示。
-              </p>
-            </div>
-          )}
-
-          {/* 题目 */}
-          <div className="mb-6">
-            <h2 className="text-lg font-medium text-brand-50 mb-3">题目</h2>
-
-            {/* 文档预览和下载 */}
-            {question.question_file_url && (
-              <div className="mb-4 p-4 bg-brand-600/30 border border-brand-700 rounded-lg">
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="text-2xl">📄</span>
-                  <div>
-                    <p className="text-sm font-medium text-brand-50">{question.question_file_name || '题目文档'}</p>
-                    {(question.question_file_type || question.question_file_size) && (
-                      <p className="text-xs text-brand-400">
-                        {question.question_file_type && <span>{question.question_file_type}</span>}
-                        {question.question_file_type && question.question_file_size && <span> · </span>}
-                        {question.question_file_size && <span>{formatFileSize(question.question_file_size)}</span>}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <a
-                  href={question.question_file_url}
-                  download={question.question_file_name || '题目文档'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 text-brand-50 rounded-lg text-sm font-medium hover:bg-brand-600 transition no-underline"
-                >
-                  <span>下载题目文档</span>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                </a>
-              </div>
             )}
-
-            {question.question_text && (
-              <p className="text-brand-200 whitespace-pre-wrap">{question.question_text}</p>
-            )}
-
-            {question.question_image_url && (
-              <img
-                src={question.question_image_url}
-                alt="题目图片"
-                className="mt-3 max-w-full rounded-lg"
-              />
-            )}
-          </div>
-
-          {/* 答案 */}
-          <div className="border-t border-brand-900 pt-6">
-            <h2 className="text-lg font-medium text-brand-50 mb-3">答案</h2>
-
-            {/* 答案文档预览和下载 */}
-            {question.answer_file_url && (
-              <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="text-2xl">📄</span>
-                  <div>
-                    <p className="text-sm font-medium text-brand-50">{question.answer_file_name || '答案文档'}</p>
-                    {(question.answer_file_type || question.answer_file_size) && (
-                      <p className="text-xs text-brand-400">
-                        {question.answer_file_type && <span>{question.answer_file_type}</span>}
-                        {question.answer_file_type && question.answer_file_size && <span> · </span>}
-                        {question.answer_file_size && <span>{formatFileSize(question.answer_file_size)}</span>}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <a
-                  href={question.answer_file_url}
-                  download={question.answer_file_name || '答案文档'}
-                  rel="noopener noreferrer"
-                  target="_blank"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-brand-50 rounded-lg text-sm font-medium hover:bg-green-700 transition no-underline"
-                >
-                  <span>下载答案文档</span>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                </a>
-              </div>
-            )}
-
-            {question.answer_text && (
-              <p className="text-brand-200 whitespace-pre-wrap">{question.answer_text}</p>
-            )}
-
-            {question.answer_image_url && (
-              <img
-                src={question.answer_image_url}
-                alt="答案图片"
-                className="mt-3 max-w-full rounded-lg"
-              />
-            )}
-          </div>
-
-          {/* 上传信息 */}
-          <div className="border-t border-brand-900 pt-5 mt-6">
-            <div className="flex items-center justify-between">
-              <UserAvatar
-                userId={question.user_id}
-                username={question.user_name}
-                avatarUrl={questionAuthor?.avatar_url}
-                email={questionAuthor?.email}
-                size="md"
-                subtitle={`上传于 ${formatDistanceToNow(new Date(question.created_at), { locale: zhCN, addSuffix: true })}`}
-              />
-            </div>
           </div>
         </div>
 
-        {/* 评论区 */}
-        <div className="bg-brand-800/50 rounded-xl shadow-sm border border-brand-800 p-6">
-          <h3 className="text-lg font-medium text-brand-50 mb-4">评论 ({comments.length})</h3>
+        {question.status === 'pending' && isOwner && (
+          <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+            您的题目正在等待审核。审核通过后，其他用户才能在题库中看到这道题。
+          </div>
+        )}
 
-          {/* 评论输入 */}
-          {user ? (
-            <div className="mb-6">
-              <textarea
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                placeholder="写下你的评论..."
-                className="w-full px-4 py-3 border border-brand-700 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none resize-none"
-                rows={3}
-                maxLength={250}
-              />
-              <div className="flex justify-between items-center mt-2">
-                <span className={`text-xs ${commentText.length > 250 ? 'text-red-500' : 'text-brand-400'}`}>
-                  {commentText.length}/250
-                </span>
-                <button
-                  onClick={handleComment}
-                  disabled={commentText.trim().length === 0 || commentText.trim().length > 250}
-                  className="px-4 py-2 bg-brand-500 text-brand-50 rounded-lg hover:bg-brand-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  发表评论
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="mb-6 p-4 bg-brand-950 rounded-lg text-center">
-              <Link href="/login" className="text-brand-500 hover:text-brand-600">
-                登录后参与评论
-              </Link>
-            </div>
-          )}
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <main className="min-w-0 space-y-5">
+            <article className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+              <section className="border-b border-gray-100 p-4 sm:p-6">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-blue-600">Question</p>
+                    <h2 className="mt-1 text-lg font-semibold text-gray-900">题目</h2>
+                  </div>
+                  {questionFilesCount > 0 && (
+                    <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">
+                      {questionFilesCount} 个附件
+                    </span>
+                  )}
+                </div>
 
-          {/* 评论列表 */}
-          <div className="space-y-6">
-            {comments.length === 0 ? (
-              <p className="text-brand-400 text-center py-8">还没有评论，快来抢沙发吧！</p>
-            ) : (
-              comments.map((comment) => (
-                <div key={comment.id} className="border-b border-brand-900 pb-5 last:border-0">
-                  <div className="flex items-start gap-3">
-                    <UserTag
-                      username={comment.user.username}
-                      avatarUrl={comment.user.avatar_url}
-                      email={comment.user.email}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-1">
-                        <span className="text-xs text-brand-400">
-                          {formatDistanceToNow(new Date(comment.created_at), { locale: zhCN, addSuffix: true })}
-                        </span>
+                {question.question_file_url && (
+                  <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-gray-900">{question.question_file_name || '题目文档'}</p>
+                        {(question.question_file_type || question.question_file_size) && (
+                          <p className="mt-1 text-xs text-gray-500">
+                            {question.question_file_type && <span>{question.question_file_type}</span>}
+                            {question.question_file_type && question.question_file_size && <span> · </span>}
+                            {question.question_file_size && <span>{formatFileSize(question.question_file_size)}</span>}
+                          </p>
+                        )}
                       </div>
-                      <p className="text-brand-200">{comment.content}</p>
-
-                      {/* 回复按钮 */}
-                      {user && (
-                        <button
-                          onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}
-                          className="text-sm text-brand-400 hover:text-brand-500 mt-2"
-                        >
-                          {replyTo === comment.id ? '取消回复' : '回复'}
-                        </button>
-                      )}
-
-                      {/* 回复输入 */}
-                      {replyTo === comment.id && (
-                        <div className="mt-3">
-                          <textarea
-                            value={replyText}
-                            onChange={(e) => setReplyText(e.target.value)}
-                            placeholder={`回复 ${comment.user.username || comment.user.email}...`}
-                            className="w-full px-3 py-2 border border-brand-700 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none resize-none text-sm"
-                            rows={2}
-                            maxLength={250}
-                          />
-                          <div className="flex justify-between items-center mt-2">
-                            <span className={`text-xs ${replyText.length > 250 ? 'text-red-500' : 'text-brand-400'}`}>
-                              {replyText.length}/250
-                            </span>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => {
-                                  setReplyTo(null);
-                                  setReplyText('');
-                                }}
-                                className="px-3 py-1 text-sm text-brand-300 hover:text-brand-100"
-                              >
-                                取消
-                              </button>
-                              <button
-                                onClick={() => handleReply(comment.id)}
-                                disabled={replyText.trim().length === 0 || replyText.trim().length > 250}
-                                className="px-3 py-1 text-sm bg-brand-500 text-brand-50 rounded-lg hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                回复
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 子评论 */}
-                      {comment.replies && comment.replies.length > 0 && (
-                        <div className="mt-4 space-y-3 pl-4 border-l-2 border-brand-900">
-                          {comment.replies.map((reply) => (
-                            <div key={reply.id} className="flex items-start gap-2">
-                              <UserTag
-                                username={reply.user.username}
-                                avatarUrl={reply.user.avatar_url}
-                                email={reply.user.email}
-                                className="flex-1"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-3 mb-1">
-                                  <span className="text-xs text-brand-400">
-                                    {formatDistanceToNow(new Date(reply.created_at), { locale: zhCN, addSuffix: true })}
-                                  </span>
-                                </div>
-                                <p className="text-brand-200 text-sm">{reply.content}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      <a
+                        href={question.question_file_url}
+                        download={question.question_file_name || '题目文档'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+                      >
+                        下载
+                      </a>
                     </div>
                   </div>
+                )}
+
+                {question.question_text ? (
+                  <div
+                    className="prose prose-sm max-w-none whitespace-pre-wrap text-gray-800 sm:prose-base"
+                    dangerouslySetInnerHTML={{ __html: renderLatexText(question.question_text || '') }}
+                  />
+                ) : !question.question_file_url && !question.question_image_url ? (
+                  <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-400">
+                    这道题暂时没有文本内容
+                  </div>
+                ) : null}
+
+                {question.question_image_url && (
+                  <img
+                    src={question.question_image_url}
+                    alt="题目图片"
+                    className="mt-4 max-w-full rounded-lg border border-gray-200 bg-white"
+                  />
+                )}
+              </section>
+
+              <section className="bg-emerald-50/40 p-4 sm:p-6">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">Answer</p>
+                    <h2 className="mt-1 text-lg font-semibold text-gray-900">答案与解析</h2>
+                  </div>
+                  {answerFilesCount > 0 && (
+                    <span className="rounded-full bg-white px-2.5 py-1 text-xs text-gray-500">
+                      {answerFilesCount} 个附件
+                    </span>
+                  )}
                 </div>
-              ))
-            )}
-          </div>
+
+                {question.answer_file_url && (
+                  <div className="mb-4 rounded-lg border border-emerald-200 bg-white p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-gray-900">{question.answer_file_name || '答案文档'}</p>
+                        {(question.answer_file_type || question.answer_file_size) && (
+                          <p className="mt-1 text-xs text-gray-500">
+                            {question.answer_file_type && <span>{question.answer_file_type}</span>}
+                            {question.answer_file_type && question.answer_file_size && <span> · </span>}
+                            {question.answer_file_size && <span>{formatFileSize(question.answer_file_size)}</span>}
+                          </p>
+                        )}
+                      </div>
+                      <a
+                        href={question.answer_file_url}
+                        download={question.answer_file_name || '答案文档'}
+                        rel="noopener noreferrer"
+                        target="_blank"
+                        className="inline-flex shrink-0 items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+                      >
+                        下载
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {question.answer_text ? (
+                  <div
+                    className="prose prose-sm max-w-none whitespace-pre-wrap text-gray-800 sm:prose-base"
+                    dangerouslySetInnerHTML={{ __html: renderLatexText(question.answer_text || '') }}
+                  />
+                ) : !question.answer_file_url && !question.answer_image_url ? (
+                  <div className="rounded-lg border border-dashed border-emerald-200 bg-white/70 p-6 text-center text-sm text-gray-500">
+                    暂无答案内容
+                  </div>
+                ) : null}
+
+                {question.answer_image_url && (
+                  <img
+                    src={question.answer_image_url}
+                    alt="答案图片"
+                    className="mt-4 max-w-full rounded-lg border border-emerald-200 bg-white"
+                  />
+                )}
+              </section>
+            </article>
+
+            <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">讨论</h2>
+                  <p className="mt-1 text-sm text-gray-500">{comments.length} 条评论</p>
+                </div>
+              </div>
+
+              {user ? (
+                <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <textarea
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    placeholder="写下你的评论..."
+                    className="min-h-24 w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    rows={3}
+                    maxLength={250}
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <span className={`text-xs ${commentText.length > 250 ? 'text-red-500' : 'text-gray-400'}`}>
+                      {commentText.length}/250
+                    </span>
+                    <button
+                      onClick={handleComment}
+                      disabled={commentText.trim().length === 0 || commentText.trim().length > 250}
+                      className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      发表评论
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4 text-center text-sm text-gray-500">
+                  <Link href="/login" className="font-medium text-blue-600 hover:text-blue-700">
+                    登录后参与评论
+                  </Link>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {comments.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-gray-200 p-8 text-center text-sm text-gray-400">
+                    还没有评论
+                  </div>
+                ) : (
+                  comments.map((comment) => (
+                    <div key={comment.id} className="rounded-lg border border-gray-100 bg-white p-4">
+                      <div className="flex items-start gap-3">
+                        <UserTag
+                          username={comment.user.username}
+                          avatarUrl={comment.user.avatar_url}
+                          email={comment.user.email}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <span className="text-xs text-gray-400">
+                            {formatDistanceToNow(new Date(comment.created_at), { locale: zhCN, addSuffix: true })}
+                          </span>
+                          <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">{comment.content}</p>
+
+                          {user && (
+                            <button
+                              onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}
+                              className="mt-2 text-sm text-gray-500 hover:text-blue-600"
+                            >
+                              {replyTo === comment.id ? '取消回复' : '回复'}
+                            </button>
+                          )}
+
+                          {replyTo === comment.id && (
+                            <div className="mt-3 rounded-lg bg-gray-50 p-3">
+                              <textarea
+                                value={replyText}
+                                onChange={(e) => setReplyText(e.target.value)}
+                                placeholder={`回复 ${comment.user.username || comment.user.email}...`}
+                                className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                                rows={2}
+                                maxLength={250}
+                              />
+                              <div className="mt-2 flex items-center justify-between gap-3">
+                                <span className={`text-xs ${replyText.length > 250 ? 'text-red-500' : 'text-gray-400'}`}>
+                                  {replyText.length}/250
+                                </span>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => {
+                                      setReplyTo(null);
+                                      setReplyText('');
+                                    }}
+                                    className="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100"
+                                  >
+                                    取消
+                                  </button>
+                                  <button
+                                    onClick={() => handleReply(comment.id)}
+                                    disabled={replyText.trim().length === 0 || replyText.trim().length > 250}
+                                    className="rounded-lg bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    回复
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {comment.replies && comment.replies.length > 0 && (
+                            <div className="mt-4 space-y-3 border-l border-gray-200 pl-4">
+                              {comment.replies.map((reply) => (
+                                <div key={reply.id} className="rounded-lg bg-gray-50 p-3">
+                                  <UserTag
+                                    username={reply.user.username}
+                                    avatarUrl={reply.user.avatar_url}
+                                    email={reply.user.email}
+                                    className="mb-2"
+                                  />
+                                  <span className="text-xs text-gray-400">
+                                    {formatDistanceToNow(new Date(reply.created_at), { locale: zhCN, addSuffix: true })}
+                                  </span>
+                                  <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">{reply.content}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          </main>
+
+          <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
+            <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-gray-900">题目信息</h2>
+              <div className="mt-4 space-y-4">
+                <UserAvatar
+                  userId={question.user_id}
+                  username={question.user_name}
+                  avatarUrl={questionAuthor?.avatar_url}
+                  email={questionAuthor?.email}
+                  size="md"
+                  subtitle={`上传于 ${createdAt}`}
+                />
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <p className="text-xs text-gray-400">题目附件</p>
+                    <p className="mt-1 font-semibold text-gray-900">{questionFilesCount}</p>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <p className="text-xs text-gray-400">答案附件</p>
+                    <p className="mt-1 font-semibold text-gray-900">{answerFilesCount}</p>
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-medium text-gray-400">标签</p>
+                  {question.tags.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {question.tags.map((tag) => (
+                        <span key={tag.id} className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-600">
+                          {tag.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400">暂无标签</p>
+                  )}
+                </div>
+                <dl className="space-y-2 border-t border-gray-100 pt-4 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-gray-400">状态</dt>
+                    <dd className="font-medium text-gray-700">{statusInfo.text}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-gray-400">发布时间</dt>
+                    <dd className="text-right text-gray-700">{new Date(question.created_at).toLocaleDateString('zh-CN')}</dd>
+                  </div>
+                </dl>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-gray-900">快捷操作</h2>
+              <div className="mt-3 grid gap-2">
+                <Link href="/generator" className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:border-gray-300 hover:bg-gray-50">
+                  智能出题
+                </Link>
+                <Link href="/questions" className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:border-gray-300 hover:bg-gray-50">
+                  浏览更多题目
+                </Link>
+                <Link href="/notes" className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:border-gray-300 hover:bg-gray-50">
+                  查看笔记
+                </Link>
+              </div>
+            </section>
+          </aside>
         </div>
       </div>
     </div>

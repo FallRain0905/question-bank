@@ -58,13 +58,13 @@ export function UserAvatar({
       {showName && (
         <div className="flex flex-col">
           <div className={`flex items-center gap-2 ${textSize[size]}`}>
-            <span className="font-semibold text-gray-100">{displayName}</span>
+            <span className="font-semibold text-gray-900">{displayName}</span>
           </div>
           {showEmail && email && (
-            <span className="text-xs text-gray-400">{email}</span>
+            <span className="text-xs text-gray-500">{email}</span>
           )}
           {subtitle && (
-            <span className="text-xs text-gray-400">{subtitle}</span>
+            <span className="text-xs text-gray-500">{subtitle}</span>
           )}
         </div>
       )}
@@ -111,7 +111,7 @@ export function UserTag({
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <span className="font-medium text-gray-100 text-sm sm:text-base line-clamp-1">{displayName}</span>
+          <span className="font-medium text-gray-900 text-sm sm:text-base line-clamp-1">{displayName}</span>
         </div>
       </div>
     </div>

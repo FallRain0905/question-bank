@@ -146,6 +146,8 @@ const mainNavItems: NavItem[] = [
   { href: '/reader', label: 'AI 阅读', icon: Icons.papers },
   { href: '/papers', label: '论文库', icon: Icons.papers },
   { href: '/graph', label: '研究图谱', icon: Icons.graph },
+  { href: '/questions', label: '题库', icon: Icons.search },
+  { href: '/notes', label: '笔记', icon: Icons.notes },
 ];
 
 export default function Sidebar() {
@@ -268,11 +270,11 @@ export default function Sidebar() {
     { href: '/', label: '首页', icon: Icons.home },
     { href: '/papers', label: '论文库', icon: Icons.papers },
     { href: '/graph', label: '研究图谱', icon: Icons.graph },
+    { href: '/questions', label: '题库', icon: Icons.search },
+    { href: '/notes', label: '笔记', icon: Icons.notes },
     { href: '/settings', label: '设置', icon: Icons.settings },
     { href: '/convert', label: '文档转换', icon: Icons.parse },
     { href: '/english', label: '英语训练', icon: Icons.qa },
-    { href: '/notes', label: '旧笔记', icon: Icons.notes },
-    { href: '/questions', label: '旧题库', icon: Icons.search },
     { href: '/generator', label: '智能出题', icon: Icons.admin },
     { href: '/classes', label: '团队', icon: Icons.classes },
     { href: '/me', label: '个人中心', icon: Icons.user },
