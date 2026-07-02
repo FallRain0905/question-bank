@@ -46,7 +46,7 @@ type TimelineEvent = {
   meta?: string;
 };
 
-type RightPanelTab = 'evidence' | 'graph' | 'sources' | 'report';
+type RightPanelTab = 'evidence' | 'graph' | 'sources' | 'report' | 'settings';
 
 type GateSample = {
   sourceId: string;
@@ -144,6 +144,9 @@ export default function ResearchPage() {
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('evidence');
+  const [editingSessionId, setEditingSessionId] = useState('');
+  const [editingSessionTitle, setEditingSessionTitle] = useState('');
+  const [deletingSessionId, setDeletingSessionId] = useState('');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const selectedFocus = useMemo(
@@ -189,6 +192,79 @@ export default function ResearchPage() {
     }
   };
 
+  const startRenameSession = (item: ResearchSession) => {
+    setEditingSessionId(item.id);
+    setEditingSessionTitle(item.topic);
+  };
+
+  const renameSession = async (id: string) => {
+    const nextTitle = editingSessionTitle.trim();
+    if (!nextTitle) return;
+    setLoading(true);
+    setError('');
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`/api/research/sessions/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ topic: nextTitle }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(formatApiError(data, '重命名研究会话失败'));
+
+      setSessions(prev => prev.map(item => item.id === id ? data.session : item));
+      if (session?.id === id) {
+        setSession(data.session);
+        setTopic(data.session.topic);
+      }
+      setEditingSessionId('');
+      setEditingSessionTitle('');
+      loadSessions();
+    } catch (err: any) {
+      setError(err.message || '重命名研究会话失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteSession = async (id: string) => {
+    const target = sessions.find(item => item.id === id);
+    if (typeof window !== 'undefined' && !window.confirm(`确定硬删除“${target?.topic || '这个研究会话'}”吗？相关证据也会一起删除。`)) {
+      return;
+    }
+    setDeletingSessionId(id);
+    setError('');
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`/api/research/sessions/${id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(formatApiError(data, '删除研究会话失败'));
+
+      setSessions(prev => prev.filter(item => item.id !== id));
+      if (session?.id === id) {
+        setSession(null);
+        setGraph(null);
+        setEvidence([]);
+        setDraft('');
+        setRoundPlan([]);
+        setRoundSources([]);
+        setQuickScanSources([]);
+        setGateDiagnostics(null);
+        setDebugEvents([]);
+        setTimeline([]);
+        setStatusText('研究会话已删除。');
+      }
+      loadSessions();
+    } catch (err: any) {
+      setError(err.message || '删除研究会话失败');
+    } finally {
+      setDeletingSessionId('');
+    }
+  };
+
   const createSession = async () => {
     const nextTopic = topic.trim();
     if (!nextTopic) return;
@@ -229,7 +305,7 @@ export default function ResearchPage() {
         setConstraints((recommended.constraints || []).join('\n'));
       }
 
-      setStatusText('请在左侧确认研究方向和输出目标。');
+      setStatusText('请在对话中确认研究方向和输出目标。');
       pushTimeline({
         role: 'assistant',
         title: '我已经完成预检索和范围初判',
@@ -390,15 +466,6 @@ export default function ResearchPage() {
         }
         if (eventType === 'source' && data.source) {
           setRoundSources(prev => [...prev, data.source]);
-          pushTimeline({
-            role: 'system',
-            title: `发现来源：${data.source.title}`,
-            body: [
-              data.source.query ? `query: ${data.source.query}` : '',
-              (data.source.fullTextExcerpt || data.source.snippet || '').slice(0, 260),
-            ].filter(Boolean).join('\n'),
-            meta: [data.source.sourceProvider || data.source.type, data.source.sourceKind].filter(Boolean).join(' / '),
-          });
         }
         if (eventType === 'gate') {
           const diagnostics: GateDiagnostics = {
@@ -422,10 +489,24 @@ export default function ResearchPage() {
               diagnostics.fallback
                 ? `Gate 未使用 LLM 结果：${diagnostics.fallbackReason || '无原因信息'}`
                 : `Gate 已使用 LLM：${diagnostics.llmStatus || 'used'}`,
-              diagnostics.acceptedSamples.length ? `通过样例：\n${diagnostics.acceptedSamples.map(item => `- ${item.title} (${item.sourceType || item.provider}${item.insightType ? ` / ${item.insightType}` : ''}): ${item.reason}`).join('\n')}` : '',
-              diagnostics.rejectedSamples.length ? `拒绝样例：\n${diagnostics.rejectedSamples.slice(0, 4).map(item => `- ${item.title}: ${item.reason}`).join('\n')}` : '',
+              '详细通过/拒绝样例已放到右侧“来源”面板。',
             ].filter(Boolean).join('\n\n'),
             meta: 'landscape gate',
+          });
+        }
+        if (eventType === 'diagnosis' && data.diagnosis) {
+          const directions = data.diagnosis.recommendedDirections || [];
+          if (directions.length) setRoundPlan(directions);
+          setRightPanelTab('graph');
+          pushTimeline({
+            role: 'assistant',
+            title: '我完成了内部诊断',
+            body: [
+              data.diagnosis.summary || '已根据当前证据生成下一轮建议。',
+              directions.length ? `建议下一轮：\n${directions.map((item: PlannedResearchQuery) => `- ${item.perspective}: ${item.queries?.[0] || ''}`).join('\n')}` : '',
+              '请在下面确认或修改这些检索方向。',
+            ].filter(Boolean).join('\n\n'),
+            meta: data.diagnosis.usedLLM ? 'internal diagnosis / LLM' : 'internal diagnosis / fallback',
           });
         }
         if (eventType === 'graph' && data.graph) setGraph(data.graph);
@@ -592,7 +673,7 @@ export default function ResearchPage() {
       setEvidence(data.evidence || []);
       setRoundPlan([]);
       setRoundSources([]);
-    setGateDiagnostics(null);
+      setGateDiagnostics(null);
       setDraft(data.session.graph_template?.reportDraft || '');
       setTimeline([
         { id: timelineId(), role: 'user', title: data.session.topic, body: '已恢复的研究主题' },
@@ -619,8 +700,8 @@ export default function ResearchPage() {
     <div className="flex h-full flex-col bg-white">
       <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
         <div>
-          <h2 className="text-sm font-medium text-gray-900">研究控制台</h2>
-          {session && <p className="mt-0.5 text-[10px] text-gray-400">{session.status}</p>}
+          <h2 className="text-sm font-medium text-gray-900">研究会话</h2>
+          <p className="mt-0.5 text-[10px] text-gray-400">新建、恢复、重命名和删除</p>
         </div>
         <button
           onClick={() => setLeftSidebarOpen(false)}
@@ -631,12 +712,13 @@ export default function ResearchPage() {
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        <section>
+        <section className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+          <div className="mb-2 text-xs font-medium text-gray-500">新研究</div>
           <textarea
             value={topic}
             onChange={e => setTopic(e.target.value)}
             placeholder="例如：我想研究 CCUS，重点是碳捕集"
-            className="min-h-28 w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+            className="min-h-24 w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
           />
           <button
             onClick={createSession}
@@ -649,105 +731,73 @@ export default function ResearchPage() {
           {error && <p className="mt-3 whitespace-pre-line text-xs text-red-600">{error}</p>}
         </section>
 
-        {cards.length > 0 && !graph && (
-          <section className="border-t border-gray-100 pt-4">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-medium text-gray-800">范围确认</h3>
-              <button
-                onClick={confirmScope}
-                disabled={loading || !session}
-                className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                生成图谱
-              </button>
-            </div>
-            <div className="mt-3 space-y-2">
-              {cards.map(card => (
-                <button
-                  key={card.id}
-                  onClick={() => setSelectedCards(prev => toggleInList(prev, card.id))}
-                  className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                    selectedCards.includes(card.id)
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 bg-white hover:border-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="text-sm font-medium text-gray-800">{card.title}</h4>
-                    {card.recommended && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">推荐</span>}
-                  </div>
-                  <p className="mt-2 text-xs leading-5 text-gray-500">{card.description}</p>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
-        <section className="border-t border-gray-100 pt-4">
-          <h3 className="text-xs font-medium text-gray-500">信息源</h3>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {SOURCE_OPTIONS.map(opt => (
-              <button
-                key={opt.value}
-                onClick={() => setSources(prev => toggleInList(prev, opt.value))}
-                className={`rounded-full border px-3 py-1.5 text-xs ${
-                  sources.includes(opt.value) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-gray-500'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+        <section>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-medium text-gray-800">历史会话</h3>
+            <button onClick={loadSessions} className="rounded-lg px-2 py-1 text-xs text-gray-400 hover:bg-gray-50 hover:text-gray-600">
+              刷新
+            </button>
           </div>
-        </section>
-
-        <section className="grid gap-3 border-t border-gray-100 pt-4">
-          <label className="text-xs font-medium text-gray-500">
-            输出形式
-            <select
-              value={outputType}
-              onChange={e => setOutputType(e.target.value as ResearchOutputType)}
-              className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-            >
-              {OUTPUT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-            </select>
-          </label>
-          <label className="text-xs font-medium text-gray-500">
-            检索深度
-            <select
-              value={depth}
-              onChange={e => setDepth(e.target.value as ResearchSessionDepth)}
-              className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-            >
-              {DEPTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} - {opt.hint}</option>)}
-            </select>
-          </label>
-          <textarea
-            value={constraints}
-            onChange={e => setConstraints(e.target.value)}
-            className="min-h-20 w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none"
-            placeholder="补充约束，每行一条"
-          />
-        </section>
-
-        {sessions.length > 0 && (
-          <section className="border-t border-gray-100 pt-4">
-            <h3 className="text-sm font-medium text-gray-800">最近研究</h3>
-            <div className="mt-3 space-y-2">
-              {sessions.slice(0, 8).map(item => (
-                <button
+          {sessions.length === 0 ? (
+            <div className="rounded-lg bg-gray-50 p-4 text-xs text-gray-400">暂无历史研究。</div>
+          ) : (
+            <div className="space-y-2">
+              {sessions.map(item => (
+                <div
                   key={item.id}
-                  onClick={() => loadSession(item.id)}
-                  className={`block w-full rounded-lg px-3 py-2 text-left text-xs transition-colors ${
-                    session?.id === item.id ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                  className={`rounded-lg border p-2 text-xs transition-colors ${
+                    session?.id === item.id ? 'border-blue-200 bg-blue-50' : 'border-gray-100 bg-gray-50'
                   }`}
                 >
-                  <span className="line-clamp-2 font-medium">{item.topic}</span>
-                  <span className="mt-1 block text-[10px] text-gray-400">{item.status}</span>
-                </button>
+                  {editingSessionId === item.id ? (
+                    <div className="space-y-2">
+                      <input
+                        value={editingSessionTitle}
+                        onChange={event => setEditingSessionTitle(event.target.value)}
+                        className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-blue-300"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => renameSession(item.id)}
+                          disabled={loading || !editingSessionTitle.trim()}
+                          className="rounded-md bg-gray-900 px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50"
+                        >
+                          保存
+                        </button>
+                        <button
+                          onClick={() => { setEditingSessionId(''); setEditingSessionTitle(''); }}
+                          className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-500"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <button onClick={() => loadSession(item.id)} className="block w-full text-left">
+                        <span className={`line-clamp-2 font-medium ${session?.id === item.id ? 'text-blue-700' : 'text-gray-700'}`}>{item.topic}</span>
+                        <span className="mt-1 block text-[10px] text-gray-400">{item.status}</span>
+                      </button>
+                      <div className="mt-2 flex gap-2">
+                        <button onClick={() => startRenameSession(item)} className="rounded-md bg-white px-2 py-1 text-[11px] text-gray-500 hover:text-blue-600">
+                          重命名
+                        </button>
+                        <button
+                          onClick={() => deleteSession(item.id)}
+                          disabled={deletingSessionId === item.id}
+                          className="rounded-md bg-white px-2 py-1 text-[11px] text-gray-500 hover:text-red-600 disabled:opacity-50"
+                        >
+                          {deletingSessionId === item.id ? '删除中' : '删除'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               ))}
             </div>
-          </section>
-        )}
+          )}
+        </section>
       </div>
     </div>
   );
@@ -764,12 +814,13 @@ export default function ResearchPage() {
             收起
           </button>
         </div>
-        <div className="mt-3 grid grid-cols-4 rounded-lg bg-gray-100 p-1 text-xs">
+        <div className="mt-3 grid grid-cols-5 rounded-lg bg-gray-100 p-1 text-xs">
           {[
             ['evidence', '证据'],
             ['graph', '图谱'],
             ['sources', '来源'],
             ['report', '报告'],
+            ['settings', '设置'],
           ].map(([value, label]) => (
             <button
               key={value}
@@ -827,6 +878,23 @@ export default function ResearchPage() {
                     ))}
                   </div>
                 </div>
+                {graph.internalDiagnosis && (
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                    <h3 className="text-xs font-medium text-blue-800">内部诊断</h3>
+                    <p className="mt-1 text-xs leading-5 text-blue-700">{graph.internalDiagnosis.summary}</p>
+                    {graph.internalDiagnosis.insufficiencies.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {graph.internalDiagnosis.insufficiencies.slice(0, 4).map(item => (
+                          <div key={`${item.label}-${item.severity}`} className="rounded bg-white/80 px-2 py-1.5 text-[11px] text-blue-900">
+                            <span className="font-medium">{item.label}</span>
+                            <span className="ml-1 text-blue-500">({item.severity})</span>
+                            <div className="mt-0.5 text-blue-700">{item.reason}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="space-y-2">
                   {openGaps.length === 0 ? (
                     <div className="rounded-lg bg-green-50 p-3 text-xs text-green-700">当前开放缺口已初步填充。</div>
@@ -975,6 +1043,61 @@ export default function ResearchPage() {
             )}
           </div>
         )}
+
+        {rightPanelTab === 'settings' && (
+          <div className="space-y-4">
+            <div className="rounded-lg bg-gray-50 p-3">
+              <h3 className="text-xs font-medium text-gray-500">检索来源</h3>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {SOURCE_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setSources(prev => toggleInList(prev, opt.value))}
+                    className={`rounded-full border px-3 py-1.5 text-xs ${
+                      sources.includes(opt.value) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="block text-xs font-medium text-gray-500">
+              检索深度
+              <select
+                value={depth}
+                onChange={e => setDepth(e.target.value as ResearchSessionDepth)}
+                className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+              >
+                {DEPTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} - {opt.hint}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs font-medium text-gray-500">
+              输出形式
+              <select
+                value={outputType}
+                onChange={e => setOutputType(e.target.value as ResearchOutputType)}
+                className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+              >
+                {OUTPUT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs font-medium text-gray-500">
+              约束
+              <textarea
+                value={constraints}
+                onChange={e => setConstraints(e.target.value)}
+                className="mt-2 min-h-28 w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-blue-300"
+                placeholder="补充约束，每行一条"
+              />
+            </label>
+            <div className="rounded-lg border border-gray-100 p-3 text-xs text-gray-500">
+              当前会话：{session?.status || '未开始'}
+              <br />
+              下一轮建议会默认由内部诊断生成，但需要你在主对话卡片中确认后才会检索。
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -985,7 +1108,7 @@ export default function ResearchPage() {
         <>
           <button
             type="button"
-            aria-label="关闭研究控制台"
+            aria-label="关闭研究会话栏"
             className="fixed inset-0 z-30 bg-black/30 lg:hidden"
             onClick={() => setLeftSidebarOpen(false)}
           />
@@ -1001,7 +1124,7 @@ export default function ResearchPage() {
             <button
               onClick={() => setLeftSidebarOpen(prev => !prev)}
               className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600"
-              aria-label="切换研究控制台"
+              aria-label="切换研究会话栏"
             >
               <MenuIcon />
             </button>
@@ -1046,9 +1169,89 @@ export default function ResearchPage() {
                     onClick={() => setLeftSidebarOpen(true)}
                     className="mt-4 rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
                   >
-                    打开研究控制台
+                    打开会话栏
                   </button>
                 )}
+              </div>
+            )}
+
+            {session && cards.length > 0 && !graph && (
+              <div className="rounded-lg border border-blue-100 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-[10px] font-medium uppercase text-blue-500">Scope setup</div>
+                    <h3 className="mt-1 text-sm font-medium text-gray-900">先确认这次研究要看什么</h3>
+                    <p className="mt-1 text-xs leading-5 text-gray-500">
+                      这些选项来自预检索和主题理解。你可以像在对话里选偏好一样勾选方向，再生成领域认知图。
+                    </p>
+                  </div>
+                  <button
+                    onClick={confirmScope}
+                    disabled={loading || !session}
+                    className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    生成图谱
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {cards.map(card => (
+                    <button
+                      key={card.id}
+                      onClick={() => setSelectedCards(prev => toggleInList(prev, card.id))}
+                      className={`rounded-lg border p-3 text-left transition-colors ${
+                        selectedCards.includes(card.id)
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <h4 className="text-sm font-medium text-gray-800">{card.title}</h4>
+                        {card.recommended && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">推荐</span>}
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-gray-500">{card.description}</p>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-4 grid gap-3 rounded-lg bg-gray-50 p-3 md:grid-cols-[1fr_180px_180px]">
+                  <div>
+                    <h4 className="text-xs font-medium text-gray-500">信息源</h4>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {SOURCE_OPTIONS.map(opt => (
+                        <button
+                          key={opt.value}
+                          onClick={() => setSources(prev => toggleInList(prev, opt.value))}
+                          className={`rounded-full border px-3 py-1.5 text-xs ${
+                            sources.includes(opt.value) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="text-xs font-medium text-gray-500">
+                    输出
+                    <select
+                      value={outputType}
+                      onChange={e => setOutputType(e.target.value as ResearchOutputType)}
+                      className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                    >
+                      {OUTPUT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-xs font-medium text-gray-500">
+                    深度
+                    <select
+                      value={depth}
+                      onChange={e => setDepth(e.target.value as ResearchSessionDepth)}
+                      className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                    >
+                      {DEPTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  </label>
+                </div>
               </div>
             )}
 
@@ -1067,49 +1270,6 @@ export default function ResearchPage() {
                 </div>
               </div>
             ))}
-
-            {gateDiagnostics && (
-              <div className="rounded-lg border border-amber-100 bg-white p-4 shadow-sm">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-900">Evidence Gate Diagnostics</h3>
-                    <p className="mt-1 text-xs text-gray-500">Passed {gateDiagnostics.accepted}, rejected {gateDiagnostics.rejected}. {gateDiagnostics.fallback ? `Rule fallback: ${gateDiagnostics.fallbackReason || 'reason unavailable'}` : 'LLM gate was used.'}</p>
-                  </div>
-                  <button
-                    onClick={() => { setRightPanelTab('sources'); setRightSidebarOpen(true); }}
-                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 hover:border-gray-300"
-                  >
-                    View sources
-                  </button>
-                </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <div>
-                    <div className="text-xs font-medium text-green-700">Accepted samples</div>
-                    <div className="mt-2 space-y-2">
-                      {(gateDiagnostics.acceptedSamples.length ? gateDiagnostics.acceptedSamples : []).slice(0, 4).map(item => (
-                        <div key={item.sourceId} className="rounded-lg bg-green-50 p-2 text-xs text-green-800">
-                          <div className="font-medium">{item.title}</div>
-                          <div className="mt-1 opacity-80">{item.reason}</div>
-                        </div>
-                      ))}
-                      {gateDiagnostics.acceptedSamples.length === 0 && <div className="rounded-lg bg-gray-50 p-2 text-xs text-gray-400">No samples yet</div>}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-medium text-red-700">Rejected samples</div>
-                    <div className="mt-2 space-y-2">
-                      {gateDiagnostics.rejectedSamples.slice(0, 4).map(item => (
-                        <div key={item.sourceId} className="rounded-lg bg-red-50 p-2 text-xs text-red-800">
-                          <div className="font-medium">{item.title}</div>
-                          <div className="mt-1 opacity-80">{item.reason}</div>
-                        </div>
-                      ))}
-                      {gateDiagnostics.rejectedSamples.length === 0 && <div className="rounded-lg bg-gray-50 p-2 text-xs text-gray-400">No samples yet</div>}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {graph && (
               <div className="rounded-lg border border-blue-100 bg-white p-4 shadow-sm">
@@ -1134,6 +1294,20 @@ export default function ResearchPage() {
                       className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                     >
                       {running ? '检索中...' : roundPlan.length ? '按当前计划检索' : '规划并检索'}
+                    </button>
+                    <button
+                      onClick={autoContinue}
+                      disabled={running || autoRunning}
+                      className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {autoRunning ? '自动研究中...' : '自动跑完'}
+                    </button>
+                    <button
+                      onClick={generateDraft}
+                      disabled={loading || evidence.length === 0}
+                      className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
+                    >
+                      生成报告文件
                     </button>
                   </div>
                 </div>
@@ -1259,40 +1433,6 @@ export default function ResearchPage() {
           </div>
         </div>
 
-        {graph && (
-          <div className="border-t border-gray-100 bg-white px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4 lg:pb-3">
-            <div className="mx-auto flex max-w-4xl flex-wrap gap-2">
-              <button
-                onClick={planNextRound}
-                disabled={running}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
-              >
-                只规划下一轮
-              </button>
-              <button
-                onClick={() => runRound(undefined, roundPlan.length ? roundPlan : undefined)}
-                disabled={running}
-                className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-              >
-                {running ? '检索中...' : roundPlan.length ? '按当前计划检索' : '规划并检索'}
-              </button>
-              <button
-                onClick={autoContinue}
-                disabled={running || autoRunning}
-                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {autoRunning ? '自动研究中...' : '自动跑完'}
-              </button>
-              <button
-                onClick={generateDraft}
-                disabled={loading || evidence.length === 0}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
-              >
-                生成报告文件
-              </button>
-            </div>
-          </div>
-        )}
       </main>
 
       {rightSidebarOpen && (

@@ -336,6 +336,28 @@ export interface RejectedResearchSource {
   reason: string;
 }
 
+export interface ResearchInternalDiagnosisIssue {
+  label: string;
+  reason: string;
+  severity: 'high' | 'medium' | 'low';
+}
+
+export interface ResearchInternalDiagnosisDirection {
+  perspective: string;
+  reason: string;
+  queries: string[];
+  preferredSources: ResearchSourcePreference[];
+}
+
+export interface ResearchInternalDiagnosis {
+  summary: string;
+  internalDraft?: string;
+  insufficiencies: ResearchInternalDiagnosisIssue[];
+  recommendedDirections: ResearchInternalDiagnosisDirection[];
+  createdAt: string;
+  usedLLM?: boolean;
+}
+
 export interface EvidenceGateResult {
   accepted: AcceptedResearchEvidence[];
   rejected: RejectedResearchSource[];
@@ -421,6 +443,7 @@ export interface ResearchGraphTemplate {
   nextSearchTasks: string[];
   rounds?: ResearchRound[];
   reportDraft?: string;
+  internalDiagnosis?: ResearchInternalDiagnosis;
   updatedAt?: string;
 }
 

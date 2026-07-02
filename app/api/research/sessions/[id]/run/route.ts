@@ -16,7 +16,17 @@ import {
   researchDepthToRetrievalDepth,
   sourcePrefsToMode,
 } from '@/lib/research-workflow';
-import type { AcceptedResearchEvidence, PlannedResearchQuery, ResearchGraphTemplate, ResearchPlanningContext, ResearchScope, ResearchSource } from '@/types';
+import type {
+  AcceptedResearchEvidence,
+  PlannedResearchQuery,
+  ResearchEvidence,
+  ResearchGraphTemplate,
+  ResearchInternalDiagnosis,
+  ResearchPlanningContext,
+  ResearchScope,
+  ResearchSource,
+  ResearchSourcePreference,
+} from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -158,6 +168,201 @@ function summarizeGateItems(
       relevanceScore: item.relevanceScore,
     };
   });
+}
+
+function parseJsonObject(text: string) {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[0]);
+  } catch {
+    return null;
+  }
+}
+
+const DIAGNOSIS_SOURCE_OPTIONS: ResearchSourcePreference[] = ['papers', 'web', 'github', 'local_kb'];
+
+function normalizePreferredSources(raw: unknown, fallback: ResearchSourcePreference[]) {
+  const items = Array.isArray(raw) ? raw : [];
+  const normalized = items
+    .map(item => String(item || '').trim())
+    .filter((item): item is ResearchSourcePreference => DIAGNOSIS_SOURCE_OPTIONS.includes(item as ResearchSourcePreference));
+  return normalized.length ? normalized : fallback;
+}
+
+function evidenceLine(item: ResearchEvidence, index: number) {
+  const meta = item.metadata || {};
+  return `[${index}] ${item.claim}
+Source: ${meta.title || item.source_id}
+Type: ${meta.type || ''} / ${meta.provider || ''} / ${meta.insightType || ''}
+Cluster/Tags: ${[meta.trendCluster, ...(meta.methodTags || []), ...(meta.applicationTags || []), ...(meta.metricTags || [])].filter(Boolean).join(', ')}
+Snippet: ${item.snippet}`.slice(0, 1200);
+}
+
+function fallbackDiagnosis(scope: ResearchScope, graph: ResearchGraphTemplate): ResearchInternalDiagnosis {
+  const openGaps = getOpenGaps(graph, scope.depth === 'deep' ? 6 : scope.depth === 'fast' ? 2 : 4);
+  const recommendedDirections = (openGaps.length ? openGaps : graph.gaps).slice(0, 4).map(gap => ({
+    perspective: gap.label.replace(/不足$/, '补强'),
+    reason: gap.reason,
+    queries: (gap.suggestedQueries.length ? gap.suggestedQueries : [`${scope.topic} review recent advances`])
+      .map(query => cleanSearchQuery(query, scope))
+      .filter(Boolean)
+      .slice(0, 2),
+    preferredSources: gap.preferredSources.length ? gap.preferredSources : scope.sources,
+  })).filter(item => item.queries.length > 0);
+
+  if (recommendedDirections.length === 0) {
+    recommendedDirections.push({
+      perspective: '领域框架补强',
+      reason: '当前图谱缺少足够的方向性证据，需要补充综述、近期趋势和 Web 实践信号。',
+      queries: [
+        cleanSearchQuery('review survey overview recent advances', scope),
+        cleanSearchQuery('industry report applications limitations', scope),
+      ].filter(Boolean),
+      preferredSources: scope.sources.length ? scope.sources : ['papers', 'web'],
+    });
+  }
+
+  return {
+    summary: '内部诊断使用规则兜底生成。建议先围绕开放缺口补充综述、趋势和实践来源。',
+    internalDraft: '',
+    insufficiencies: openGaps.slice(0, 5).map(gap => ({
+      label: gap.label,
+      reason: gap.reason,
+      severity: gap.priority === 'high' ? 'high' : gap.priority === 'medium' ? 'medium' : 'low',
+    })),
+    recommendedDirections,
+    createdAt: new Date().toISOString(),
+    usedLLM: false,
+  };
+}
+
+async function generateInternalDiagnosis(
+  llmConfig: any,
+  scope: ResearchScope,
+  graph: ResearchGraphTemplate,
+  evidence: ResearchEvidence[],
+  sources: ResearchSource[]
+): Promise<ResearchInternalDiagnosis> {
+  const fallback = fallbackDiagnosis(scope, graph);
+  if (!llmConfig?.apiKey || !llmConfig?.endpoint || !llmConfig?.defaultModel) return fallback;
+
+  const openGapText = getOpenGaps(graph, 8)
+    .map((gap, index) => `${index + 1}. ${gap.label} (${gap.status}) - ${gap.reason}`)
+    .join('\n') || '无明显开放缺口';
+  const evidenceText = evidence.slice(0, 28).map((item, index) => evidenceLine(item, index + 1)).join('\n\n') || '暂无通过 gate 的证据';
+  const sourceText = sources.slice(0, 16).map((source, index) => {
+    const text = source.fullTextExcerpt || source.abstract || source.snippet || '';
+    return `[${index + 1}] ${source.title}
+Provider: ${source.sourceProvider || source.type}
+Query: ${source.query || ''}
+Text: ${text.slice(0, 500)}`;
+  }).join('\n\n');
+
+  const prompt = `你是 Synap 的内部研究诊断器。你不会输出最终报告，而是先根据当前证据写一个很短的内部工作草稿，再判断下一轮应该检索什么。
+
+只返回 JSON，不要 Markdown：
+{
+  "summary": "一句话说明当前研究状态",
+  "internalDraft": "200-400 字内部工作草稿，指出目前已经能初步判断什么、哪里不够",
+  "insufficiencies": [{"label":"不足点","reason":"为什么不足","severity":"high|medium|low"}],
+  "recommendedDirections": [
+    {"perspective":"下一轮方向","reason":"为什么要查这个","queries":["具体 query 1","具体 query 2"],"preferredSources":["papers","web"]}
+  ]
+}
+
+规则：
+- queries 必须围绕用户原始主题，不要把 gap label 直接塞进 query。
+- 每个 query 要具体，优先找综述、代表性资料、近期趋势、方法分类、指标/限制、Web 实践信号。
+- 如果论文证据不足，优先生成 review/survey/overview 类 query。
+- 如果 Web 实践信号不足，优先生成 industry report / official documentation / standard / application 类 query。
+- recommendedDirections 最多 4 个，每个最多 2 个 query。
+- preferredSources 只能使用 papers、web、github、local_kb。
+- 不要把 Synap、研究图谱、内部 gate、系统架构当成用户主题。
+
+用户原始主题：${scope.topic}
+用户重点方向：${scope.focus.join('、') || '未指定'}
+当前开放缺口：
+${openGapText}
+
+已通过 gate 的证据：
+${evidenceText}
+
+本轮候选来源摘要：
+${sourceText || '无'}`;
+
+  try {
+    const res = await fetch(llmConfig.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${llmConfig.apiKey}` },
+      body: JSON.stringify({
+        model: llmConfig.defaultModel,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.15,
+        max_tokens: 1800,
+      }),
+    });
+    if (!res.ok) return fallback;
+    const data = await res.json();
+    const parsed = parseJsonObject(data.choices?.[0]?.message?.content || '');
+    if (!parsed) return fallback;
+
+    const recommendedDirections = (Array.isArray(parsed.recommendedDirections) ? parsed.recommendedDirections : [])
+      .map((item: any) => ({
+        perspective: String(item.perspective || '下一轮检索').trim().slice(0, 80),
+        reason: String(item.reason || '补充当前领域认知框架。').trim().slice(0, 240),
+        queries: (Array.isArray(item.queries) ? item.queries : [])
+          .map((query: any) => cleanSearchQuery(String(query || ''), scope))
+          .filter(Boolean)
+          .slice(0, 2),
+        preferredSources: normalizePreferredSources(item.preferredSources, scope.sources),
+      }))
+      .filter((item: any) => item.queries.length > 0)
+      .slice(0, 4);
+
+    if (recommendedDirections.length === 0) return fallback;
+
+    return {
+      summary: String(parsed.summary || '内部诊断已完成。').trim().slice(0, 260),
+      internalDraft: String(parsed.internalDraft || '').trim().slice(0, 1800),
+      insufficiencies: (Array.isArray(parsed.insufficiencies) ? parsed.insufficiencies : [])
+        .map((item: any) => ({
+          label: String(item.label || '待补充').trim().slice(0, 80),
+          reason: String(item.reason || '需要更多证据。').trim().slice(0, 240),
+          severity: item.severity === 'low' || item.severity === 'medium' || item.severity === 'high' ? item.severity : 'medium',
+        }))
+        .slice(0, 6),
+      recommendedDirections,
+      createdAt: new Date().toISOString(),
+      usedLLM: true,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function applyDiagnosisToGraph(graph: ResearchGraphTemplate, diagnosis: ResearchInternalDiagnosis) {
+  const nextTasks = diagnosis.recommendedDirections.flatMap(item => item.queries).filter(Boolean).slice(0, 8);
+  const openGapIds = new Set(graph.gaps.filter(gap => gap.status !== 'filled').map(gap => gap.id));
+  let directionIndex = 0;
+
+  return {
+    ...graph,
+    internalDiagnosis: diagnosis,
+    nextSearchTasks: nextTasks.length ? nextTasks : graph.nextSearchTasks,
+    gaps: graph.gaps.map(gap => {
+      if (!openGapIds.has(gap.id)) return gap;
+      const direction = diagnosis.recommendedDirections[directionIndex];
+      directionIndex += 1;
+      if (!direction) return gap;
+      return {
+        ...gap,
+        suggestedQueries: direction.queries,
+        preferredSources: direction.preferredSources,
+      };
+    }),
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 async function queryLocalKb(
@@ -425,6 +630,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         if (evidenceError) throw evidenceError;
         evidenceRows = inserted || [];
       }
+
+      const { data: allEvidenceRows, error: allEvidenceError } = await auth.supabase
+        .from('research_evidence')
+        .select('*')
+        .eq('session_id', id)
+        .eq('user_id', auth.user.id)
+        .order('created_at', { ascending: false })
+        .limit(60);
+      if (allEvidenceError) throw allEvidenceError;
+
+      await send('status', { stage: 'diagnosis', message: '正在基于本轮证据生成内部诊断和下一轮建议' });
+      const diagnosis = sanitizeForJsonb(await generateInternalDiagnosis(
+        llmConfig,
+        scope,
+        graph,
+        evidenceRowsToTyped(allEvidenceRows || []),
+        sources
+      ));
+      graph = sanitizeForJsonb(applyDiagnosisToGraph(graph, diagnosis));
+      await send('diagnosis', { diagnosis });
+      await send('debug', {
+        stage: 'diagnosis',
+        usedLLM: diagnosis.usedLLM === true,
+        recommendedDirections: diagnosis.recommendedDirections.map((item: any) => ({
+          perspective: item.perspective,
+          queries: item.queries,
+          preferredSources: item.preferredSources,
+        })),
+      });
 
       const round = buildResearchRound(graph, plannedSearchQuery, sources.length, evidenceRows.length);
       graph.rounds = [...(graph.rounds || []), round];

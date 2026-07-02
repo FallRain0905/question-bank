@@ -72,8 +72,10 @@ async function getDirectionCardsWithLLM(
     .map(card => `${card.id}: ${card.title} - ${card.description}`)
     .join('\n');
 
-  const prompt = `你是科研领域认知范围分析器。请根据用户原始主题和预检索线索，判断哪些研究方向最适合生成一份短的领域认知简报。
-只返回 JSON：{"recommendations":[{"id":"direction id","recommended":true,"description":"一句贴合主题的中文说明"}]}
+  const prompt = `你是科研领域范围分析器。请根据用户原始主题和预检索线索，判断哪些研究方向最适合生成一份短的“领域认知简报”。
+
+只返回 JSON：
+{"recommendations":[{"id":"direction id","recommended":true,"description":"一句贴合主题的中文说明"}]}
 
 可选方向：
 ${directionList}
@@ -83,7 +85,8 @@ ${directionList}
 - 至少推荐 1 个，最多推荐 4 个。
 - 普通领域主题优先推荐“领域概览 / 主流方法 / 近期趋势 / 指标与限制”。
 - 如果用户关心产业、工具、实现、标准或开源，再推荐“Web/产业动态”。
-- 不要因为系统内部使用研究图，就把用户主题改写成“构建知识图谱”。
+- 如果用户明确要求论文、文献、survey、review，再推荐“代表论文”。
+- 不要因为系统内部使用研究图谱，就把用户主题改写成“构建知识图谱”。
 - description 要解释为什么这个方向适合用户主题。
 
 用户原始主题：${topic}
