@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const DEFAULT_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
-const DEFAULT_MODEL = 'deepseek-v4-flash';
+const DEFAULT_MODEL = 'deepseek-v4-pro';
 
 const PROVIDER_ENDPOINTS: Record<string, string> = {
   qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',

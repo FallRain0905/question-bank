@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import { renderMarkdown } from '@/lib/render-markdown';
-import type { AgentDocument, AgentPlan, AgentToolCallLog, ResearchSource } from '@/types';
+import type { AgentConversation, AgentDocument, AgentFile, AgentPlan, AgentStoredMessage, AgentToolCallLog, ResearchSource } from '@/types';
 
 type ChatMessage = {
   id: string;
@@ -11,7 +11,7 @@ type ChatMessage = {
   content: string;
 };
 
-type RightTab = 'tools' | 'sources' | 'documents';
+type RightTab = 'tools' | 'sources' | 'files' | 'documents';
 
 function id() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -31,6 +31,16 @@ function depthLabel(depth: any) {
   return '';
 }
 
+function messagesFromStored(rows: AgentStoredMessage[]): ChatMessage[] {
+  return rows
+    .filter(row => row.role === 'user' || row.role === 'assistant' || row.role === 'system')
+    .map(row => ({
+      id: row.id,
+      role: row.role as ChatMessage['role'],
+      content: row.content,
+    }));
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
   const supabase = getSupabase();
   const { data: { session } } = await supabase.auth.getSession();
@@ -42,14 +52,17 @@ export default function AgentPage() {
     {
       id: id(),
       role: 'assistant',
-      content: '我是 Synap Agent 调试台。简单问题我会直接回答；需要检索、创建文档或导出文件时，我会先给出计划，确认后再调用工具。',
+      content: '我是 Synapse，Synap 的主控 Agent。普通问题我会直接回答；需要资料时我会自己调用检索或文档阅读工具；创建/保存文档这类副作用动作会先请你确认。',
     },
   ]);
   const [input, setInput] = useState('');
+  const [conversations, setConversations] = useState<AgentConversation[]>([]);
+  const [selectedConversationId, setSelectedConversationId] = useState('');
   const [pendingPlan, setPendingPlan] = useState<AgentPlan | null>(null);
   const [pendingMessage, setPendingMessage] = useState('');
   const [toolCalls, setToolCalls] = useState<AgentToolCallLog[]>([]);
   const [sources, setSources] = useState<ResearchSource[]>([]);
+  const [files, setFiles] = useState<AgentFile[]>([]);
   const [documents, setDocuments] = useState<AgentDocument[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<AgentDocument | null>(null);
   const [rightTab, setRightTab] = useState<RightTab>('tools');
@@ -59,6 +72,7 @@ export default function AgentPage() {
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    loadConversations();
     loadDocuments();
   }, []);
 
@@ -84,6 +98,119 @@ export default function AgentPage() {
     }
   };
 
+  const loadConversations = async () => {
+    try {
+      const headers = await authHeaders();
+      if (!headers.Authorization) return;
+      const res = await fetch('/api/agent/conversations', { headers });
+      if (!res.ok) return;
+      const data = await res.json();
+      setConversations(data || []);
+    } catch {
+      // Conversation history is helpful, but the chat can still run without it.
+    }
+  };
+
+  const loadConversation = async (conversationId: string) => {
+    try {
+      const headers = await authHeaders();
+      if (!headers.Authorization) return;
+      const res = await fetch(`/api/agent/conversations/${conversationId}`, { headers });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load conversation');
+      setSelectedConversationId(conversationId);
+      setMessages(messagesFromStored(data.messages || []));
+      setFiles(data.files || []);
+      setToolCalls((data.traces || []).map((trace: any) => ({
+        id: trace.id,
+        tool: trace.tool_name,
+        title: trace.tool_name,
+        status: trace.status || 'completed',
+        args: trace.input || {},
+        result: trace.summary,
+      })));
+      setSources((data.traces || []).flatMap((trace: any) => Array.isArray(trace.output?.sources) ? trace.output.sources : []));
+      setPendingPlan(null);
+      setPendingMessage('');
+    } catch (err: any) {
+      setError(err.message || 'Failed to load conversation');
+    }
+  };
+
+  const newConversation = () => {
+    setSelectedConversationId('');
+    setPendingPlan(null);
+    setPendingMessage('');
+    setToolCalls([]);
+    setSources([]);
+    setFiles([]);
+    setMessages([{
+      id: id(),
+      role: 'assistant',
+      content: '新的 Synapse 对话已准备好。你可以直接提问，也可以先上传文档让我阅读。',
+    }]);
+  };
+
+  const renameConversation = async (conversation: AgentConversation) => {
+    const title = window.prompt('重命名会话', conversation.title)?.trim();
+    if (!title) return;
+    const headers = await authHeaders();
+    const res = await fetch(`/api/agent/conversations/${conversation.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({ title }),
+    });
+    if (res.ok) loadConversations();
+  };
+
+  const deleteConversation = async (conversation: AgentConversation) => {
+    if (!window.confirm(`删除会话「${conversation.title}」？`)) return;
+    const headers = await authHeaders();
+    const res = await fetch(`/api/agent/conversations/${conversation.id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    if (res.ok) {
+      if (selectedConversationId === conversation.id) newConversation();
+      loadConversations();
+    }
+  };
+
+  const uploadFile = async (file: File) => {
+    setError('');
+    setLoading(true);
+    try {
+      const headers = await authHeaders();
+      const form = new FormData();
+      form.append('file', file);
+      if (selectedConversationId) form.append('conversation_id', selectedConversationId);
+      const res = await fetch('/api/agent/files', {
+        method: 'POST',
+        headers,
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      if (data.conversationId) {
+        setSelectedConversationId(data.conversationId);
+        await loadConversation(data.conversationId);
+      }
+      await loadConversations();
+      pushMessage({
+        role: 'assistant',
+        content: data.file?.content_text
+          ? `已上传并解析《${data.file.file_name}》。你可以问我总结、提取重点或基于它继续检索。`
+          : `已上传《${data.file?.file_name || file.name}》，但暂时没有解析出文本。PDF 可检查 MinerU 配置后重试。`,
+      });
+      setRightTab('files');
+      setRightOpen(true);
+    } catch (err: any) {
+      setError(err.message || 'Upload failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const askAgent = async () => {
     const next = input.trim();
     if (!next || loading) return;
@@ -99,19 +226,29 @@ export default function AgentPage() {
       const res = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ message: next }),
+        body: JSON.stringify({ message: next, conversationId: selectedConversationId || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Agent planning failed');
+      if (data.conversation?.id) setSelectedConversationId(data.conversation.id);
+      if (data.messages) setMessages(messagesFromStored(data.messages));
+      if (data.toolCalls) setToolCalls(data.toolCalls);
+      if (data.sources) setSources(data.sources);
+      if (data.files) setFiles(data.files);
       if (data.type === 'response') {
         setPendingPlan(null);
         setPendingMessage('');
-        pushMessage({ role: 'assistant', content: data.message || '我可以直接回答这个问题。' });
+        if (!data.messages) pushMessage({ role: 'assistant', content: data.message || '我可以直接回答这个问题。' });
         return;
       }
-      if (!data.plan) throw new Error('Agent did not return a valid plan');
-      setPendingPlan(data.plan);
-      pushMessage({ role: 'assistant', content: data.message || '我拟定了一个执行计划。' });
+      if (data.type === 'plan' && data.plan) {
+        setPendingPlan(data.plan);
+        if (!data.messages) pushMessage({ role: 'assistant', content: data.message || '需要你确认后我再执行这个动作。' });
+      } else {
+        setPendingPlan(null);
+        if (!data.messages) pushMessage({ role: 'assistant', content: data.message || '执行完成。' });
+      }
+      loadConversations();
     } catch (err: any) {
       setError(err.message || 'Agent planning failed');
     } finally {
@@ -137,13 +274,14 @@ export default function AgentPage() {
       const res = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ message: pendingMessage, confirmedPlan: pendingPlan }),
+        body: JSON.stringify({ message: pendingMessage, conversationId: selectedConversationId || undefined, confirmedPlan: pendingPlan }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Agent execution failed');
       setPendingPlan(null);
       setToolCalls(data.toolCalls || []);
       setSources(data.sources || []);
+      if (data.conversation?.id) setSelectedConversationId(data.conversation.id);
       if (data.document) {
         setSelectedDocument(data.document);
         setRightTab('documents');
@@ -152,6 +290,7 @@ export default function AgentPage() {
         setRightTab('sources');
       }
       pushMessage({ role: 'assistant', content: data.message || '执行完成。' });
+      loadConversations();
       loadDocuments();
     } catch (err: any) {
       setError(err.message || 'Agent execution failed');
@@ -185,18 +324,68 @@ export default function AgentPage() {
 
   return (
     <div className="mx-auto flex h-[calc(100dvh-6rem)] max-w-[1800px] overflow-hidden bg-gray-50 lg:h-[calc(100vh-4rem)]">
+      <aside className="hidden w-[280px] flex-shrink-0 border-r border-gray-200 bg-white lg:flex lg:flex-col">
+        <div className="border-b border-gray-100 p-3">
+          <button
+            onClick={newConversation}
+            className="w-full rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            新建 Synapse 对话
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          {conversations.length === 0 ? (
+            <div className="rounded-lg bg-gray-50 p-3 text-xs leading-5 text-gray-400">暂无历史会话。发送第一条消息后会自动保存。</div>
+          ) : conversations.map(conversation => (
+            <div
+              key={conversation.id}
+              className={`group mb-1 rounded-lg p-2 ${selectedConversationId === conversation.id ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+            >
+              <button
+                onClick={() => loadConversation(conversation.id)}
+                className={`block w-full truncate text-left text-sm ${selectedConversationId === conversation.id ? 'font-medium text-blue-700' : 'text-gray-700'}`}
+              >
+                {conversation.title}
+              </button>
+              <div className="mt-1 flex items-center justify-between text-[10px] text-gray-400">
+                <span>{new Date(conversation.updated_at).toLocaleString()}</span>
+                <span className="hidden gap-1 group-hover:flex">
+                  <button onClick={() => renameConversation(conversation)} className="hover:text-gray-700">重命名</button>
+                  <button onClick={() => deleteConversation(conversation)} className="hover:text-red-600">删除</button>
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </aside>
+
       <main className="flex min-w-0 flex-1 flex-col bg-white">
         <header className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
           <div className="min-w-0">
             <div className="text-[10px] font-medium uppercase text-gray-400">Agent Workspace</div>
-            <h1 className="truncate text-base font-semibold text-gray-900">Synap Agent 调试台</h1>
+            <h1 className="truncate text-base font-semibold text-gray-900">Synapse 主控 Agent</h1>
           </div>
-          <button
-            onClick={() => setRightOpen(prev => !prev)}
-            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300"
-          >
-            {rightOpen ? '收起信息栏' : '打开信息栏'}
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="cursor-pointer rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">
+              上传文档
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,.docx,.txt,.md,.markdown,.csv"
+                onChange={event => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (file) uploadFile(file);
+                }}
+              />
+            </label>
+            <button
+              onClick={() => setRightOpen(prev => !prev)}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300"
+            >
+              {rightOpen ? '收起信息栏' : '打开信息栏'}
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto bg-gray-50/60 px-3 py-4 sm:px-4">
@@ -280,7 +469,7 @@ export default function AgentPage() {
                   askAgent();
                 }
               }}
-              placeholder="例如：联网检索 MOF 材料近三年趋势，并创建一份简短研究文档"
+              placeholder="例如：总结我刚上传的文档，必要时联网补充资料"
               className="min-h-12 flex-1 resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-base outline-none focus:border-blue-300 sm:text-sm"
             />
             <button
@@ -297,10 +486,11 @@ export default function AgentPage() {
       {rightOpen && (
         <aside className="hidden w-[380px] flex-shrink-0 border-l border-gray-200 bg-white lg:flex lg:flex-col">
           <div className="border-b border-gray-100 px-4 py-3">
-            <div className="grid grid-cols-3 rounded-lg bg-gray-100 p-1 text-xs">
+            <div className="grid grid-cols-4 rounded-lg bg-gray-100 p-1 text-xs">
               {[
                 ['tools', '工具'],
                 ['sources', '来源'],
+                ['files', '文件'],
                 ['documents', '文档'],
               ].map(([value, label]) => (
                 <button
@@ -360,6 +550,23 @@ export default function AgentPage() {
                     <div className="mt-1 line-clamp-2 text-xs font-medium text-gray-700">{source.title}</div>
                     <p className="mt-1 line-clamp-3 text-xs leading-5 text-gray-500">{source.fullTextExcerpt || source.abstract || source.snippet}</p>
                   </a>
+                ))}
+              </div>
+            )}
+
+            {rightTab === 'files' && (
+              <div className="space-y-2">
+                {files.length === 0 ? (
+                  <div className="rounded-lg bg-gray-50 p-4 text-xs leading-5 text-gray-400">上传 PDF、DOCX、Markdown 或 TXT 后，Synapse 可以在对话中读取它们。</div>
+                ) : files.map(file => (
+                  <div key={file.id} className="rounded-lg bg-gray-50 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 truncate text-xs font-medium text-gray-700">{file.file_name}</div>
+                      <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-gray-500">{file.file_type}</span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-gray-400">{Math.ceil((file.file_size || 0) / 1024)} KB · {file.content_text ? `${file.content_text.length} 字符` : '未解析出文本'}</div>
+                    {file.content_text && <p className="mt-2 line-clamp-4 text-xs leading-5 text-gray-500">{file.content_text}</p>}
+                  </div>
                 ))}
               </div>
             )}

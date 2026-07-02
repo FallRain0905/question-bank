@@ -528,7 +528,7 @@ export interface ResearchAgentMessage {
   created_at: string;
 }
 
-export type AgentToolName = 'researchSearch' | 'createDocument';
+export type AgentToolName = 'researchSearch' | 'readDocument' | 'createDocument';
 
 export interface AgentPlanStep {
   id: string;
@@ -566,6 +566,40 @@ export interface AgentDocument {
   metadata: Record<string, any> | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AgentConversation {
+  id: string;
+  user_id: string;
+  title: string;
+  status: string;
+  metadata: Record<string, any> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentStoredMessage {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  metadata: Record<string, any> | null;
+  created_at: string;
+}
+
+export interface AgentFile {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  storage_path: string | null;
+  file_url: string | null;
+  content_text: string;
+  metadata: Record<string, any> | null;
+  created_at: string;
 }
 
 // AI 阅读器相关类型

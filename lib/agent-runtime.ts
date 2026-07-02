@@ -87,8 +87,18 @@ function isCapabilityQuestion(message: string) {
   return asksCapabilities && !explicitlyWantsDocument;
 }
 
+function isSkillHealthQuestion(message: string) {
+  const lower = message.toLowerCase();
+  return /(skill|技能|工具|功能).*(正常|可用|能用|健康|ok|okay|status)|一切.*正常/.test(lower);
+}
+
+function isModelIdentityQuestion(message: string) {
+  const lower = message.toLowerCase();
+  return /你是什么模型|你用的是什么模型|当前.*模型|底层.*模型|模型.*是什么|你是谁|model|llm/.test(lower);
+}
+
 function shouldUseTools(message: string) {
-  if (isCapabilityQuestion(message)) return false;
+  if (isCapabilityQuestion(message) || isSkillHealthQuestion(message) || isModelIdentityQuestion(message)) return false;
   const lower = message.toLowerCase();
   return /检索|搜索|联网|查找|查一下|搜一下|帮我查|资料|论文|文献|综述|创建|生成|写.*文档|写.*报告|写.*简报|整理成|保存|下载|导出|markdown|docx|research|search|source|paper|literature|create|generate|write|document|report|export/.test(lower);
 }
@@ -101,6 +111,31 @@ function capabilityAnswer() {
 3. 调用 createDocument 创建文档：确认执行后可以把检索结果或你的要求整理成 Markdown 文档，并支持下载 Markdown / DOCX。
 
 现在的规则是：普通对话直接回复；只有涉及检索、创建文档、生成报告、导出文件这类会改变状态或消耗工具的任务，我才会先给计划预览，等你确认后再执行。`;
+}
+
+function skillHealthAnswer() {
+  return `从当前 Agent 调试台的逻辑看，基础链路是正常的：
+
+1. 普通对话：会直接回复，不会再强制生成计划。
+2. researchSearch：会按任务选择 Web 检索、学术检索或综合检索，并在计划里显示选择理由。
+3. createDocument：可以基于检索结果或用户输入创建 Markdown 文档；如果没有来源，会生成无引用草稿，而不是直接说无法生成。
+
+不过“完全正常”还要看实际环境配置：Dify API、Supabase 的 agent_documents 表、Tavily / Semantic Scholar 等 key 是否都在服务器上配置好。你可以用一句明确任务做 smoke test，比如：“联网检索 MOF 材料近三年趋势，并创建一份简短文档”。`;
+}
+
+function modelIdentityAnswer(llmConfig: LLMConfig | null) {
+  const difyConfigured = Boolean(process.env.DIFY_AGENT_APP_KEY?.trim() && process.env.DIFY_API_BASE_URL?.trim());
+  const fallbackModel = llmConfig?.defaultModel?.trim() || '未读取到用户模型配置';
+  const difyLine = difyConfigured
+    ? '当前 Agent 直答优先会经过 Dify Agent App；Dify 内部具体使用哪个模型，需要在 Dify 应用配置里查看。'
+    : '当前没有启用 Dify Agent App，直答会使用 Synap 设置页里的 LLM 配置。';
+
+  return `我是 Synap Agent 调试台，不是固定绑定某一个厂商模型的产品。
+
+${difyLine}
+Synap 侧读取到的备用 / 本地 LLM 模型配置是：${fallbackModel}。
+
+所以我不应该自称“DeepSeek 最新版”“ChatGPT”或其他固定模型；更准确的说法是：我是 Synap 的 Agent 编排层，底层模型由你的 Dify 应用配置或 Synap 设置页决定。`;
 }
 
 async function callLLM(llmConfig: LLMConfig | null, prompt: string, maxTokens = 1600) {
@@ -297,9 +332,15 @@ export async function planAgentTask(message: string, userId: string, llmConfig: 
 }
 
 async function answerAgentDirectly(message: string, userId: string, llmConfig: LLMConfig | null) {
+  if (isSkillHealthQuestion(message)) return skillHealthAnswer();
+  if (isModelIdentityQuestion(message)) return modelIdentityAnswer(llmConfig);
   if (isCapabilityQuestion(message)) return capabilityAnswer();
 
-  const prompt = `你是 Synap Agent。请直接回答用户的问题，不要返回 JSON，不要创建文档，不要声称已经调用工具。
+  const prompt = `你是 Synap Agent 调试台的直答层。请直接回答用户的问题，不要返回 JSON，不要创建文档，不要声称已经调用工具。
+身份规则：
+- 你是 Synap 的 Agent 编排层，不要自称 DeepSeek、ChatGPT、Claude 或任何固定模型。
+- 底层模型由 Dify 应用配置或 Synap 设置页决定；不知道具体模型时要如实说明。
+- 不要输出营销式模型介绍，不要使用表情。
 如果问题需要最新资料、联网搜索或文件创建，请提醒用户可以明确要求你检索或创建文档。
 
 用户问题：${message}`;

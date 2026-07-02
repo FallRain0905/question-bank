@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfig, getUserResearchToolConfig } from '@/lib/user-settings';
-import { generateAgentDocument, planOrAnswerAgentTask } from '@/lib/agent-runtime';
-import { normalizeResearchOptions, planResearchQueries, retrieveResearchSources } from '@/lib/research-retrieval';
-import type { AgentPlan, AgentPlanStep, AgentToolCallLog, ResearchSource } from '@/types';
+import { generateAgentDocument } from '@/lib/agent-runtime';
+import { loadRecentResearchSources, runSynapseTurn } from '@/lib/synapse-runtime';
+import type { AgentPlan, AgentToolCallLog } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,152 +25,143 @@ async function getAuthedClient(req: NextRequest) {
   return { token, supabase, user };
 }
 
-function logForStep(step: AgentPlanStep): AgentToolCallLog {
-  return {
-    id: step.id,
-    tool: step.tool,
-    title: step.title,
-    status: 'running',
-    args: step.args || {},
-  };
+function schemaHint(error: any) {
+  const message = error?.message || String(error || '');
+  if (message.includes('agent_conversations') || message.includes('agent_messages') || message.includes('agent_tool_traces') || message.includes('agent_files')) {
+    return `${message} 请先执行 supabase/migration_synapse_agent.sql。`;
+  }
+  if (message.includes('agent_documents') || message.includes('schema cache')) {
+    return `${message} 请先执行 supabase/migration_agent_documents.sql。`;
+  }
+  return message || 'Agent request failed';
 }
 
-async function executeSearchStep(
-  step: AgentPlanStep,
-  auth: NonNullable<Awaited<ReturnType<typeof getAuthedClient>> extends infer T ? T extends { error: any } ? never : T : never>,
-  llmConfig: any,
-  toolConfig: any
+async function executeConfirmedDocument(
+  supabase: ReturnType<typeof clientForToken>,
+  userId: string,
+  conversationId: string,
+  message: string,
+  plan: AgentPlan,
+  llmConfig: any
 ) {
-  const query = String(step.args?.query || step.args?.topic || '').trim();
-  if (!query) return { sources: [] as ResearchSource[], plannedQueries: [] as any[], query: '', mode: 'both', depth: 'medium' };
-  const selected = normalizeResearchOptions(step.args?.mode, step.args?.depth);
-  const retrievalOptions = {
-    query,
-    mode: selected.mode,
-    depth: selected.depth,
+  const sources = await loadRecentResearchSources(supabase, userId, conversationId);
+  const draft = await generateAgentDocument({
+    userId,
+    message,
+    plan,
+    sources,
     llmConfig,
-    toolConfig,
-    supabase: auth.supabase,
-    includeGithub: step.args?.includeGithub === true,
+  });
+
+  const { data: document, error } = await supabase
+    .from('agent_documents')
+    .insert({
+      user_id: userId,
+      title: draft.title,
+      content_md: draft.markdown,
+      source: 'synapse',
+      metadata: {
+        runtime: draft.runtime,
+        agent: 'synapse',
+        conversationId,
+        plan,
+        sourceCount: sources.length,
+        warnings: draft.warnings || [],
+      },
+    })
+    .select()
+    .single();
+  if (error) throw error;
+
+  const call: AgentToolCallLog = {
+    id: plan.steps[0]?.id || `tool-${Date.now()}`,
+    tool: 'createDocument',
+    title: plan.steps[0]?.title || '创建文档',
+    status: 'completed',
+    args: plan.steps[0]?.args || {},
+    result: [
+      `已创建文档：${document.title}`,
+      draft.warnings?.length ? `注意：${draft.warnings.join('；')}` : '',
+    ].filter(Boolean).join('\n'),
   };
-  const plannedQueries = await planResearchQueries(retrievalOptions);
-  const sources = await retrieveResearchSources({ ...retrievalOptions, plan: plannedQueries });
-  return { sources, plannedQueries, query, mode: selected.mode, depth: selected.depth };
+
+  const answer = `已创建文档《${document.title}》。你可以在右侧“文档”面板预览或下载 Markdown / DOCX。`;
+
+  await Promise.all([
+    supabase.from('agent_tool_traces').insert({
+      user_id: userId,
+      conversation_id: conversationId,
+      tool_name: 'createDocument',
+      status: 'completed',
+      input: { message, plan },
+      output: { document, sourceCount: sources.length },
+      summary: call.result,
+    }),
+    supabase.from('agent_messages').insert({
+      user_id: userId,
+      conversation_id: conversationId,
+      role: 'assistant',
+      content: answer,
+      metadata: { agent: 'synapse', toolCalls: [call], document },
+    }),
+    supabase
+      .from('agent_conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', conversationId)
+      .eq('user_id', userId),
+  ]);
+
+  return { document, call, answer, sources };
 }
 
 export async function POST(req: NextRequest) {
   const auth = await getAuthedClient(req);
   if (auth.error) return auth.error;
-  const body = await req.json().catch(() => ({}));
-  const message = String(body.message || '').trim();
-  if (!message) return NextResponse.json({ error: 'Missing message' }, { status: 400 });
 
-  const [llmConfig, toolConfig] = await Promise.all([
-    getUserLLMConfig(auth.token),
-    getUserResearchToolConfig(auth.token),
-  ]);
+  try {
+    const body = await req.json().catch(() => ({}));
+    const message = String(body.message || '').trim();
+    const conversationId = String(body.conversationId || '').trim() || undefined;
+    if (!message) return NextResponse.json({ error: 'Missing message' }, { status: 400 });
 
-  if (!body.confirmedPlan) {
-    const result = await planOrAnswerAgentTask(message, auth.user.id, llmConfig);
-    if (result.type === 'response') {
+    const [llmConfig, toolConfig] = await Promise.all([
+      getUserLLMConfig(auth.token),
+      getUserResearchToolConfig(auth.token),
+    ]);
+
+    if (body.confirmedPlan) {
+      if (!conversationId) return NextResponse.json({ error: 'Missing conversationId for confirmed action' }, { status: 400 });
+      const result = await executeConfirmedDocument(
+        auth.supabase,
+        auth.user.id,
+        conversationId,
+        message,
+        body.confirmedPlan as AgentPlan,
+        llmConfig
+      );
       return NextResponse.json({
-        type: 'response',
-        message: result.message,
+        type: 'result',
+        conversation: { id: conversationId },
+        message: result.answer,
+        plan: body.confirmedPlan,
+        toolCalls: [result.call],
+        sources: result.sources,
+        document: result.document,
       });
     }
 
-    return NextResponse.json({
-      type: 'plan',
-      message: result.message,
-      plan: result.plan,
+    const result = await runSynapseTurn({
+      userId: auth.user.id,
+      message,
+      conversationId,
+      supabase: auth.supabase,
+      llmConfig,
+      toolConfig,
     });
+
+    return NextResponse.json(result);
+  } catch (error: any) {
+    console.error('Synapse chat error:', error);
+    return NextResponse.json({ error: schemaHint(error) }, { status: 500 });
   }
-
-  const plan = body.confirmedPlan as AgentPlan;
-  const toolCalls: AgentToolCallLog[] = [];
-  const allSources: ResearchSource[] = [];
-  let document: any = null;
-  const plannedQueries: any[] = [];
-
-  for (const step of plan.steps || []) {
-    const call = logForStep(step);
-    toolCalls.push(call);
-    try {
-      if (step.tool === 'researchSearch') {
-        const result = await executeSearchStep(step, auth, llmConfig, toolConfig);
-        allSources.push(...result.sources);
-        plannedQueries.push(...result.plannedQueries);
-        call.status = 'completed';
-        const modeText = result.mode === 'academic' ? '学术检索' : result.mode === 'general' ? 'Web 检索' : '综合检索';
-        call.result = `${modeText}完成：检索到 ${result.sources.length} 个来源。`;
-        call.args = {
-          ...call.args,
-          query: result.query,
-          mode: result.mode,
-          depth: result.depth,
-          routingReason: step.args?.routingReason || '',
-        };
-      }
-
-      if (step.tool === 'createDocument') {
-        const draft = await generateAgentDocument({
-          userId: auth.user.id,
-          message,
-          plan,
-          sources: allSources,
-          llmConfig,
-        });
-        const { data, error } = await auth.supabase
-          .from('agent_documents')
-          .insert({
-            user_id: auth.user.id,
-            title: draft.title,
-            content_md: draft.markdown,
-            source: 'agent',
-            metadata: {
-              runtime: draft.runtime,
-              plan,
-              sourceCount: allSources.length,
-              plannedQueries,
-            },
-          })
-          .select()
-          .single();
-        if (error) {
-          const message = error.message || 'Document insert failed';
-          const hint = message.includes('agent_documents') || message.includes('schema cache')
-            ? '请先执行 supabase/migration_agent_documents.sql 创建 agent_documents 表。'
-            : '';
-          throw new Error([message, hint].filter(Boolean).join(' '));
-        }
-        document = data;
-        call.status = 'completed';
-        call.result = [
-          `已创建文档：${data.title}`,
-          draft.warnings?.length ? `注意：${draft.warnings.join('；')}` : '',
-        ].filter(Boolean).join('\n');
-      }
-    } catch (err: any) {
-      call.status = 'failed';
-      call.error = err.message || 'Tool execution failed';
-    }
-  }
-
-  const failedCalls = toolCalls.filter(call => call.status === 'failed');
-  const createFailed = failedCalls.find(call => call.tool === 'createDocument');
-  const messageText = createFailed
-    ? `检索已完成，但文档创建失败：${createFailed.error}`
-    : document
-      ? `已完成。创建了文档《${document.title}》，并保留了 ${allSources.length} 个检索来源。`
-      : `已完成。共检索到 ${allSources.length} 个来源。`;
-
-  return NextResponse.json({
-    type: 'result',
-    message: messageText,
-    plan,
-    toolCalls,
-    sources: allSources,
-    plannedQueries,
-    document,
-  });
 }
