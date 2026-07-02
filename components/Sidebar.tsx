@@ -139,6 +139,7 @@ const Icons = {
 };
 
 const mainNavItems: NavItem[] = [
+  { href: '/agent', label: 'Agent', icon: Icons.qa },
   { href: '/research', label: '研究', icon: Icons.research },
   { href: '/search', label: '搜索', icon: Icons.search },
   { href: '/kb', label: '知识库', icon: Icons.kb },

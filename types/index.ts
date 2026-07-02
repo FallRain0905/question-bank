@@ -528,6 +528,46 @@ export interface ResearchAgentMessage {
   created_at: string;
 }
 
+export type AgentToolName = 'researchSearch' | 'createDocument';
+
+export interface AgentPlanStep {
+  id: string;
+  tool: AgentToolName;
+  title: string;
+  description: string;
+  args: Record<string, any>;
+}
+
+export interface AgentPlan {
+  id: string;
+  title: string;
+  summary: string;
+  steps: AgentPlanStep[];
+  requiresConfirmation: boolean;
+  createdAt: string;
+}
+
+export interface AgentToolCallLog {
+  id: string;
+  tool: AgentToolName;
+  title: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  args: Record<string, any>;
+  result?: string;
+  error?: string;
+}
+
+export interface AgentDocument {
+  id: string;
+  user_id: string;
+  title: string;
+  content_md: string;
+  source: string;
+  metadata: Record<string, any> | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // AI 阅读器相关类型
 export interface DocumentHighlight {
   id: string;
