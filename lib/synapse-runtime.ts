@@ -39,14 +39,68 @@ type SynapseRunOptions = {
   supabase: SupabaseLike;
   llmConfig: LLMConfig | null;
   toolConfig: ToolConfig | null;
+  agentSettings?: {
+    model?: string;
+    thinkingEnabled?: boolean;
+  };
 };
 
 function id(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+export function sanitizeTextForPostgres(value: string, maxLength = 120000) {
+  let output = '';
+  for (let index = 0; index < value.length && output.length < maxLength; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code === 0) continue;
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        output += value[index] + value[index + 1];
+        index += 1;
+      }
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) continue;
+    output += value[index];
+  }
+  return output;
+}
+
+export function sanitizeForPostgres<T>(value: T, depth = 0): T {
+  if (depth > 8) return null as T;
+  if (typeof value === 'string') return sanitizeTextForPostgres(value) as T;
+  if (Array.isArray(value)) return value.map(item => sanitizeForPostgres(item, depth + 1)) as T;
+  if (value && typeof value === 'object') {
+    const next: Record<string, any> = {};
+    for (const [key, item] of Object.entries(value as Record<string, any>)) {
+      next[sanitizeTextForPostgres(key, 200)] = sanitizeForPostgres(item, depth + 1);
+    }
+    return next as T;
+  }
+  return value;
+}
+
+function compactSource(source: ResearchSource) {
+  return sanitizeForPostgres({
+    id: source.id,
+    title: source.title,
+    url: source.url,
+    type: source.type,
+    sourceProvider: source.sourceProvider,
+    year: source.year,
+    citationCount: source.citationCount,
+    authors: source.authors,
+    snippet: source.snippet?.slice(0, 1200),
+    abstract: source.abstract?.slice(0, 1200),
+    fullTextExcerpt: source.fullTextExcerpt?.slice(0, 1200),
+    score: source.score,
+  });
+}
+
 function titleFromMessage(message: string) {
-  return message.replace(/\s+/g, ' ').trim().slice(0, 42) || 'Synapse Conversation';
+  return sanitizeTextForPostgres(message).replace(/\s+/g, ' ').trim().slice(0, 42) || 'Synapse Conversation';
 }
 
 function parseJsonObject(text: string) {
@@ -59,15 +113,16 @@ function parseJsonObject(text: string) {
   }
 }
 
-function preferredModel(config: LLMConfig | null) {
+function preferredModel(config: LLMConfig | null, override?: string) {
+  if (override === 'deepseek-v4-flash' || override === 'deepseek-v4-pro') return override;
   if (!config?.defaultModel || config.defaultModel === 'deepseek-v4-flash') return 'deepseek-v4-pro';
   return config.defaultModel;
 }
 
-async function callSynapseLLM(config: LLMConfig | null, messages: any[], maxTokens = 1200) {
-  if (!config?.apiKey || !config?.endpoint) return { content: '', reasoning: '', model: preferredModel(config), usedThinking: false };
+async function callSynapseLLM(config: LLMConfig | null, messages: any[], maxTokens = 1200, options: { model?: string; thinkingEnabled?: boolean } = {}) {
+  if (!config?.apiKey || !config?.endpoint) return { content: '', reasoning: '', model: preferredModel(config, options.model), usedThinking: false };
 
-  const model = preferredModel(config);
+  const model = preferredModel(config, options.model);
   const endpoint = config.endpoint;
   const apiKey = config.apiKey;
   const baseBody = {
@@ -94,16 +149,18 @@ async function callSynapseLLM(config: LLMConfig | null, messages: any[], maxToke
   }
 
   let usedThinking = false;
-  let result = await post({
-    ...baseBody,
-    enable_thinking: true,
-    return_reasoning: true,
-  });
+  let result = options.thinkingEnabled === false
+    ? await post(baseBody)
+    : await post({
+        ...baseBody,
+        enable_thinking: true,
+        return_reasoning: true,
+      });
 
-  if (!result.res.ok) {
+  if (!result.res.ok && options.thinkingEnabled !== false) {
     result = await post(baseBody);
   } else {
-    usedThinking = true;
+    usedThinking = options.thinkingEnabled !== false;
   }
 
   if (!result.res.ok) return { content: '', reasoning: '', model, usedThinking: false };
@@ -159,13 +216,69 @@ async function loadConversationContext(supabase: SupabaseLike, userId: string, c
   return {
     messages: (messages || []).reverse(),
     files: files || [],
+    memorySummary: '',
   };
+}
+
+async function maybeCompressMemory(
+  options: SynapseRunOptions,
+  conversation: any,
+  context: { messages: any[]; files: any[]; memorySummary?: string }
+) {
+  const historyText = context.messages
+    .map((row: any) => `${row.role}: ${sanitizeTextForPostgres(String(row.content || ''), 1200)}`)
+    .join('\n');
+  const existingSummary = sanitizeTextForPostgres(String(conversation.metadata?.memorySummary || ''), 3000);
+
+  if (context.messages.length < 12 && historyText.length < 10000) {
+    return existingSummary;
+  }
+
+  const llm = await callSynapseLLM(options.llmConfig, [
+    {
+      role: 'system',
+      content: 'You summarize long Synapse agent conversations into durable memory. Keep user goals, preferences, key facts, uploaded document context, unfinished tasks, and tool results. Do not invent facts.',
+    },
+    {
+      role: 'user',
+      content: `Existing memory:
+${existingSummary || 'None'}
+
+Recent conversation:
+${historyText}
+
+Write an updated memory summary in Chinese, under 1200 Chinese characters.`,
+    },
+  ], 900, options.agentSettings);
+
+  const memorySummary = sanitizeTextForPostgres(llm.content || existingSummary, 3000);
+  if (memorySummary) {
+    await options.supabase
+      .from('agent_conversations')
+      .update({
+        metadata: sanitizeForPostgres({
+          ...(conversation.metadata || {}),
+          memorySummary,
+          memoryUpdatedAt: new Date().toISOString(),
+          memorySource: 'synapse_compaction',
+        }),
+      })
+      .eq('id', conversation.id)
+      .eq('user_id', options.userId);
+  }
+  return memorySummary;
 }
 
 async function insertMessage(supabase: SupabaseLike, userId: string, conversationId: string, role: string, content: string, metadata: Record<string, any> = {}) {
   const { data, error } = await supabase
     .from('agent_messages')
-    .insert({ user_id: userId, conversation_id: conversationId, role, content, metadata })
+    .insert({
+      user_id: userId,
+      conversation_id: conversationId,
+      role,
+      content: sanitizeTextForPostgres(content),
+      metadata: sanitizeForPostgres(metadata),
+    })
     .select()
     .single();
   if (error) throw error;
@@ -193,9 +306,9 @@ async function insertToolTrace(
     message_id: messageId || null,
     tool_name: toolName,
     status: 'completed',
-    input,
-    output,
-    summary,
+    input: sanitizeForPostgres(input),
+    output: sanitizeForPostgres(output),
+    summary: sanitizeTextForPostgres(summary),
   });
 }
 
@@ -246,7 +359,12 @@ function heuristicDecision(message: string, files: any[]): SynapseDecision {
   };
 }
 
-async function decideTools(message: string, context: { messages: any[]; files: any[] }, llmConfig: LLMConfig | null) {
+async function decideTools(
+  message: string,
+  context: { messages: any[]; files: any[]; memorySummary?: string },
+  llmConfig: LLMConfig | null,
+  agentSettings?: SynapseRunOptions['agentSettings']
+) {
   const system = `You are Synapse, the main agent controller for Synap.
 Choose tools only when useful. Return strict JSON only.
 
@@ -267,13 +385,13 @@ JSON shape:
 
   const history = context.messages
     .slice(-8)
-    .map((row: any) => `${row.role}: ${String(row.content || '').slice(0, 600)}`)
+    .map((row: any) => `${row.role}: ${sanitizeTextForPostgres(String(row.content || ''), 600)}`)
     .join('\n');
-  const files = context.files.map((file: any) => `${file.id}: ${file.file_name} (${file.file_type}, ${file.content_text?.length || 0} chars)`).join('\n') || 'No uploaded files.';
+  const files = context.files.map((file: any) => `${file.id}: ${sanitizeTextForPostgres(file.file_name || '', 200)} (${file.file_type}, ${file.content_text?.length || 0} chars)`).join('\n') || 'No uploaded files.';
   const llm = await callSynapseLLM(llmConfig, [
     { role: 'system', content: system },
-    { role: 'user', content: `Recent conversation:\n${history || 'None'}\n\nFiles:\n${files}\n\nUser message:\n${message}` },
-  ], 700);
+    { role: 'user', content: `Durable memory:\n${context.memorySummary || 'None'}\n\nRecent conversation:\n${history || 'None'}\n\nFiles:\n${files}\n\nUser message:\n${message}` },
+  ], 700, agentSettings);
 
   const parsed = parseJsonObject(llm.content);
   if (!parsed || !Array.isArray(parsed.tools)) return heuristicDecision(message, context.files);
@@ -298,20 +416,20 @@ JSON shape:
 
 function sourcesContext(sources: ResearchSource[]) {
   return sources.slice(0, 10).map((source, index) => {
-    const text = source.fullTextExcerpt || source.abstract || source.snippet || '';
-    return `[S${index + 1}] ${source.title}
+    const text = sanitizeTextForPostgres(source.fullTextExcerpt || source.abstract || source.snippet || '', 900);
+    return `[S${index + 1}] ${sanitizeTextForPostgres(source.title || '', 300)}
 Provider: ${source.sourceProvider || source.type}
 Year: ${source.year || ''}
 URL: ${source.url || ''}
-Excerpt: ${text.slice(0, 900)}`;
+Excerpt: ${text}`;
   }).join('\n\n');
 }
 
 function filesContext(files: any[]) {
   return files.slice(0, 6).map((file, index) => {
-    return `[F${index + 1}] ${file.file_name}
+    return `[F${index + 1}] ${sanitizeTextForPostgres(file.file_name || '', 300)}
 Type: ${file.file_type}
-Excerpt: ${String(file.content_text || '').slice(0, 1800)}`;
+Excerpt: ${sanitizeTextForPostgres(String(file.content_text || ''), 1800)}`;
   }).join('\n\n');
 }
 
@@ -325,7 +443,7 @@ async function runResearchTool(decision: SynapseToolDecision, options: SynapseRu
     llmConfig: {
       apiKey: options.llmConfig?.apiKey || '',
       endpoint: options.llmConfig?.endpoint || '',
-      defaultModel: preferredModel(options.llmConfig),
+      defaultModel: preferredModel(options.llmConfig, options.agentSettings?.model),
     },
     toolConfig: {
       tavilyApiKey: options.toolConfig?.tavilyApiKey || '',
@@ -338,7 +456,7 @@ async function runResearchTool(decision: SynapseToolDecision, options: SynapseRu
   const plan = await planResearchQueries(retrievalOptions);
   const sources = await retrieveResearchSources({ ...retrievalOptions, plan });
   const summary = `${selected.mode === 'academic' ? '学术检索' : selected.mode === 'general' ? 'Web 检索' : '综合检索'}完成：${sources.length} 个来源。`;
-  await insertToolTrace(options.supabase, options.userId, conversationId, 'researchSearch', { query, mode: selected.mode, depth: selected.depth }, { sourceCount: sources.length, plannedQueries: plan, sources: sources.slice(0, 12) }, summary);
+  await insertToolTrace(options.supabase, options.userId, conversationId, 'researchSearch', { query, mode: selected.mode, depth: selected.depth }, { sourceCount: sources.length, plannedQueries: plan, sources: sources.slice(0, 12).map(compactSource) }, summary);
   return {
     call: {
       id: id('tool'),
@@ -388,7 +506,7 @@ async function runReadDocumentTool(decision: SynapseToolDecision, options: Synap
 async function generateAnswer(
   options: SynapseRunOptions,
   conversation: any,
-  context: { messages: any[]; files: any[] },
+  context: { messages: any[]; files: any[]; memorySummary?: string },
   decision: SynapseDecision,
   toolCalls: AgentToolCallLog[],
   sources: ResearchSource[],
@@ -398,7 +516,7 @@ async function generateAnswer(
   const fileBlock = filesContext(readFiles);
   const history = context.messages
     .slice(-10)
-    .map((row: any) => `${row.role}: ${String(row.content || '').slice(0, 900)}`)
+    .map((row: any) => `${row.role}: ${sanitizeTextForPostgres(String(row.content || ''), 900)}`)
     .join('\n');
   const pendingWrite = decision.tools.find(tool => tool.tool === 'createDocument');
 
@@ -410,6 +528,9 @@ If a createDocument action is pending, do not claim it has been created; say it 
 
   const prompt = `Conversation:
 ${history || 'None'}
+
+Durable memory:
+${context.memorySummary || 'None'}
 
 User message:
 ${options.message}
@@ -431,7 +552,7 @@ Write the final assistant response now.`;
   const llm = await callSynapseLLM(options.llmConfig, [
     { role: 'system', content: system },
     { role: 'user', content: prompt },
-  ], decision.responseStyle === 'detailed' ? 2200 : decision.responseStyle === 'concise' ? 800 : 1400);
+  ], decision.responseStyle === 'detailed' ? 2200 : decision.responseStyle === 'concise' ? 800 : 1400, options.agentSettings);
 
   if (llm.content.trim()) {
     return {
@@ -445,7 +566,7 @@ Write the final assistant response now.`;
   const fallback = toolCalls.length
     ? `我已完成工具调用：${toolCalls.map(call => call.result || call.title).join('；')}\n\n${sources.length ? `检索到了 ${sources.length} 个来源。你可以在右侧来源栏查看，我也可以继续基于这些来源生成文档或进一步分析。` : ''}${readFiles.length ? `已读取 ${readFiles.length} 个上传文档。` : ''}`
     : '我可以直接回答这个问题；如果你希望我检索资料、读取上传文档或创建文档，可以直接告诉我。';
-  return { content: fallback, reasoning: '', model: preferredModel(options.llmConfig), usedThinking: false };
+  return { content: fallback, reasoning: '', model: preferredModel(options.llmConfig, options.agentSettings?.model), usedThinking: false };
 }
 
 function confirmationPlan(message: string, decision: SynapseDecision): AgentPlan | null {
@@ -473,9 +594,10 @@ function confirmationPlan(message: string, decision: SynapseDecision): AgentPlan
 export async function runSynapseTurn(options: SynapseRunOptions) {
   const conversation = await ensureConversation(options.supabase, options.userId, options.conversationId, options.message);
   const beforeContext = await loadConversationContext(options.supabase, options.userId, conversation.id);
+  beforeContext.memorySummary = await maybeCompressMemory(options, conversation, beforeContext);
   await insertMessage(options.supabase, options.userId, conversation.id, 'user', options.message);
 
-  const decision = await decideTools(options.message, beforeContext, options.llmConfig);
+  const decision = await decideTools(options.message, beforeContext, options.llmConfig, options.agentSettings);
   const executableTools = decision.tools.filter(tool => tool.tool !== 'createDocument');
   const pendingPlan = confirmationPlan(options.message, decision);
   const toolCalls: AgentToolCallLog[] = [];
@@ -511,11 +633,12 @@ export async function runSynapseTurn(options: SynapseRunOptions) {
     agent: 'synapse',
     decision,
     toolCalls,
-    sources: allSources.slice(0, 12),
+    sources: allSources.slice(0, 12).map(compactSource),
     readFiles: readFiles.map(file => ({ id: file.id, file_name: file.file_name })),
     reasoning: answer.reasoning,
     model: answer.model,
     usedThinking: answer.usedThinking,
+    agentSettings: options.agentSettings || {},
     pendingPlan,
   });
 

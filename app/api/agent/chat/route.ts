@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfig, getUserResearchToolConfig } from '@/lib/user-settings';
 import { generateAgentDocument } from '@/lib/agent-runtime';
-import { loadRecentResearchSources, runSynapseTurn } from '@/lib/synapse-runtime';
+import { loadRecentResearchSources, runSynapseTurn, sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-runtime';
 import type { AgentPlan, AgentToolCallLog } from '@/types';
 
 export const runtime = 'nodejs';
@@ -42,32 +42,37 @@ async function executeConfirmedDocument(
   conversationId: string,
   message: string,
   plan: AgentPlan,
-  llmConfig: any
+  llmConfig: any,
+  agentSettings: { model?: string; thinkingEnabled?: boolean } = {}
 ) {
+  const effectiveLLMConfig = {
+    ...llmConfig,
+    defaultModel: agentSettings.model || llmConfig?.defaultModel,
+  };
   const sources = await loadRecentResearchSources(supabase, userId, conversationId);
   const draft = await generateAgentDocument({
     userId,
     message,
     plan,
     sources,
-    llmConfig,
+    llmConfig: effectiveLLMConfig,
   });
 
   const { data: document, error } = await supabase
     .from('agent_documents')
     .insert({
       user_id: userId,
-      title: draft.title,
-      content_md: draft.markdown,
+      title: sanitizeTextForPostgres(draft.title, 240),
+      content_md: sanitizeTextForPostgres(draft.markdown),
       source: 'synapse',
-      metadata: {
+      metadata: sanitizeForPostgres({
         runtime: draft.runtime,
         agent: 'synapse',
         conversationId,
         plan,
         sourceCount: sources.length,
         warnings: draft.warnings || [],
-      },
+      }),
     })
     .select()
     .single();
@@ -93,16 +98,16 @@ async function executeConfirmedDocument(
       conversation_id: conversationId,
       tool_name: 'createDocument',
       status: 'completed',
-      input: { message, plan },
-      output: { document, sourceCount: sources.length },
-      summary: call.result,
+      input: sanitizeForPostgres({ message, plan }),
+      output: sanitizeForPostgres({ document, sourceCount: sources.length }),
+      summary: sanitizeTextForPostgres(call.result || ''),
     }),
     supabase.from('agent_messages').insert({
       user_id: userId,
       conversation_id: conversationId,
       role: 'assistant',
-      content: answer,
-      metadata: { agent: 'synapse', toolCalls: [call], document },
+      content: sanitizeTextForPostgres(answer),
+      metadata: sanitizeForPostgres({ agent: 'synapse', toolCalls: [call], document }),
     }),
     supabase
       .from('agent_conversations')
@@ -122,6 +127,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const message = String(body.message || '').trim();
     const conversationId = String(body.conversationId || '').trim() || undefined;
+    const agentSettings = {
+      model: body.agentSettings?.model === 'deepseek-v4-flash' || body.agentSettings?.model === 'deepseek-v4-pro'
+        ? body.agentSettings.model
+        : undefined,
+      thinkingEnabled: body.agentSettings?.thinkingEnabled !== false,
+    };
     if (!message) return NextResponse.json({ error: 'Missing message' }, { status: 400 });
 
     const [llmConfig, toolConfig] = await Promise.all([
@@ -137,7 +148,8 @@ export async function POST(req: NextRequest) {
         conversationId,
         message,
         body.confirmedPlan as AgentPlan,
-        llmConfig
+        llmConfig,
+        agentSettings
       );
       return NextResponse.json({
         type: 'result',
@@ -157,6 +169,7 @@ export async function POST(req: NextRequest) {
       supabase: auth.supabase,
       llmConfig,
       toolConfig,
+      agentSettings,
     });
 
     return NextResponse.json(result);

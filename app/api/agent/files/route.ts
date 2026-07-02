@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import mammoth from 'mammoth';
 import { getUserMineruConfig } from '@/lib/user-settings';
+import { sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-runtime';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -82,6 +83,14 @@ async function parseFile(file: File, buffer: Buffer, token: string) {
   return '';
 }
 
+function safeStorageName(name: string) {
+  return sanitizeTextForPostgres(name, 180)
+    .replace(/[\\/:*?"<>|#%&{}$!'@+=`]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 180) || 'document';
+}
+
 export async function POST(req: NextRequest) {
   const auth = await getAuthedClient(req);
   if (auth.error) return auth.error;
@@ -101,8 +110,8 @@ export async function POST(req: NextRequest) {
 
     const id = await ensureConversation(auth.supabase, auth.user.id, conversationId);
     const buffer = Buffer.from(await file.arrayBuffer());
-    const contentText = await parseFile(file, buffer, auth.token);
-    const storagePath = `agent/${auth.user.id}/${id}/${Date.now()}-${file.name}`;
+    const contentText = sanitizeTextForPostgres(await parseFile(file, buffer, auth.token));
+    const storagePath = `agent/${auth.user.id}/${id}/${Date.now()}-${safeStorageName(file.name)}`;
     let fileUrl = '';
     let uploadError = '';
 
@@ -122,17 +131,17 @@ export async function POST(req: NextRequest) {
       .insert({
         user_id: auth.user.id,
         conversation_id: id,
-        file_name: file.name,
+        file_name: sanitizeTextForPostgres(file.name, 240),
         file_type: ext,
         file_size: file.size,
         storage_path: uploadError ? null : storagePath,
         file_url: fileUrl || null,
         content_text: contentText || '',
-        metadata: {
+        metadata: sanitizeForPostgres({
           mimeType: file.type,
           parseStatus: contentText ? 'ready' : 'file_only',
           uploadError,
-        },
+        }),
       })
       .select()
       .single();

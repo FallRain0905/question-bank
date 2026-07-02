@@ -13,6 +13,11 @@ type ChatMessage = {
 
 type RightTab = 'tools' | 'sources' | 'files' | 'documents';
 
+type AgentSettings = {
+  model: 'deepseek-v4-flash' | 'deepseek-v4-pro';
+  thinkingEnabled: boolean;
+};
+
 function id() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -67,14 +72,35 @@ export default function AgentPage() {
   const [selectedDocument, setSelectedDocument] = useState<AgentDocument | null>(null);
   const [rightTab, setRightTab] = useState<RightTab>('tools');
   const [rightOpen, setRightOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [agentSettings, setAgentSettings] = useState<AgentSettings>({
+    model: 'deepseek-v4-pro',
+    thinkingEnabled: true,
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('synapse-agent-settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setAgentSettings({
+          model: parsed.model === 'deepseek-v4-flash' ? 'deepseek-v4-flash' : 'deepseek-v4-pro',
+          thinkingEnabled: parsed.thinkingEnabled !== false,
+        });
+      }
+    } catch {
+      // Local settings are optional.
+    }
     loadConversations();
     loadDocuments();
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem('synapse-agent-settings', JSON.stringify(agentSettings));
+  }, [agentSettings]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -226,7 +252,7 @@ export default function AgentPage() {
       const res = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ message: next, conversationId: selectedConversationId || undefined }),
+        body: JSON.stringify({ message: next, conversationId: selectedConversationId || undefined, agentSettings }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Agent planning failed');
@@ -274,7 +300,7 @@ export default function AgentPage() {
       const res = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ message: pendingMessage, conversationId: selectedConversationId || undefined, confirmedPlan: pendingPlan }),
+        body: JSON.stringify({ message: pendingMessage, conversationId: selectedConversationId || undefined, confirmedPlan: pendingPlan, agentSettings }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Agent execution failed');
@@ -366,6 +392,52 @@ export default function AgentPage() {
             <h1 className="truncate text-base font-semibold text-gray-900">Synapse 主控 Agent</h1>
           </div>
           <div className="flex items-center gap-2">
+            <div className="relative">
+              <button
+                onClick={() => setSettingsOpen(prev => !prev)}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300"
+              >
+                设置
+              </button>
+              {settingsOpen && (
+                <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-gray-200 bg-white p-3 text-sm shadow-lg">
+                  <div className="text-xs font-medium text-gray-500">Synapse 模型</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {[
+                      ['deepseek-v4-pro', 'V4 Pro'],
+                      ['deepseek-v4-flash', 'V4 Flash'],
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        onClick={() => setAgentSettings(prev => ({ ...prev, model: value as AgentSettings['model'] }))}
+                        className={`rounded-lg border px-3 py-2 text-xs ${
+                          agentSettings.model === value
+                            ? 'border-gray-900 bg-gray-900 text-white'
+                            : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <label className="mt-3 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                    <span>
+                      <span className="block font-medium text-gray-700">Thinking 模式</span>
+                      <span className="mt-0.5 block text-gray-400">请求模型返回 reasoning 字段，若不支持会自动回退。</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={agentSettings.thinkingEnabled}
+                      onChange={event => setAgentSettings(prev => ({ ...prev, thinkingEnabled: event.target.checked }))}
+                      className="h-4 w-4"
+                    />
+                  </label>
+                  <div className="mt-2 text-[11px] leading-5 text-gray-400">
+                    当前设置只影响 Synapse 主控 Agent，不会覆盖全站设置页里的 API Key。
+                  </div>
+                </div>
+              )}
+            </div>
             <label className="cursor-pointer rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">
               上传文档
               <input
