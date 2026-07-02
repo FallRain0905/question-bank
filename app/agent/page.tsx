@@ -17,6 +17,20 @@ function id() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function modeLabel(mode: any) {
+  if (mode === 'academic') return '学术检索';
+  if (mode === 'general') return 'Web 检索';
+  if (mode === 'both') return '综合检索';
+  return '';
+}
+
+function depthLabel(depth: any) {
+  if (depth === 'fast') return '快速';
+  if (depth === 'medium') return '中等';
+  if (depth === 'deep') return '深度';
+  return '';
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
   const supabase = getSupabase();
   const { data: { session } } = await supabase.auth.getSession();
@@ -28,7 +42,7 @@ export default function AgentPage() {
     {
       id: id(),
       role: 'assistant',
-      content: '我是 Synap Agent 调试台。你可以让我先检索资料，再创建一份 Markdown 文档。我会先给出计划，确认后再调用工具。',
+      content: '我是 Synap Agent 调试台。简单问题我会直接回答；需要检索、创建文档或导出文件时，我会先给出计划，确认后再调用工具。',
     },
   ]);
   const [input, setInput] = useState('');
@@ -89,6 +103,13 @@ export default function AgentPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Agent planning failed');
+      if (data.type === 'response') {
+        setPendingPlan(null);
+        setPendingMessage('');
+        pushMessage({ role: 'assistant', content: data.message || '我可以直接回答这个问题。' });
+        return;
+      }
+      if (!data.plan) throw new Error('Agent did not return a valid plan');
       setPendingPlan(data.plan);
       pushMessage({ role: 'assistant', content: data.message || '我拟定了一个执行计划。' });
     } catch (err: any) {
@@ -228,7 +249,14 @@ export default function AgentPage() {
                         <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-gray-500">{step.tool}</span>
                       </div>
                       <p className="mt-1 text-xs leading-5 text-gray-500">{step.description}</p>
+                      {step.tool === 'researchSearch' && (
+                        <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-gray-500">
+                          {modeLabel(step.args?.mode) && <span className="rounded bg-white px-1.5 py-0.5">{modeLabel(step.args?.mode)}</span>}
+                          {depthLabel(step.args?.depth) && <span className="rounded bg-white px-1.5 py-0.5">{depthLabel(step.args?.depth)}</span>}
+                        </div>
+                      )}
                       {step.args?.query && <div className="mt-2 rounded bg-white px-2 py-1 text-xs text-gray-600">{step.args.query}</div>}
+                      {step.args?.routingReason && <p className="mt-2 text-[11px] leading-5 text-gray-400">{step.args.routingReason}</p>}
                     </div>
                   ))}
                 </div>
@@ -298,6 +326,14 @@ export default function AgentPage() {
                       <span className="rounded bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-500">{call.status}</span>
                     </div>
                     <div className="mt-1 text-[11px] text-gray-400">{call.tool}</div>
+                    {call.tool === 'researchSearch' && (
+                      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-gray-500">
+                        {modeLabel(call.args?.mode) && <span className="rounded bg-gray-50 px-1.5 py-0.5">{modeLabel(call.args?.mode)}</span>}
+                        {depthLabel(call.args?.depth) && <span className="rounded bg-gray-50 px-1.5 py-0.5">{depthLabel(call.args?.depth)}</span>}
+                      </div>
+                    )}
+                    {call.args?.query && <div className="mt-2 rounded bg-gray-50 px-2 py-1 text-xs text-gray-600">{call.args.query}</div>}
+                    {call.args?.routingReason && <p className="mt-2 text-[11px] leading-5 text-gray-400">{call.args.routingReason}</p>}
                     {call.result && <p className="mt-2 text-xs leading-5 text-gray-600">{call.result}</p>}
                     {call.error && <p className="mt-2 text-xs leading-5 text-red-600">{call.error}</p>}
                   </div>
