@@ -528,7 +528,7 @@ export interface ResearchAgentMessage {
   created_at: string;
 }
 
-export type AgentToolName = 'researchSearch' | 'readDocument' | 'createDocument';
+export type AgentToolName = 'synapse' | 'researchSearch' | 'readDocument' | 'convertDocument' | 'createDocument';
 
 export interface AgentPlanStep {
   id: string;

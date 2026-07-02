@@ -36,6 +36,68 @@ function depthLabel(depth: any) {
   return '';
 }
 
+function toolLabel(tool: any) {
+  if (tool === 'researchSearch') return '检索';
+  if (tool === 'readDocument') return '文档阅读';
+  if (tool === 'convertDocument') return '文档转换';
+  if (tool === 'createDocument') return '文档生成';
+  if (tool === 'synapse') return '意图判断';
+  return String(tool || '工具');
+}
+
+function optimisticToolCalls(message: string): AgentToolCallLog[] {
+  const lower = message.toLowerCase();
+  const calls: AgentToolCallLog[] = [{
+    id: id(),
+    tool: 'synapse',
+    title: 'Synapse 正在判断意图',
+    status: 'running',
+    args: {},
+    result: '正在判断是否需要调用检索、文档阅读、转换或文档生成工具。',
+  }];
+  if (/检索|搜索|联网|查找|资料|论文|文献|最新|趋势|进展|research|search|paper|web/.test(lower)) {
+    calls.push({
+      id: id(),
+      tool: 'researchSearch',
+      title: '准备检索资料',
+      status: 'pending',
+      args: { query: message },
+      result: '等待 Synapse 选择检索模式和深度。',
+    });
+  }
+  if (/文档|文件|附件|上传|pdf|docx|阅读|总结这份|read|file|document/.test(lower)) {
+    calls.push({
+      id: id(),
+      tool: 'readDocument',
+      title: '准备读取文档',
+      status: 'pending',
+      args: { query: message },
+      result: '如果本会话有可读文件，Synapse 会读取它们作为上下文。',
+    });
+  }
+  if (/转换|convert|zip|mineru/.test(lower)) {
+    calls.push({
+      id: id(),
+      tool: 'convertDocument',
+      title: '准备文档转换',
+      status: 'pending',
+      args: {},
+      result: '文档转换会使用 MinerU，完成后 ZIP 会进入文件库。',
+    });
+  }
+  if (/创建|生成|写.*文档|写.*报告|保存|导出|markdown|docx|create|generate|export/.test(lower)) {
+    calls.push({
+      id: id(),
+      tool: 'createDocument',
+      title: '准备文档生成',
+      status: 'pending',
+      args: {},
+      result: '文档生成属于副作用动作，执行前会请求确认。',
+    });
+  }
+  return calls;
+}
+
 function messagesFromStored(rows: AgentStoredMessage[]): ChatMessage[] {
   return rows
     .filter(row => row.role === 'user' || row.role === 'assistant' || row.role === 'system')
@@ -78,6 +140,7 @@ export default function AgentPage() {
     thinkingEnabled: true,
   });
   const [loading, setLoading] = useState(false);
+  const [activityText, setActivityText] = useState('');
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -170,6 +233,7 @@ export default function AgentPage() {
     setToolCalls([]);
     setSources([]);
     setFiles([]);
+    setActivityText('');
     setMessages([{
       id: id(),
       role: 'assistant',
@@ -204,6 +268,7 @@ export default function AgentPage() {
 
   const uploadFile = async (file: File) => {
     setError('');
+    setActivityText(`正在上传并解析 ${file.name}...`);
     setLoading(true);
     try {
       const headers = await authHeaders();
@@ -233,6 +298,45 @@ export default function AgentPage() {
     } catch (err: any) {
       setError(err.message || 'Upload failed');
     } finally {
+      setActivityText('');
+      setLoading(false);
+    }
+  };
+
+  const convertFile = async (file: AgentFile) => {
+    setError('');
+    setActivityText(`正在调用 MinerU 转换 ${file.file_name}...`);
+    setToolCalls(prev => [{
+      id: id(),
+      tool: 'convertDocument',
+      title: '正在转换文档',
+      status: 'running',
+      args: { fileId: file.id, fileName: file.file_name },
+      result: '正在提交 MinerU 转换任务并等待 ZIP 结果。',
+    }, ...prev]);
+    setLoading(true);
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`/api/agent/files/${file.id}/convert`, {
+        method: 'POST',
+        headers,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '转换失败');
+      setFiles(prev => [data.file, ...prev]);
+      setToolCalls(prev => prev.map(call => call.tool === 'convertDocument' && call.status === 'running'
+        ? { ...call, status: 'completed', result: `MinerU 转换完成：${data.file.file_name}` }
+        : call));
+      setRightTab('files');
+      setRightOpen(true);
+      loadConversations();
+    } catch (err: any) {
+      setToolCalls(prev => prev.map(call => call.tool === 'convertDocument' && call.status === 'running'
+        ? { ...call, status: 'failed', error: err.message || '转换失败' }
+        : call));
+      setError(err.message || '转换失败');
+    } finally {
+      setActivityText('');
       setLoading(false);
     }
   };
@@ -244,6 +348,8 @@ export default function AgentPage() {
     setError('');
     setPendingPlan(null);
     setPendingMessage(next);
+    setToolCalls(optimisticToolCalls(next));
+    setActivityText('Synapse 正在判断意图...');
     pushMessage({ role: 'user', content: next });
     setLoading(true);
 
@@ -278,6 +384,7 @@ export default function AgentPage() {
     } catch (err: any) {
       setError(err.message || 'Agent planning failed');
     } finally {
+      setActivityText('');
       setLoading(false);
     }
   };
@@ -286,6 +393,7 @@ export default function AgentPage() {
     if (!pendingPlan || !pendingMessage || loading) return;
     setLoading(true);
     setError('');
+    setActivityText('正在执行已确认的文档生成...');
     pushMessage({ role: 'user', content: '确认执行这个计划。' });
     setToolCalls(pendingPlan.steps.map(step => ({
       id: step.id,
@@ -321,6 +429,7 @@ export default function AgentPage() {
     } catch (err: any) {
       setError(err.message || 'Agent execution failed');
     } finally {
+      setActivityText('');
       setLoading(false);
     }
   };
@@ -328,6 +437,16 @@ export default function AgentPage() {
   const rejectPlan = () => {
     setPendingPlan(null);
     pushMessage({ role: 'assistant', content: '好的，我不会执行这个计划。你可以换一种说法重新发起任务。' });
+  };
+
+  const downloadUrl = (url: string, name: string) => {
+    const a = window.document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.target = '_blank';
+    window.document.body.appendChild(a);
+    a.click();
+    a.remove();
   };
 
   const downloadDocument = async (document: AgentDocument, format: 'markdown' | 'docx') => {
@@ -460,6 +579,40 @@ export default function AgentPage() {
           </div>
         </header>
 
+        <div className="border-b border-gray-100 bg-white px-4 py-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-medium text-gray-500">工具状态</span>
+            {[
+              ['researchSearch', '检索'],
+              ['readDocument', '文档阅读'],
+              ['convertDocument', '文档转换'],
+              ['createDocument', '文档生成'],
+            ].map(([tool, label]) => {
+              const active = toolCalls.find(call => call.tool === tool);
+              const status = active?.status || 'ready';
+              return (
+                <span
+                  key={tool}
+                  className={`rounded-full px-2 py-1 ${
+                    status === 'running'
+                      ? 'bg-blue-50 text-blue-700'
+                      : status === 'pending'
+                        ? 'bg-amber-50 text-amber-700'
+                        : status === 'failed'
+                          ? 'bg-red-50 text-red-700'
+                          : status === 'completed'
+                            ? 'bg-green-50 text-green-700'
+                            : 'bg-gray-50 text-gray-500'
+                  }`}
+                >
+                  {label} · {status === 'ready' ? '可用' : status}
+                </span>
+              );
+            })}
+            {activityText && <span className="ml-auto text-blue-600">{activityText}</span>}
+          </div>
+        </div>
+
         <div className="flex-1 overflow-y-auto bg-gray-50/60 px-3 py-4 sm:px-4">
           <div className="mx-auto max-w-4xl space-y-4">
             {messages.map(message => (
@@ -471,7 +624,14 @@ export default function AgentPage() {
                       ? 'border border-gray-200 bg-white text-gray-600'
                       : 'bg-blue-50 text-gray-800'
                 }`}>
-                  <div className="whitespace-pre-line leading-6">{message.content}</div>
+                  {message.role === 'user' ? (
+                    <div className="whitespace-pre-line leading-6">{message.content}</div>
+                  ) : (
+                    <article
+                      className="prose prose-sm max-w-none break-words prose-headings:text-gray-900 prose-p:my-2 prose-p:leading-6 prose-li:my-0 prose-li:leading-6 prose-code:rounded prose-code:bg-white/70 prose-code:px-1 prose-code:py-0.5"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
+                    />
+                  )}
                 </div>
               </div>
             ))}
@@ -562,7 +722,7 @@ export default function AgentPage() {
               {[
                 ['tools', '工具'],
                 ['sources', '来源'],
-                ['files', '文件'],
+                ['files', '文件库'],
                 ['documents', '文档'],
               ].map(([value, label]) => (
                 <button
@@ -587,7 +747,7 @@ export default function AgentPage() {
                       <h3 className="text-xs font-medium text-gray-800">{call.title}</h3>
                       <span className="rounded bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-500">{call.status}</span>
                     </div>
-                    <div className="mt-1 text-[11px] text-gray-400">{call.tool}</div>
+                    <div className="mt-1 text-[11px] text-gray-400">{toolLabel(call.tool)}</div>
                     {call.tool === 'researchSearch' && (
                       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-gray-500">
                         {modeLabel(call.args?.mode) && <span className="rounded bg-gray-50 px-1.5 py-0.5">{modeLabel(call.args?.mode)}</span>}
@@ -627,19 +787,77 @@ export default function AgentPage() {
             )}
 
             {rightTab === 'files' && (
-              <div className="space-y-2">
-                {files.length === 0 ? (
-                  <div className="rounded-lg bg-gray-50 p-4 text-xs leading-5 text-gray-400">上传 PDF、DOCX、Markdown 或 TXT 后，Synapse 可以在对话中读取它们。</div>
-                ) : files.map(file => (
-                  <div key={file.id} className="rounded-lg bg-gray-50 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0 truncate text-xs font-medium text-gray-700">{file.file_name}</div>
-                      <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-gray-500">{file.file_type}</span>
+              <div className="space-y-4">
+                <section>
+                  <div className="mb-2 text-[11px] font-medium uppercase text-gray-400">会话文件</div>
+                  {files.length === 0 ? (
+                    <div className="rounded-lg bg-gray-50 p-4 text-xs leading-5 text-gray-400">上传 PDF、DOCX、Markdown 或 TXT 后，Synapse 可以在对话中读取它们；PDF 还可以转换为 MinerU ZIP。</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {files.map(file => (
+                        <div key={file.id} className="rounded-lg bg-gray-50 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 truncate text-xs font-medium text-gray-700">{file.file_name}</div>
+                            <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-gray-500">{file.file_type}</span>
+                          </div>
+                          <div className="mt-1 text-[10px] text-gray-400">{file.file_size ? `${Math.ceil((file.file_size || 0) / 1024)} KB · ` : ''}{file.content_text ? `${file.content_text.length} 字符` : file.file_type === 'zip' ? 'MinerU 转换结果' : '未解析出文本'}</div>
+                          {file.content_text && <p className="mt-2 line-clamp-4 text-xs leading-5 text-gray-500">{file.content_text}</p>}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {file.file_url && (
+                              <button
+                                onClick={() => downloadUrl(file.file_url!, file.file_name)}
+                                className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600 hover:border-gray-300"
+                              >
+                                下载
+                              </button>
+                            )}
+                            {file.file_type === 'pdf' && (
+                              <button
+                                onClick={() => convertFile(file)}
+                                disabled={loading}
+                                className="rounded-lg bg-gray-900 px-2 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                              >
+                                MinerU 转换 ZIP
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="mt-1 text-[10px] text-gray-400">{Math.ceil((file.file_size || 0) / 1024)} KB · {file.content_text ? `${file.content_text.length} 字符` : '未解析出文本'}</div>
-                    {file.content_text && <p className="mt-2 line-clamp-4 text-xs leading-5 text-gray-500">{file.content_text}</p>}
-                  </div>
-                ))}
+                  )}
+                </section>
+
+                <section>
+                  <div className="mb-2 text-[11px] font-medium uppercase text-gray-400">生成文档</div>
+                  {documents.length === 0 ? (
+                    <div className="rounded-lg bg-gray-50 p-4 text-xs leading-5 text-gray-400">Synapse 生成的 Markdown / DOCX 会出现在这里。</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {documents.map(document => (
+                        <div key={document.id} className="rounded-lg bg-gray-50 p-3">
+                          <button
+                            onClick={() => {
+                              setSelectedDocument(document);
+                              setRightTab('documents');
+                            }}
+                            className="block w-full truncate text-left text-xs font-medium text-gray-700"
+                          >
+                            {document.title}
+                          </button>
+                          <div className="mt-1 text-[10px] text-gray-400">{new Date(document.updated_at).toLocaleString()}</div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button onClick={() => downloadDocument(document, 'markdown')} className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600 hover:border-gray-300">
+                              Markdown
+                            </button>
+                            <button onClick={() => downloadDocument(document, 'docx')} className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600 hover:border-gray-300">
+                              DOCX
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
               </div>
             )}
 
