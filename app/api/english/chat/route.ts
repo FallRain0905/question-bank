@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { getUserLLMConfig } from '@/lib/user-settings';
 
 const SCENARIOS: Record<string, { role: string; context: string }> = {
@@ -47,7 +47,7 @@ Important rules:
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: defaultModel || 'deepseek-v4-flash',
+        model: defaultModel || 'deepseek-ai/DeepSeek-V4-Flash',
         messages: [{ role: 'system', content: systemPrompt }, ...messages],
         temperature: 0.8,
         max_tokens: 500,

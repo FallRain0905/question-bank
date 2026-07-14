@@ -104,7 +104,7 @@ export default function SettingsPage() {
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">API URL</label>
               <input type="text" value={settings.llm_api_url} onChange={(e) => update('llm_api_url', e.target.value)}
-                placeholder={settings.llm_provider === 'deepseek' ? 'https://api.deepseek.com/v1/chat/completions' :
+                placeholder={settings.llm_provider === 'deepseek' ? 'https://api.siliconflow.cn/v1/chat/completions' :
                   settings.llm_provider === 'qwen' ? 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions' :
                   settings.llm_provider === 'kimi' ? 'https://api.moonshot.cn/v1/chat/completions' :
                   'https://api.example.com/v1/chat/completions'}
@@ -114,7 +114,7 @@ export default function SettingsPage() {
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">模型名称</label>
               <input type="text" value={settings.llm_model} onChange={(e) => update('llm_model', e.target.value)}
-                placeholder={settings.llm_provider === 'deepseek' ? 'deepseek-v4-flash' :
+                placeholder={settings.llm_provider === 'deepseek' ? 'deepseek-ai/DeepSeek-V4-Flash' :
                   settings.llm_provider === 'qwen' ? 'qwen-plus' :
                   settings.llm_provider === 'kimi' ? 'moonshot-v1-8k' : 'gpt-4o'}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-gray-400" />

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfig } from '@/lib/user-settings';
 
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: defaultModel || 'deepseek-v4-flash',
+        model: defaultModel || 'deepseek-ai/DeepSeek-V4-Flash',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: `请分析以下文档并生成结构化大纲：\n\n${truncated}` },

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { getUserLLMConfig } from '@/lib/user-settings';
 
 export async function POST(req: NextRequest) {
@@ -48,7 +48,7 @@ When the student asks:
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: defaultModel || 'deepseek-v4-flash',
+        model: defaultModel || 'deepseek-ai/DeepSeek-V4-Flash',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: isAuto ? 'Analyze the student\'s last message and return JSON.' : (question || '') },

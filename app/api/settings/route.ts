@@ -14,7 +14,7 @@ const defaultSettings = {
   llm_provider: 'deepseek',
   llm_api_key: '',
   llm_api_url: '',
-  llm_model: 'deepseek-v4-flash',
+  llm_model: 'deepseek-ai/DeepSeek-V4-Flash',
   mineru_api_key: '',
   embedding_api_key: '',
   embedding_api_url: '',

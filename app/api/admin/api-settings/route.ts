@@ -5,12 +5,13 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const SUPER_ADMIN_EMAIL = '3283254551@qq.com';
+const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 
 const SETTING_DEFINITIONS = [
   { key: 'llm_provider', category: 'ai_runtime', description: '默认对话模型供应商', is_encrypted: false, defaultValue: 'deepseek' },
-  { key: 'llm_api_url', category: 'ai_runtime', description: '默认对话模型 API 地址', is_encrypted: false, defaultValue: 'https://api.deepseek.com/v1/chat/completions' },
+  { key: 'llm_api_url', category: 'ai_runtime', description: '默认对话模型 API 地址', is_encrypted: false, defaultValue: 'https://api.siliconflow.cn/v1/chat/completions' },
   { key: 'llm_api_key', category: 'ai_runtime', description: '默认对话模型 API Key', is_encrypted: true, defaultValue: '' },
-  { key: 'llm_model', category: 'ai_runtime', description: '默认对话模型名称', is_encrypted: false, defaultValue: 'deepseek-v4-flash' },
+  { key: 'llm_model', category: 'ai_runtime', description: '默认对话模型名称', is_encrypted: false, defaultValue: FLASH_MODEL },
   { key: 'embedding_api_url', category: 'ai_runtime', description: '默认嵌入模型 API 地址', is_encrypted: false, defaultValue: 'https://api.siliconflow.cn/v1/embeddings' },
   { key: 'embedding_api_key', category: 'ai_runtime', description: '默认嵌入模型 API Key', is_encrypted: true, defaultValue: '' },
   { key: 'embedding_model', category: 'ai_runtime', description: '默认嵌入模型名称', is_encrypted: false, defaultValue: 'Qwen/Qwen3-Embedding-4B' },
@@ -20,6 +21,10 @@ const SETTING_DEFINITIONS = [
   { key: 'semantic_scholar_api_key', category: 'ai_tools', description: 'Semantic Scholar API Key', is_encrypted: true, defaultValue: '' },
   { key: 'tavily_api_key', category: 'ai_tools', description: 'Tavily API Key', is_encrypted: true, defaultValue: '' },
   { key: 'github_token', category: 'ai_tools', description: 'GitHub Token', is_encrypted: true, defaultValue: '' },
+  { key: 'nextcloud_url', category: 'nextcloud', description: 'Nextcloud 服务器 URL', is_encrypted: false, defaultValue: '' },
+  { key: 'nextcloud_user', category: 'nextcloud', description: 'Nextcloud 用户名', is_encrypted: false, defaultValue: '' },
+  { key: 'nextcloud_password', category: 'nextcloud', description: 'Nextcloud 密码', is_encrypted: true, defaultValue: '' },
+  { key: 'nextcloud_public_url', category: 'nextcloud', description: 'Nextcloud 公共访问 URL', is_encrypted: false, defaultValue: '' },
 ] as const;
 
 type SettingKey = typeof SETTING_DEFINITIONS[number]['key'];
@@ -32,10 +37,11 @@ function clientForToken(token: string) {
   );
 }
 
-function adminClient() {
+function adminClient(token: string) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return clientForToken(token);
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 }
 
@@ -48,12 +54,12 @@ async function requireAdmin(req: NextRequest) {
 
   const isAdmin = user.user_metadata?.is_admin === true || user.email === SUPER_ADMIN_EMAIL;
   if (!isAdmin) return { error: NextResponse.json({ error: '没有管理员权限' }, { status: 403 }) };
-  return { user };
+  return { user, token };
 }
 
 function sanitizeValue(key: SettingKey, value: unknown) {
   const text = String(value ?? '').trim();
-  if (key === 'llm_model') return 'deepseek-v4-flash';
+  if (key === 'llm_model') return FLASH_MODEL;
   if (key === 'llm_provider') return text || 'deepseek';
   if (key === 'embedding_dimensions') {
     const parsed = Number(text);
@@ -66,7 +72,7 @@ export async function GET(req: NextRequest) {
   const auth = await requireAdmin(req);
   if (auth.error) return auth.error;
 
-  const supabase = adminClient();
+  const supabase = adminClient(auth.token);
   const { data, error } = await supabase
     .from('system_settings')
     .select('key,value,category,description,is_encrypted,updated_at')
@@ -99,7 +105,7 @@ export async function PUT(req: NextRequest) {
     updated_by: auth.user.id,
   }));
 
-  const supabase = adminClient();
+  const supabase = adminClient(auth.token);
   const { error } = await supabase
     .from('system_settings')
     .upsert(rows, { onConflict: 'key' });

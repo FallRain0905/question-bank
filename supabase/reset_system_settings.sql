@@ -33,20 +33,20 @@ ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 -- 6. 创建简化的 RLS 策略（使用 auth.email() 而不是查询 auth.users）
 CREATE POLICY "Only super admins can view settings"
     ON public.system_settings FOR SELECT
-    USING (auth.email() = '3283254551@qq.com');
+    USING (auth.email() = '3283254551@qq.com' OR COALESCE((auth.jwt() -> 'user_metadata' ->> 'is_admin')::boolean, false));
 
 CREATE POLICY "Only super admins can insert settings"
     ON public.system_settings FOR INSERT
-    WITH CHECK (auth.email() = '3283254551@qq.com');
+    WITH CHECK (auth.email() = '3283254551@qq.com' OR COALESCE((auth.jwt() -> 'user_metadata' ->> 'is_admin')::boolean, false));
 
 CREATE POLICY "Only super admins can update settings"
     ON public.system_settings FOR UPDATE
-    USING (auth.email() = '3283254551@qq.com')
-    WITH CHECK (auth.email() = '3283254551@qq.com');
+    USING (auth.email() = '3283254551@qq.com' OR COALESCE((auth.jwt() -> 'user_metadata' ->> 'is_admin')::boolean, false))
+    WITH CHECK (auth.email() = '3283254551@qq.com' OR COALESCE((auth.jwt() -> 'user_metadata' ->> 'is_admin')::boolean, false));
 
 CREATE POLICY "Only super admins can delete settings"
     ON public.system_settings FOR DELETE
-    USING (auth.email() = '3283254551@qq.com');
+    USING (auth.email() = '3283254551@qq.com' OR COALESCE((auth.jwt() -> 'user_metadata' ->> 'is_admin')::boolean, false));
 
 -- 7. 插入默认配置
 INSERT INTO public.system_settings (key, value, category, description, is_encrypted)
@@ -58,9 +58,9 @@ VALUES
     ('qwen_api_key', '', 'ai_assistant', '千问 AI API 密钥', TRUE),
     ('qwen_model', 'qwen-turbo', 'ai_assistant', 'AI 模型名称', FALSE),
     ('llm_provider', 'deepseek', 'ai_runtime', '默认对话模型供应商', FALSE),
-    ('llm_api_url', 'https://api.deepseek.com/v1/chat/completions', 'ai_runtime', '默认对话模型 API 地址', FALSE),
+    ('llm_api_url', 'https://api.siliconflow.cn/v1/chat/completions', 'ai_runtime', '默认对话模型 API 地址', FALSE),
     ('llm_api_key', '', 'ai_runtime', '默认对话模型 API Key', TRUE),
-    ('llm_model', 'deepseek-v4-flash', 'ai_runtime', '默认对话模型名称', FALSE),
+    ('llm_model', 'deepseek-ai/DeepSeek-V4-Flash', 'ai_runtime', '默认对话模型名称', FALSE),
     ('embedding_api_url', 'https://api.siliconflow.cn/v1/embeddings', 'ai_runtime', '默认嵌入模型 API 地址', FALSE),
     ('embedding_api_key', '', 'ai_runtime', '默认嵌入模型 API Key', TRUE),
     ('embedding_model', 'Qwen/Qwen3-Embedding-4B', 'ai_runtime', '默认嵌入模型名称', FALSE),

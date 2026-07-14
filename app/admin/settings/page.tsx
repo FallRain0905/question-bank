@@ -18,13 +18,19 @@ type ApiSettings = {
   semantic_scholar_api_key: string;
   tavily_api_key: string;
   github_token: string;
+  nextcloud_url: string;
+  nextcloud_user: string;
+  nextcloud_password: string;
+  nextcloud_public_url: string;
 };
+
+const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 
 const defaultApiSettings: ApiSettings = {
   llm_provider: 'deepseek',
-  llm_api_url: 'https://api.deepseek.com/v1/chat/completions',
+  llm_api_url: 'https://api.siliconflow.cn/v1/chat/completions',
   llm_api_key: '',
-  llm_model: 'deepseek-v4-flash',
+  llm_model: FLASH_MODEL,
   embedding_api_url: 'https://api.siliconflow.cn/v1/embeddings',
   embedding_api_key: '',
   embedding_model: 'Qwen/Qwen3-Embedding-4B',
@@ -34,6 +40,10 @@ const defaultApiSettings: ApiSettings = {
   semantic_scholar_api_key: '',
   tavily_api_key: '',
   github_token: '',
+  nextcloud_url: '',
+  nextcloud_user: '',
+  nextcloud_password: '',
+  nextcloud_public_url: '',
 };
 
 function settingRows() {
@@ -42,9 +52,9 @@ function settingRows() {
       title: '对话模型',
       description: '全站默认 LLM。用户个人设置为空时会回退到这里。',
       fields: [
-        ['llm_api_url', 'API 地址', 'https://api.deepseek.com/v1/chat/completions'],
+        ['llm_api_url', 'API 地址', 'https://api.siliconflow.cn/v1/chat/completions'],
         ['llm_api_key', 'API Key', 'sk-...', 'password'],
-        ['llm_model', '模型', 'deepseek-v4-flash', 'readonly'],
+        ['llm_model', '模型', FLASH_MODEL, 'readonly'],
       ],
     },
     {
@@ -83,10 +93,6 @@ export default function AdminSettingsPage() {
   const [message, setMessage] = useState('');
 
   const [apiSettings, setApiSettings] = useState<ApiSettings>(defaultApiSettings);
-  const [nextcloudUrl, setNextcloudUrl] = useState('');
-  const [nextcloudUser, setNextcloudUser] = useState('');
-  const [nextcloudPassword, setNextcloudPassword] = useState('');
-  const [nextcloudPublicUrl, setNextcloudPublicUrl] = useState('');
 
   useEffect(() => {
     bootstrap();
@@ -109,7 +115,7 @@ export default function AdminSettingsPage() {
         return;
       }
       setIsAdmin(true);
-      await Promise.all([loadApiSettings(), loadNextcloudSettings()]);
+      await loadApiSettings();
     } finally {
       setLoading(false);
     }
@@ -123,42 +129,16 @@ export default function AdminSettingsPage() {
       ...defaultApiSettings,
       ...(data.settings || {}),
       llm_provider: 'deepseek',
-      llm_model: 'deepseek-v4-flash',
+      llm_model: FLASH_MODEL,
       embedding_dimensions: String(data.settings?.embedding_dimensions || defaultApiSettings.embedding_dimensions),
     });
-  };
-
-  const loadNextcloudSettings = async () => {
-    const { data, error } = await getSupabase()
-      .from('system_settings')
-      .select('key,value')
-      .in('key', ['nextcloud_url', 'nextcloud_user', 'nextcloud_password', 'nextcloud_public_url']);
-    if (error) return;
-    const map = new Map((data || []).map((item: any) => [item.key, item.value || '']));
-    setNextcloudUrl(map.get('nextcloud_url') || '');
-    setNextcloudUser(map.get('nextcloud_user') || '');
-    setNextcloudPassword(map.get('nextcloud_password') || '');
-    setNextcloudPublicUrl(map.get('nextcloud_public_url') || '');
   };
 
   const updateApiSetting = (key: keyof ApiSettings, value: string) => {
     setApiSettings(prev => ({
       ...prev,
-      [key]: key === 'llm_model' ? 'deepseek-v4-flash' : value,
+      [key]: key === 'llm_model' ? FLASH_MODEL : value,
     }));
-  };
-
-  const saveNextcloudSettings = async () => {
-    const rows = [
-      { key: 'nextcloud_url', value: nextcloudUrl, category: 'nextcloud', description: 'Nextcloud 服务器 URL', is_encrypted: false },
-      { key: 'nextcloud_user', value: nextcloudUser, category: 'nextcloud', description: 'Nextcloud 用户名', is_encrypted: false },
-      { key: 'nextcloud_password', value: nextcloudPassword, category: 'nextcloud', description: 'Nextcloud 密码', is_encrypted: true },
-      { key: 'nextcloud_public_url', value: nextcloudPublicUrl, category: 'nextcloud', description: 'Nextcloud 公共访问 URL', is_encrypted: false },
-    ];
-    const { error } = await getSupabase()
-      .from('system_settings')
-      .upsert(rows, { onConflict: 'key' });
-    if (error) throw error;
   };
 
   const handleSave = async () => {
@@ -168,7 +148,7 @@ export default function AdminSettingsPage() {
       const normalized = {
         ...apiSettings,
         llm_provider: 'deepseek',
-        llm_model: 'deepseek-v4-flash',
+        llm_model: FLASH_MODEL,
       };
       const res = await fetch('/api/admin/api-settings', {
         method: 'PUT',
@@ -177,7 +157,6 @@ export default function AdminSettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '保存 API 设置失败');
-      await saveNextcloudSettings();
       setApiSettings({ ...normalized, ...(data.settings || {}) });
       setMessage('配置已保存。');
     } catch (error: any) {
@@ -188,14 +167,18 @@ export default function AdminSettingsPage() {
   };
 
   const handleTestNextcloud = async () => {
-    if (!nextcloudUrl || !nextcloudUser || !nextcloudPassword) {
+    if (!apiSettings.nextcloud_url || !apiSettings.nextcloud_user || !apiSettings.nextcloud_password) {
       setMessage('请先填写 Nextcloud 配置信息。');
       return;
     }
     const response = await fetch('/api/test-nextcloud', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: nextcloudUrl, user: nextcloudUser, password: nextcloudPassword }),
+      body: JSON.stringify({
+        url: apiSettings.nextcloud_url,
+        user: apiSettings.nextcloud_user,
+        password: apiSettings.nextcloud_password,
+      }),
     });
     const result = await response.json();
     setMessage(result.success ? 'Nextcloud 连接测试成功。' : `Nextcloud 连接测试失败：${result.error || '未知错误'}`);
@@ -274,19 +257,19 @@ export default function AdminSettingsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="text-xs font-medium text-gray-600">Nextcloud URL</span>
-                  <input value={nextcloudUrl} onChange={event => setNextcloudUrl(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
+                  <input value={apiSettings.nextcloud_url} onChange={event => updateApiSetting('nextcloud_url', event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
                 </label>
                 <label className="block">
                   <span className="text-xs font-medium text-gray-600">公共访问 URL</span>
-                  <input value={nextcloudPublicUrl} onChange={event => setNextcloudPublicUrl(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
+                  <input value={apiSettings.nextcloud_public_url} onChange={event => updateApiSetting('nextcloud_public_url', event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
                 </label>
                 <label className="block">
                   <span className="text-xs font-medium text-gray-600">用户名</span>
-                  <input value={nextcloudUser} onChange={event => setNextcloudUser(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
+                  <input value={apiSettings.nextcloud_user} onChange={event => updateApiSetting('nextcloud_user', event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
                 </label>
                 <label className="block">
                   <span className="text-xs font-medium text-gray-600">密码</span>
-                  <input type="password" value={nextcloudPassword} onChange={event => setNextcloudPassword(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
+                  <input type="password" value={apiSettings.nextcloud_password} onChange={event => updateApiSetting('nextcloud_password', event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
                 </label>
               </div>
             </section>

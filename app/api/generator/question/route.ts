@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { getUserLLMConfig } from '@/lib/user-settings';
 
 const SYSTEM_PROMPT = `你是一个题目生成专家。请根据用户提供的文本和要求，生成题目。
@@ -39,7 +39,7 @@ ${question_type ? `题目类型：${question_type}` : ''}`;
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: defaultModel || 'deepseek-v4-flash',
+        model: defaultModel || 'deepseek-ai/DeepSeek-V4-Flash',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },

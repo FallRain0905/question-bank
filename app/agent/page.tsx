@@ -14,7 +14,7 @@ type ChatMessage = {
 type RightTab = 'tools' | 'sources' | 'files' | 'documents';
 
 type AgentSettings = {
-  model: 'deepseek-v4-flash';
+  model: 'deepseek-ai/DeepSeek-V4-Flash';
   thinkingEnabled: boolean;
 };
 
@@ -28,6 +28,8 @@ type PendingEmbedAction = {
 function id() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
+
+const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 
 function modeLabel(mode: any) {
   if (mode === 'academic') return '学术检索';
@@ -143,7 +145,7 @@ export default function AgentPage() {
   const [rightOpen, setRightOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentSettings, setAgentSettings] = useState<AgentSettings>({
-    model: 'deepseek-v4-flash',
+    model: FLASH_MODEL,
     thinkingEnabled: true,
   });
   const [pendingEmbed, setPendingEmbed] = useState<PendingEmbedAction | null>(null);
@@ -158,7 +160,7 @@ export default function AgentPage() {
       if (saved) {
         const parsed = JSON.parse(saved);
         setAgentSettings({
-          model: 'deepseek-v4-flash',
+          model: FLASH_MODEL,
           thinkingEnabled: parsed.thinkingEnabled !== false,
         });
       }

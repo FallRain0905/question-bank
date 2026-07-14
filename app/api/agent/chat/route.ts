@@ -8,6 +8,8 @@ import type { AgentPlan, AgentToolCallLog } from '@/types';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
+
 function clientForToken(token: string) {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -128,7 +130,7 @@ export async function POST(req: NextRequest) {
     const message = String(body.message || '').trim();
     const conversationId = String(body.conversationId || '').trim() || undefined;
     const agentSettings = {
-      model: body.agentSettings?.model === 'deepseek-v4-flash' ? 'deepseek-v4-flash' : undefined,
+      model: body.agentSettings?.model === FLASH_MODEL ? FLASH_MODEL : undefined,
       thinkingEnabled: body.agentSettings?.thinkingEnabled !== false,
     };
     if (!message) return NextResponse.json({ error: 'Missing message' }, { status: 400 });

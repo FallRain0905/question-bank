@@ -6,6 +6,8 @@ import { sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-runt
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
+
 function clientForToken(token: string) {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,10 +16,11 @@ function clientForToken(token: string) {
   );
 }
 
-function adminClient() {
+function adminClient(token: string) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return clientForToken(token);
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 }
 
@@ -93,7 +96,7 @@ async function syncDocument(
         config: {
           llm: {
             api_key: llmConfig?.apiKey || '',
-            model_name: llmConfig?.defaultModel || 'deepseek-v4-flash',
+            model_name: llmConfig?.defaultModel || FLASH_MODEL,
             base_url: llmConfig?.endpoint?.replace('/chat/completions', '') || 'https://api.deepseek.com/v1',
           },
           embedding: {
@@ -194,7 +197,7 @@ export async function POST(req: NextRequest, { params }: any) {
       embeddingUpdatedAt: new Date().toISOString(),
     });
 
-    const { data: updatedFile, error: updateError } = await adminClient()
+    const { data: updatedFile, error: updateError } = await adminClient(auth.token)
       .from('agent_files')
       .update({ metadata: nextMetadata })
       .eq('id', file.id)

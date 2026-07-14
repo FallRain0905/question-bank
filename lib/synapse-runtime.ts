@@ -45,6 +45,8 @@ type SynapseRunOptions = {
   };
 };
 
+const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
+
 function id(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -114,10 +116,10 @@ function parseJsonObject(text: string) {
 }
 
 function preferredModel(config: LLMConfig | null, override?: string) {
-  if (override === 'deepseek-v4-flash') return override;
-  if (config?.defaultModel === 'deepseek-v4-flash') return config.defaultModel;
+  if (override === FLASH_MODEL) return override;
+  if (config?.defaultModel === FLASH_MODEL) return config.defaultModel;
   if (config?.provider && config.provider !== 'deepseek' && config.defaultModel) return config.defaultModel;
-  return 'deepseek-v4-flash';
+  return FLASH_MODEL;
 }
 
 async function callSynapseLLM(config: LLMConfig | null, messages: any[], maxTokens = 1200, options: { model?: string; thinkingEnabled?: boolean } = {}) {

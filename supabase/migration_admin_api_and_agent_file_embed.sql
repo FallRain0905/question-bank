@@ -2,9 +2,9 @@
 INSERT INTO public.system_settings (key, value, category, description, is_encrypted)
 VALUES
   ('llm_provider', 'deepseek', 'ai_runtime', '默认对话模型供应商', FALSE),
-  ('llm_api_url', 'https://api.deepseek.com/v1/chat/completions', 'ai_runtime', '默认对话模型 API 地址', FALSE),
+  ('llm_api_url', 'https://api.siliconflow.cn/v1/chat/completions', 'ai_runtime', '默认对话模型 API 地址', FALSE),
   ('llm_api_key', '', 'ai_runtime', '默认对话模型 API Key', TRUE),
-  ('llm_model', 'deepseek-v4-flash', 'ai_runtime', '默认对话模型名称', FALSE),
+  ('llm_model', 'deepseek-ai/DeepSeek-V4-Flash', 'ai_runtime', '默认对话模型名称', FALSE),
   ('embedding_api_url', 'https://api.siliconflow.cn/v1/embeddings', 'ai_runtime', '默认嵌入模型 API 地址', FALSE),
   ('embedding_api_key', '', 'ai_runtime', '默认嵌入模型 API Key', TRUE),
   ('embedding_model', 'Qwen/Qwen3-Embedding-4B', 'ai_runtime', '默认嵌入模型名称', FALSE),
