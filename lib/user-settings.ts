@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const DEFAULT_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
-const DEFAULT_MODEL = 'deepseek-v4-pro';
+const DEFAULT_MODEL = 'deepseek-v4-flash';
 
 const PROVIDER_ENDPOINTS: Record<string, string> = {
   qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
@@ -15,7 +15,51 @@ const PROVIDER_MODELS: Record<string, string> = {
   deepseek: DEFAULT_MODEL,
 };
 
-function getSystemLLMKey(provider: string) {
+type SystemSettingsMap = Record<string, string>;
+
+let cachedSystemSettings: { values: SystemSettingsMap; expiresAt: number } | null = null;
+
+async function getSystemSettingsMap(): Promise<SystemSettingsMap> {
+  const now = Date.now();
+  if (cachedSystemSettings && cachedSystemSettings.expiresAt > now) return cachedSystemSettings.values;
+
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    const { data, error } = await supabase
+      .from('system_settings')
+      .select('key,value')
+      .in('key', [
+        'llm_provider',
+        'llm_api_key',
+        'llm_api_url',
+        'llm_model',
+        'mineru_api_key',
+        'embedding_api_key',
+        'embedding_api_url',
+        'embedding_model',
+        'embedding_dimensions',
+        'hyperrag_service_url',
+        'semantic_scholar_api_key',
+        'tavily_api_key',
+        'github_token',
+      ]);
+
+    if (error) throw error;
+    const values = Object.fromEntries((data || []).map((item: any) => [item.key, item.value || '']));
+    cachedSystemSettings = { values, expiresAt: now + 30_000 };
+    return values;
+  } catch (error) {
+    console.warn('Unable to load system settings, falling back to env:', error);
+    cachedSystemSettings = { values: {}, expiresAt: now + 10_000 };
+    return {};
+  }
+}
+
+function getSystemLLMKey(provider: string, settings: SystemSettingsMap = {}) {
+  if (settings.llm_api_key) return settings.llm_api_key;
   switch (provider) {
     case 'qwen':
       return process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || '';
@@ -29,13 +73,14 @@ function getSystemLLMKey(provider: string) {
   }
 }
 
-function getSystemLLMConfig(provider = 'deepseek') {
-  const normalizedProvider = provider || 'deepseek';
+async function getSystemLLMConfig(provider = 'deepseek') {
+  const settings = await getSystemSettingsMap();
+  const normalizedProvider = provider || settings.llm_provider || 'deepseek';
   return {
-    apiKey: getSystemLLMKey(normalizedProvider),
-    endpoint: PROVIDER_ENDPOINTS[normalizedProvider] || DEFAULT_ENDPOINT,
+    apiKey: getSystemLLMKey(normalizedProvider, settings),
+    endpoint: settings.llm_api_url || PROVIDER_ENDPOINTS[normalizedProvider] || DEFAULT_ENDPOINT,
     provider: normalizedProvider,
-    defaultModel: PROVIDER_MODELS[normalizedProvider] || DEFAULT_MODEL,
+    defaultModel: settings.llm_model || PROVIDER_MODELS[normalizedProvider] || DEFAULT_MODEL,
   };
 }
 
@@ -43,7 +88,7 @@ export async function getUserLLMConfig(token: string) {
   console.log('Getting LLM config, has token:', !!token);
 
   if (!token) {
-    const config = getSystemLLMConfig();
+    const config = await getSystemLLMConfig();
     console.log('Using system config (no token):', { hasKey: !!config.apiKey, endpoint: config.endpoint, provider: config.provider });
     return config;
   }
@@ -57,7 +102,7 @@ export async function getUserLLMConfig(token: string) {
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      const config = getSystemLLMConfig();
+      const config = await getSystemLLMConfig();
       console.log('Using system config (no user):', { hasKey: !!config.apiKey, endpoint: config.endpoint, provider: config.provider });
       return config;
     }
@@ -70,13 +115,14 @@ export async function getUserLLMConfig(token: string) {
 
     console.log('User settings:', settings ? 'found' : 'not found');
 
-    const provider = settings.llm_provider || 'deepseek';
+    const systemSettings = await getSystemSettingsMap();
+    const provider = settings?.llm_provider || systemSettings.llm_provider || 'deepseek';
 
     const config = {
-      apiKey: settings.llm_api_key || getSystemLLMKey(provider),
-      endpoint: settings.llm_api_url || PROVIDER_ENDPOINTS[provider] || DEFAULT_ENDPOINT,
+      apiKey: settings?.llm_api_key || getSystemLLMKey(provider, systemSettings),
+      endpoint: settings?.llm_api_url || systemSettings.llm_api_url || PROVIDER_ENDPOINTS[provider] || DEFAULT_ENDPOINT,
       provider,
-      defaultModel: settings.llm_model || PROVIDER_MODELS[provider] || DEFAULT_MODEL,
+      defaultModel: settings?.llm_model || systemSettings.llm_model || PROVIDER_MODELS[provider] || DEFAULT_MODEL,
     };
 
     console.log('Using user config:', { provider, endpoint: config.endpoint, hasKey: !!config.apiKey });
@@ -88,7 +134,8 @@ export async function getUserLLMConfig(token: string) {
 }
 
 export async function getUserMineruConfig(token: string) {
-  const envToken = process.env.MINERU_API_TOKEN || '';
+  const systemSettings = await getSystemSettingsMap();
+  const envToken = systemSettings.mineru_api_key || process.env.MINERU_API_TOKEN || '';
 
   console.log('getUserMineruConfig called, has token:', !!token);
 
@@ -129,8 +176,8 @@ export async function getUserMineruConfig(token: string) {
 
     console.log('User settings found:', !!settings);
 
-    // 如果用户有设置记录，使用用户的配置（即使是空字符串）
-    if (settings !== null) {
+    // User setting wins when provided; otherwise fall back to admin/env defaults.
+    if (settings?.mineru_api_key) {
       console.log('Using user MinerU config:', {
         hasKey: 'mineru_api_key' in settings,
         isNull: settings.mineru_api_key === null,
@@ -140,7 +187,7 @@ export async function getUserMineruConfig(token: string) {
       return { token: settings.mineru_api_key || '' };
     }
 
-    console.log('No user settings found, using environment config:', !!envToken);
+    console.log('No user MinerU setting found, using system/environment config:', !!envToken);
     return { token: envToken };
   } catch (error) {
     console.error('Error getting MinerU config:', error);
@@ -153,12 +200,21 @@ const DEFAULT_EMBEDDING_URL = 'https://api.siliconflow.cn/v1/embeddings';
 const DEFAULT_EMBEDDING_MODEL = 'Qwen/Qwen3-Embedding-4B';
 const DEFAULT_EMBEDDING_DIMENSIONS = 2560;
 
-function getSystemEmbeddingKey() {
-  return process.env.EMBEDDING_API_KEY || process.env.SILICONFLOW_API_KEY || '';
+function getSystemEmbeddingKey(settings: SystemSettingsMap = {}) {
+  return settings.embedding_api_key || process.env.EMBEDDING_API_KEY || process.env.SILICONFLOW_API_KEY || '';
 }
 
 export async function getUserEmbeddingConfig(token: string) {
-  if (!token) return null;
+  const systemSettings = await getSystemSettingsMap();
+  const systemEmbeddingConfig = {
+    apiKey: getSystemEmbeddingKey(systemSettings),
+    apiUrl: systemSettings.embedding_api_url || DEFAULT_EMBEDDING_URL,
+    model: systemSettings.embedding_model || DEFAULT_EMBEDDING_MODEL,
+    dimensions: Number(systemSettings.embedding_dimensions || DEFAULT_EMBEDDING_DIMENSIONS),
+    hyperragServiceUrl: systemSettings.hyperrag_service_url || process.env.HYPERRAG_SERVICE_URL || 'http://localhost:8001',
+  };
+
+  if (!token) return systemEmbeddingConfig;
 
   try {
     const supabase = createClient(
@@ -168,7 +224,7 @@ export async function getUserEmbeddingConfig(token: string) {
     );
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
+    if (!user) return systemEmbeddingConfig;
 
     const { data: settings } = await supabase
       .from('user_settings')
@@ -177,19 +233,19 @@ export async function getUserEmbeddingConfig(token: string) {
       .maybeSingle();
 
     // Use user config if available, otherwise fallback to environment defaults.
-    const apiKey = settings?.embedding_api_key || getSystemEmbeddingKey();
+    const apiKey = settings?.embedding_api_key || systemEmbeddingConfig.apiKey;
     const model = settings?.embedding_model || DEFAULT_EMBEDDING_MODEL;
 
     return {
       apiKey,
-      apiUrl: settings?.embedding_api_url || DEFAULT_EMBEDDING_URL,
-      model,
-      dimensions: settings?.embedding_dimensions || DEFAULT_EMBEDDING_DIMENSIONS,
-      hyperragServiceUrl: settings?.hyperrag_service_url || process.env.HYPERRAG_SERVICE_URL || 'http://localhost:8001',
+      apiUrl: settings?.embedding_api_url || systemEmbeddingConfig.apiUrl,
+      model: settings?.embedding_model || systemEmbeddingConfig.model || model,
+      dimensions: settings?.embedding_dimensions || systemEmbeddingConfig.dimensions || DEFAULT_EMBEDDING_DIMENSIONS,
+      hyperragServiceUrl: settings?.hyperrag_service_url || systemEmbeddingConfig.hyperragServiceUrl,
     };
   } catch (error) {
     console.error('Error getting embedding config:', error);
-    return null;
+    return systemEmbeddingConfig;
   }
 }
 
@@ -198,9 +254,10 @@ export function getHyperRagServiceUrl(settings?: { hyperrag_service_url?: string
 }
 
 export async function getUserResearchToolConfig(token: string) {
-  const envSemanticScholarKey = process.env.SEMANTIC_SCHOLAR_API_KEY || '';
-  const envTavilyKey = process.env.TAVILY_API_KEY || '';
-  const envGithubToken = process.env.GITHUB_TOKEN || '';
+  const systemSettings = await getSystemSettingsMap();
+  const envSemanticScholarKey = systemSettings.semantic_scholar_api_key || process.env.SEMANTIC_SCHOLAR_API_KEY || '';
+  const envTavilyKey = systemSettings.tavily_api_key || process.env.TAVILY_API_KEY || '';
+  const envGithubToken = systemSettings.github_token || process.env.GITHUB_TOKEN || '';
 
   if (!token) {
     return {

@@ -47,27 +47,68 @@ async function ensureConversation(supabase: ReturnType<typeof clientForToken>, u
 
 async function parsePdfWithMineru(fileName: string, buffer: Buffer, token: string) {
   try {
+    const createRes = await fetch('https://mineru.net/api/v1/agent/parse/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_name: fileName,
+        language: 'ch',
+        enable_table: true,
+        is_ocr: false,
+        enable_formula: true,
+      }),
+    });
+
+    if (createRes.ok) {
+      const createData = await createRes.json();
+      const taskId = createData?.data?.task_id || createData?.task_id;
+      const fileUrl = createData?.data?.file_url || createData?.data?.upload_url || createData?.file_url || createData?.upload_url;
+      if (taskId && fileUrl) {
+        const uploadBytes = new Uint8Array(buffer.length);
+        uploadBytes.set(buffer);
+        const uploadRes = await fetch(fileUrl, {
+          method: 'PUT',
+          body: uploadBytes,
+        });
+        if (uploadRes.ok) {
+          for (let attempt = 0; attempt < 40; attempt += 1) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            const pollRes = await fetch(`https://mineru.net/api/v1/agent/parse/${taskId}`);
+            if (!pollRes.ok) continue;
+            const pollData = await pollRes.json();
+            const state = pollData?.data?.state || pollData?.state;
+            if (state === 'failed') return '';
+            const markdownUrl = pollData?.data?.markdown_url || pollData?.markdown_url;
+            if (state === 'done' && markdownUrl) {
+              const mdRes = await fetch(markdownUrl);
+              if (mdRes.ok) return await mdRes.text();
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('MinerU agent parse failed, trying legacy upload:', error);
+  }
+
+  try {
     const mineru = await getUserMineruConfig(token);
     const form = new FormData();
     const bytes = new Uint8Array(buffer.length);
     bytes.set(buffer);
     form.append('file', new Blob([bytes.buffer], { type: 'application/pdf' }), fileName);
     form.append('return_md', 'true');
-
     const headers: Record<string, string> = {};
     if (mineru.token) headers.Authorization = `Bearer ${mineru.token}`;
-
-    const res = await fetch('https://mineru.net/api/v1/agent/parse/file', {
-      method: 'POST',
-      headers,
-      body: form,
-    });
-    if (!res.ok) return '';
-    const data = await res.json();
-    return data.content || data.markdown || data.data?.content || data.data?.markdown || '';
+    const res = await fetch('https://mineru.net/api/v1/agent/parse/file', { method: 'POST', headers, body: form });
+    if (res.ok) {
+      const data = await res.json();
+      return data.content || data.markdown || data.data?.content || data.data?.markdown || '';
+    }
   } catch {
     return '';
   }
+  return '';
 }
 
 async function parseFile(file: File, buffer: Buffer, token: string) {

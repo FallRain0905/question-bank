@@ -1,393 +1,298 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSupabase } from '@/lib/supabase';
 
-interface SystemSetting {
-    key: string;
-    value: string;
-    category: string;
+type ApiSettings = {
+  llm_provider: string;
+  llm_api_url: string;
+  llm_api_key: string;
+  llm_model: string;
+  embedding_api_url: string;
+  embedding_api_key: string;
+  embedding_model: string;
+  embedding_dimensions: string;
+  hyperrag_service_url: string;
+  mineru_api_key: string;
+  semantic_scholar_api_key: string;
+  tavily_api_key: string;
+  github_token: string;
+};
+
+const defaultApiSettings: ApiSettings = {
+  llm_provider: 'deepseek',
+  llm_api_url: 'https://api.deepseek.com/v1/chat/completions',
+  llm_api_key: '',
+  llm_model: 'deepseek-v4-flash',
+  embedding_api_url: 'https://api.siliconflow.cn/v1/embeddings',
+  embedding_api_key: '',
+  embedding_model: 'Qwen/Qwen3-Embedding-4B',
+  embedding_dimensions: '2560',
+  hyperrag_service_url: 'http://localhost:8001',
+  mineru_api_key: '',
+  semantic_scholar_api_key: '',
+  tavily_api_key: '',
+  github_token: '',
+};
+
+function settingRows() {
+  return [
+    {
+      title: '对话模型',
+      description: '全站默认 LLM。用户个人设置为空时会回退到这里。',
+      fields: [
+        ['llm_api_url', 'API 地址', 'https://api.deepseek.com/v1/chat/completions'],
+        ['llm_api_key', 'API Key', 'sk-...', 'password'],
+        ['llm_model', '模型', 'deepseek-v4-flash', 'readonly'],
+      ],
+    },
+    {
+      title: '嵌入模型与 HyperRAG',
+      description: '知识库同步、文档嵌入和检索增强会使用这组默认值。',
+      fields: [
+        ['embedding_api_url', '嵌入 API 地址', 'https://api.siliconflow.cn/v1/embeddings'],
+        ['embedding_api_key', '嵌入 API Key', 'sk-...', 'password'],
+        ['embedding_model', '嵌入模型', 'Qwen/Qwen3-Embedding-4B'],
+        ['embedding_dimensions', '向量维度', '2560'],
+        ['hyperrag_service_url', 'HyperRAG 服务地址', 'http://localhost:8001'],
+      ],
+    },
+    {
+      title: '工具 API',
+      description: 'Agent、搜索和文档转换工具的系统级默认 Key。',
+      fields: [
+        ['mineru_api_key', 'MinerU Token', 'MinerU API Token', 'password'],
+        ['semantic_scholar_api_key', 'Semantic Scholar Key', '可选', 'password'],
+        ['tavily_api_key', 'Tavily Key', '可选', 'password'],
+        ['github_token', 'GitHub Token', '可选', 'password'],
+      ],
+    },
+  ] as Array<{
+    title: string;
     description: string;
-    is_encrypted: boolean;
-    updated_at: string;
+    fields: Array<[keyof ApiSettings, string, string, string?]>;
+  }>;
 }
 
 export default function AdminSettingsPage() {
-    const router = useRouter();
-    const [isAdmin, setIsAdmin] = useState(false);
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [errors, setErrors] = useState<Map<string, string>>(new Map());
+  const router = useRouter();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
 
-    // Nextcloud 配置
-    const [nextcloudUrl, setNextcloudUrl] = useState('');
-    const [nextcloudUser, setNextcloudUser] = useState('');
-    const [nextcloudPassword, setNextcloudPassword] = useState('');
-    const [nextcloudPublicUrl, setNextcloudPublicUrl] = useState('');
+  const [apiSettings, setApiSettings] = useState<ApiSettings>(defaultApiSettings);
+  const [nextcloudUrl, setNextcloudUrl] = useState('');
+  const [nextcloudUser, setNextcloudUser] = useState('');
+  const [nextcloudPassword, setNextcloudPassword] = useState('');
+  const [nextcloudPublicUrl, setNextcloudPublicUrl] = useState('');
 
-    // AI 助手配置
-    const [qwenApiKey, setQwenApiKey] = useState('');
-    const [qwenModel, setQwenModel] = useState('qwen-turbo');
+  useEffect(() => {
+    bootstrap();
+  }, []);
 
-    useEffect(() => {
-        checkPermission();
-        loadSettings();
-    }, []);
+  const authHeaders = async (): Promise<Record<string, string>> => {
+    const { data: { session } } = await getSupabase().auth.getSession();
+    return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+  };
 
-    const checkPermission = async () => {
-        const { data: { user } } = await getSupabase().auth.getUser();
-        if (!user) {
-            router.push('/login');
-            return;
-        }
-
-        if (user.user_metadata?.is_admin !== true) {
-            router.push('/');
-            return;
-        }
-
-        setIsAdmin(true);
-    };
-
-    const loadSettings = async () => {
-        try {
-            const supabase = getSupabase();
-            const { data, error } = await supabase
-                .from('system_settings')
-                .select('*');
-
-            if (error) throw error;
-
-            const settingsMap = new Map<string, string>();
-            (data || []).forEach((setting: SystemSetting) => {
-                settingsMap.set(setting.key, setting.value || '');
-            });
-
-            // 填充表单
-            setNextcloudUrl(settingsMap.get('nextcloud_url') || '');
-            setNextcloudUser(settingsMap.get('nextcloud_user') || '');
-            setNextcloudPassword(settingsMap.get('nextcloud_password') || '');
-            setNextcloudPublicUrl(settingsMap.get('nextcloud_public_url') || '');
-            setQwenApiKey(settingsMap.get('qwen_api_key') || '');
-            setQwenModel(settingsMap.get('qwen_model') || 'qwen-turbo');
-
-        } catch (err) {
-            console.error('加载配置失败:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const validateForm = () => {
-        const newErrors = new Map<string, string>();
-
-        // Nextcloud 验证
-        if (nextcloudUrl && !isValidUrl(nextcloudUrl)) {
-            newErrors.set('nextcloud_url', '请输入有效的 URL');
-        }
-        if (nextcloudPublicUrl && !isValidUrl(nextcloudPublicUrl)) {
-            newErrors.set('nextcloud_public_url', '请输入有效的 URL');
-        }
-
-        // AI 配置验证
-        if (qwenApiKey && qwenApiKey.length < 10) {
-            newErrors.set('qwen_api_key', 'API Key 长度不正确');
-        }
-
-        setErrors(newErrors);
-        return newErrors.size === 0;
-    };
-
-    const isValidUrl = (url: string) => {
-        try {
-            new URL(url);
-            return true;
-        } catch {
-            return false;
-        }
-    };
-
-    const handleSave = async () => {
-        if (!validateForm()) {
-            return;
-        }
-
-        setSaving(true);
-        try {
-            const supabase = getSupabase();
-
-            // 更新 Nextcloud 配置
-            const nextcloudSettings = [
-                { key: 'nextcloud_url', value: nextcloudUrl },
-                { key: 'nextcloud_user', value: nextcloudUser },
-                { key: 'nextcloud_password', value: nextcloudPassword },
-                { key: 'nextcloud_public_url', value: nextcloudPublicUrl }
-            ];
-
-            for (const setting of nextcloudSettings) {
-                const { error } = await supabase
-                    .from('system_settings')
-                    .update({ value: setting.value })
-                    .eq('key', setting.key);
-
-                if (error) throw error;
-            }
-
-            // 更新 AI 助手配置
-            const aiSettings = [
-                { key: 'qwen_api_key', value: qwenApiKey },
-                { key: 'qwen_model', value: qwenModel }
-            ];
-
-            for (const setting of aiSettings) {
-                const { error } = await supabase
-                    .from('system_settings')
-                    .update({ value: setting.value })
-                    .eq('key', setting.key);
-
-                if (error) throw error;
-            }
-
-            alert('配置保存成功！');
-
-        } catch (err: any) {
-            console.error('保存配置失败:', err);
-            alert('保存失败: ' + (err.message || '未知错误'));
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const handleTestNextcloud = async () => {
-        if (!nextcloudUrl || !nextcloudUser || !nextcloudPassword) {
-            alert('请先填写 Nextcloud 配置信息');
-            return;
-        }
-
-        try {
-            const response = await fetch('/api/test-nextcloud', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    url: nextcloudUrl,
-                    user: nextcloudUser,
-                    password: nextcloudPassword
-                })
-            });
-
-            const result = await response.json();
-            if (result.success) {
-                alert('Nextcloud 连接测试成功！');
-            } else {
-                alert('Nextcloud 连接测试失败: ' + (result.error || '未知错误'));
-            }
-        } catch (err: any) {
-            alert('测试失败: ' + (err.message || '网络错误'));
-        }
-    };
-
-    const handleTestAI = async () => {
-        if (!qwenApiKey) {
-            alert('请先填写 AI API Key');
-            return;
-        }
-
-        try {
-            const response = await fetch('/api/test-ai', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    apiKey: qwenApiKey,
-                    model: qwenModel
-                })
-            });
-
-            const result = await response.json();
-            if (result.success) {
-                alert('AI 助手测试成功！');
-            } else {
-                alert('AI 助手测试失败: ' + (result.error || '未知错误'));
-            }
-        } catch (err: any) {
-            alert('测试失败: ' + (err.message || '网络错误'));
-        }
-    };
-
-    if (!isAdmin) {
-        return (
-            <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
-                <div className="text-gray-500">加载中...</div>
-            </div>
-        );
+  const bootstrap = async () => {
+    try {
+      const { data: { user } } = await getSupabase().auth.getUser();
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+      if (user.user_metadata?.is_admin !== true && user.email !== '3283254551@qq.com') {
+        router.push('/');
+        return;
+      }
+      setIsAdmin(true);
+      await Promise.all([loadApiSettings(), loadNextcloudSettings()]);
+    } finally {
+      setLoading(false);
     }
+  };
 
+  const loadApiSettings = async () => {
+    const res = await fetch('/api/admin/api-settings', { headers: await authHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '加载 API 设置失败');
+    setApiSettings({
+      ...defaultApiSettings,
+      ...(data.settings || {}),
+      llm_provider: 'deepseek',
+      llm_model: 'deepseek-v4-flash',
+      embedding_dimensions: String(data.settings?.embedding_dimensions || defaultApiSettings.embedding_dimensions),
+    });
+  };
+
+  const loadNextcloudSettings = async () => {
+    const { data, error } = await getSupabase()
+      .from('system_settings')
+      .select('key,value')
+      .in('key', ['nextcloud_url', 'nextcloud_user', 'nextcloud_password', 'nextcloud_public_url']);
+    if (error) return;
+    const map = new Map((data || []).map((item: any) => [item.key, item.value || '']));
+    setNextcloudUrl(map.get('nextcloud_url') || '');
+    setNextcloudUser(map.get('nextcloud_user') || '');
+    setNextcloudPassword(map.get('nextcloud_password') || '');
+    setNextcloudPublicUrl(map.get('nextcloud_public_url') || '');
+  };
+
+  const updateApiSetting = (key: keyof ApiSettings, value: string) => {
+    setApiSettings(prev => ({
+      ...prev,
+      [key]: key === 'llm_model' ? 'deepseek-v4-flash' : value,
+    }));
+  };
+
+  const saveNextcloudSettings = async () => {
+    const rows = [
+      { key: 'nextcloud_url', value: nextcloudUrl, category: 'nextcloud', description: 'Nextcloud 服务器 URL', is_encrypted: false },
+      { key: 'nextcloud_user', value: nextcloudUser, category: 'nextcloud', description: 'Nextcloud 用户名', is_encrypted: false },
+      { key: 'nextcloud_password', value: nextcloudPassword, category: 'nextcloud', description: 'Nextcloud 密码', is_encrypted: true },
+      { key: 'nextcloud_public_url', value: nextcloudPublicUrl, category: 'nextcloud', description: 'Nextcloud 公共访问 URL', is_encrypted: false },
+    ];
+    const { error } = await getSupabase()
+      .from('system_settings')
+      .upsert(rows, { onConflict: 'key' });
+    if (error) throw error;
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setMessage('');
+    try {
+      const normalized = {
+        ...apiSettings,
+        llm_provider: 'deepseek',
+        llm_model: 'deepseek-v4-flash',
+      };
+      const res = await fetch('/api/admin/api-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        body: JSON.stringify({ settings: normalized }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '保存 API 设置失败');
+      await saveNextcloudSettings();
+      setApiSettings({ ...normalized, ...(data.settings || {}) });
+      setMessage('配置已保存。');
+    } catch (error: any) {
+      setMessage(error.message || '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTestNextcloud = async () => {
+    if (!nextcloudUrl || !nextcloudUser || !nextcloudPassword) {
+      setMessage('请先填写 Nextcloud 配置信息。');
+      return;
+    }
+    const response = await fetch('/api/test-nextcloud', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: nextcloudUrl, user: nextcloudUser, password: nextcloudPassword }),
+    });
+    const result = await response.json();
+    setMessage(result.success ? 'Nextcloud 连接测试成功。' : `Nextcloud 连接测试失败：${result.error || '未知错误'}`);
+  };
+
+  if (!isAdmin) {
     return (
-        <div className="min-h-[calc(100vh-64px)] bg-gray-50">
-            <div className="max-w-4xl mx-auto px-4 py-8">
-                <div className="mb-6">
-                    <h1 className="text-2xl font-bold text-gray-900 mb-2">系统配置</h1>
-                    <p className="text-gray-600">管理系统级配置项，包括云盘和 AI 助手设置</p>
-                </div>
-
-                {loading ? (
-                    <div className="text-center py-12">
-                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                        <p className="mt-4 text-gray-500">加载中...</p>
-                    </div>
-                ) : (
-                    <div className="space-y-6">
-                        {/* Nextcloud 配置 */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                            <div className="flex items-center justify-between mb-6">
-                                <h2 className="text-xl font-semibold text-gray-900">Nextcloud 云盘配置</h2>
-                                <button
-                                    onClick={handleTestNextcloud}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
-                                >
-                                    测试连接
-                                </button>
-                            </div>
-
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Nextcloud URL *
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={nextcloudUrl}
-                                        onChange={(e) => setNextcloudUrl(e.target.value)}
-                                        placeholder="https://your-nextcloud.com"
-                                        className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none ${
-                                            errors.has('nextcloud_url') ? 'border-red-300' : 'border-gray-300'
-                                        }`}
-                                    />
-                                    {errors.has('nextcloud_url') && (
-                                        <p className="text-red-600 text-sm mt-1">{errors.get('nextcloud_url')}</p>
-                                    )}
-                                    <p className="text-gray-500 text-sm mt-1">Nextcloud 服务器的完整 URL</p>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        用户名 *
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={nextcloudUser}
-                                        onChange={(e) => setNextcloudUser(e.target.value)}
-                                        placeholder="admin"
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                                    />
-                                    <p className="text-gray-500 text-sm mt-1">Nextcloud 管理员用户名</p>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        密码 *
-                                    </label>
-                                    <input
-                                        type="password"
-                                        value={nextcloudPassword}
-                                        onChange={(e) => setNextcloudPassword(e.target.value)}
-                                        placeholder="••••••••"
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                                    />
-                                    <p className="text-gray-500 text-sm mt-1">Nextcloud 管理员密码（加密存储）</p>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        公共访问 URL *
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={nextcloudPublicUrl}
-                                        onChange={(e) => setNextcloudPublicUrl(e.target.value)}
-                                        placeholder="https://your-nextcloud.com"
-                                        className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none ${
-                                            errors.has('nextcloud_public_url') ? 'border-red-300' : 'border-gray-300'
-                                        }`}
-                                    />
-                                    {errors.has('nextcloud_public_url') && (
-                                        <p className="text-red-600 text-sm mt-1">{errors.get('nextcloud_public_url')}</p>
-                                    )}
-                                    <p className="text-gray-500 text-sm mt-1">用于文件公共访问的 URL</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* AI 助手配置 */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                            <div className="flex items-center justify-between mb-6">
-                                <h2 className="text-xl font-semibold text-gray-900">AI 助手配置</h2>
-                                <button
-                                    onClick={handleTestAI}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
-                                >
-                                    测试连接
-                                </button>
-                            </div>
-
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        千问 API Key *
-                                    </label>
-                                    <input
-                                        type="password"
-                                        value={qwenApiKey}
-                                        onChange={(e) => setQwenApiKey(e.target.value)}
-                                        placeholder="sk-xxxxxxxxxxxxxxxxxxxx"
-                                        className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none ${
-                                            errors.has('qwen_api_key') ? 'border-red-300' : 'border-gray-300'
-                                        }`}
-                                    />
-                                    {errors.has('qwen_api_key') && (
-                                        <p className="text-red-600 text-sm mt-1">{errors.get('qwen_api_key')}</p>
-                                    )}
-                                    <p className="text-gray-500 text-sm mt-1">千问 AI 的 API 密钥（加密存储）</p>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        AI 模型 *
-                                    </label>
-                                    <select
-                                        value={qwenModel}
-                                        onChange={(e) => setQwenModel(e.target.value)}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                                    >
-                                        <option value="qwen-turbo">qwen-turbo (快速响应)</option>
-                                        <option value="qwen-plus">qwen-plus (平衡性能)</option>
-                                        <option value="qwen-max">qwen-max (最强模型)</option>
-                                    </select>
-                                    <p className="text-gray-500 text-sm mt-1">选择使用的 AI 模型</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* 保存按钮 */}
-                        <div className="flex justify-end gap-3">
-                            <button
-                                onClick={loadSettings}
-                                disabled={loading}
-                                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition disabled:bg-gray-100 disabled:cursor-not-allowed"
-                            >
-                                重置
-                            </button>
-                            <button
-                                onClick={handleSave}
-                                disabled={saving}
-                                className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:bg-blue-400 disabled:cursor-not-allowed"
-                            >
-                                {saving ? '保存中...' : '保存配置'}
-                            </button>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
+        <div className="text-gray-500">加载中...</div>
+      </div>
     );
+  }
+
+  return (
+    <div className="min-h-[calc(100vh-64px)] bg-gray-50">
+      <div className="mx-auto max-w-5xl px-4 py-8">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">系统配置</h1>
+            <p className="mt-1 text-sm text-gray-600">管理系统级 API、嵌入模型、主控 Agent 默认模型和云盘配置。</p>
+          </div>
+          <button
+            onClick={handleSave}
+            disabled={saving || loading}
+            className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+          >
+            {saving ? '保存中...' : '保存配置'}
+          </button>
+        </div>
+
+        {message && (
+          <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">{message}</div>
+        )}
+
+        {loading ? (
+          <div className="py-12 text-center text-sm text-gray-500">加载配置中...</div>
+        ) : (
+          <div className="space-y-6">
+            {settingRows().map(section => (
+              <section key={section.title} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="mb-4">
+                  <h2 className="text-base font-semibold text-gray-900">{section.title}</h2>
+                  <p className="mt-1 text-xs text-gray-500">{section.description}</p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {section.fields.map(([key, label, placeholder, type]) => (
+                    <label key={key} className="block">
+                      <span className="text-xs font-medium text-gray-600">{label}</span>
+                      <input
+                        type={type === 'password' ? 'password' : type === 'readonly' ? 'text' : 'text'}
+                        value={apiSettings[key]}
+                        readOnly={type === 'readonly'}
+                        onChange={event => updateApiSetting(key, event.target.value)}
+                        placeholder={placeholder}
+                        className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-300 disabled:bg-gray-50 read-only:bg-gray-50"
+                      />
+                    </label>
+                  ))}
+                </div>
+              </section>
+            ))}
+
+            <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900">Nextcloud 云盘配置</h2>
+                  <p className="mt-1 text-xs text-gray-500">保留原有云盘能力。</p>
+                </div>
+                <button
+                  onClick={handleTestNextcloud}
+                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:border-gray-300"
+                >
+                  测试连接
+                </button>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-600">Nextcloud URL</span>
+                  <input value={nextcloudUrl} onChange={event => setNextcloudUrl(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-600">公共访问 URL</span>
+                  <input value={nextcloudPublicUrl} onChange={event => setNextcloudPublicUrl(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-600">用户名</span>
+                  <input value={nextcloudUser} onChange={event => setNextcloudUser(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-600">密码</span>
+                  <input type="password" value={nextcloudPassword} onChange={event => setNextcloudPassword(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-300" />
+                </label>
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

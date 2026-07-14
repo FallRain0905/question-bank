@@ -128,9 +128,7 @@ export async function POST(req: NextRequest) {
     const message = String(body.message || '').trim();
     const conversationId = String(body.conversationId || '').trim() || undefined;
     const agentSettings = {
-      model: body.agentSettings?.model === 'deepseek-v4-flash' || body.agentSettings?.model === 'deepseek-v4-pro'
-        ? body.agentSettings.model
-        : undefined,
+      model: body.agentSettings?.model === 'deepseek-v4-flash' ? 'deepseek-v4-flash' : undefined,
       thinkingEnabled: body.agentSettings?.thinkingEnabled !== false,
     };
     if (!message) return NextResponse.json({ error: 'Missing message' }, { status: 400 });

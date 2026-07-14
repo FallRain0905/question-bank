@@ -56,7 +56,20 @@ VALUES
     ('nextcloud_password', '', 'nextcloud', 'Nextcloud 密码', TRUE),
     ('nextcloud_public_url', '', 'nextcloud', 'Nextcloud 公共访问 URL', FALSE),
     ('qwen_api_key', '', 'ai_assistant', '千问 AI API 密钥', TRUE),
-    ('qwen_model', 'qwen-turbo', 'ai_assistant', 'AI 模型名称', FALSE)
+    ('qwen_model', 'qwen-turbo', 'ai_assistant', 'AI 模型名称', FALSE),
+    ('llm_provider', 'deepseek', 'ai_runtime', '默认对话模型供应商', FALSE),
+    ('llm_api_url', 'https://api.deepseek.com/v1/chat/completions', 'ai_runtime', '默认对话模型 API 地址', FALSE),
+    ('llm_api_key', '', 'ai_runtime', '默认对话模型 API Key', TRUE),
+    ('llm_model', 'deepseek-v4-flash', 'ai_runtime', '默认对话模型名称', FALSE),
+    ('embedding_api_url', 'https://api.siliconflow.cn/v1/embeddings', 'ai_runtime', '默认嵌入模型 API 地址', FALSE),
+    ('embedding_api_key', '', 'ai_runtime', '默认嵌入模型 API Key', TRUE),
+    ('embedding_model', 'Qwen/Qwen3-Embedding-4B', 'ai_runtime', '默认嵌入模型名称', FALSE),
+    ('embedding_dimensions', '2560', 'ai_runtime', '默认嵌入向量维度', FALSE),
+    ('hyperrag_service_url', 'http://localhost:8001', 'ai_runtime', 'HyperRAG 服务地址', FALSE),
+    ('mineru_api_key', '', 'ai_tools', 'MinerU API Token', TRUE),
+    ('semantic_scholar_api_key', '', 'ai_tools', 'Semantic Scholar API Key', TRUE),
+    ('tavily_api_key', '', 'ai_tools', 'Tavily API Key', TRUE),
+    ('github_token', '', 'ai_tools', 'GitHub Token', TRUE)
 ON CONFLICT (key) DO NOTHING;
 
 -- 8. 验证结果

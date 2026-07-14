@@ -114,9 +114,10 @@ function parseJsonObject(text: string) {
 }
 
 function preferredModel(config: LLMConfig | null, override?: string) {
-  if (override === 'deepseek-v4-flash' || override === 'deepseek-v4-pro') return override;
-  if (!config?.defaultModel || config.defaultModel === 'deepseek-v4-flash') return 'deepseek-v4-pro';
-  return config.defaultModel;
+  if (override === 'deepseek-v4-flash') return override;
+  if (config?.defaultModel === 'deepseek-v4-flash') return config.defaultModel;
+  if (config?.provider && config.provider !== 'deepseek' && config.defaultModel) return config.defaultModel;
+  return 'deepseek-v4-flash';
 }
 
 async function callSynapseLLM(config: LLMConfig | null, messages: any[], maxTokens = 1200, options: { model?: string; thinkingEnabled?: boolean } = {}) {

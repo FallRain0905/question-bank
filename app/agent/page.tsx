@@ -14,8 +14,15 @@ type ChatMessage = {
 type RightTab = 'tools' | 'sources' | 'files' | 'documents';
 
 type AgentSettings = {
-  model: 'deepseek-v4-flash' | 'deepseek-v4-pro';
+  model: 'deepseek-v4-flash';
   thinkingEnabled: boolean;
+};
+
+type PendingEmbedAction = {
+  file: AgentFile;
+  kbName: string;
+  indexNow: boolean;
+  logs: string[];
 };
 
 function id() {
@@ -136,9 +143,10 @@ export default function AgentPage() {
   const [rightOpen, setRightOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentSettings, setAgentSettings] = useState<AgentSettings>({
-    model: 'deepseek-v4-pro',
+    model: 'deepseek-v4-flash',
     thinkingEnabled: true,
   });
+  const [pendingEmbed, setPendingEmbed] = useState<PendingEmbedAction | null>(null);
   const [loading, setLoading] = useState(false);
   const [activityText, setActivityText] = useState('');
   const [error, setError] = useState('');
@@ -150,7 +158,7 @@ export default function AgentPage() {
       if (saved) {
         const parsed = JSON.parse(saved);
         setAgentSettings({
-          model: parsed.model === 'deepseek-v4-flash' ? 'deepseek-v4-flash' : 'deepseek-v4-pro',
+          model: 'deepseek-v4-flash',
           thinkingEnabled: parsed.thinkingEnabled !== false,
         });
       }
@@ -287,10 +295,18 @@ export default function AgentPage() {
         await loadConversation(data.conversationId);
       }
       await loadConversations();
+      if (data.file?.content_text) {
+        setPendingEmbed({
+          file: data.file,
+          kbName: 'Synapse Agent Files',
+          indexNow: true,
+          logs: ['文件已解析为 Markdown，等待你确认是否写入知识库。'],
+        });
+      }
       pushMessage({
         role: 'assistant',
         content: data.file?.content_text
-          ? `已上传并解析《${data.file.file_name}》。你可以问我总结、提取重点或基于它继续检索。`
+          ? `已上传并解析《${data.file.file_name}》。如果你希望后续通过知识库检索这份文档，可以确认下方导入卡片。`
           : `已上传《${data.file?.file_name || file.name}》，但暂时没有解析出文本。PDF 可检查 MinerU 配置后重试。`,
       });
       setRightTab('files');
@@ -335,6 +351,62 @@ export default function AgentPage() {
         ? { ...call, status: 'failed', error: err.message || '转换失败' }
         : call));
       setError(err.message || '转换失败');
+    } finally {
+      setActivityText('');
+      setLoading(false);
+    }
+  };
+
+  const confirmEmbedFile = async () => {
+    if (!pendingEmbed || loading) return;
+    const action = pendingEmbed;
+    setError('');
+    setActivityText(`正在把 ${action.file.file_name} 写入知识库...`);
+    setToolCalls(prev => [{
+      id: id(),
+      tool: 'readDocument',
+      title: '正在建立知识库并嵌入文档',
+      status: 'running',
+      args: { fileId: action.file.id, kbName: action.kbName, indexNow: action.indexNow },
+      result: '正在创建/复用知识库、写入 Markdown 文档，并按你的选择启动 HyperRAG 嵌入。',
+    }, ...prev]);
+    setPendingEmbed(prev => prev ? { ...prev, logs: [...prev.logs, '开始创建/复用知识库。'] } : prev);
+    setLoading(true);
+
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`/api/agent/files/${action.file.id}/embed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({
+          kbName: action.kbName,
+          indexNow: action.indexNow,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '知识库导入失败');
+
+      setFiles(prev => prev.map(file => file.id === data.file?.id ? data.file : file));
+      setToolCalls(prev => prev.map(call => call.title === '正在建立知识库并嵌入文档' && call.status === 'running'
+        ? { ...call, status: data.sync?.ok === false ? 'failed' : 'completed', result: (data.logs || []).join('\n') }
+        : call));
+      setPendingEmbed(null);
+      pushMessage({
+        role: 'assistant',
+        content: [
+          `已将《${action.file.file_name}》写入知识库《${data.knowledgeBase?.name || action.kbName}》。`,
+          data.sync?.ok === false ? `嵌入未完成：${data.sync.error}` : action.indexNow ? 'HyperRAG 嵌入同步已完成。' : '你选择了暂不立即嵌入。',
+        ].join('\n'),
+      });
+      setRightTab('files');
+      setRightOpen(true);
+      await loadConversations();
+    } catch (err: any) {
+      setToolCalls(prev => prev.map(call => call.title === '正在建立知识库并嵌入文档' && call.status === 'running'
+        ? { ...call, status: 'failed', error: err.message || '知识库导入失败' }
+        : call));
+      setPendingEmbed(prev => prev ? { ...prev, logs: [...prev.logs, `失败：${err.message || '知识库导入失败'}`] } : prev);
+      setError(err.message || '知识库导入失败');
     } finally {
       setActivityText('');
       setLoading(false);
@@ -520,24 +592,12 @@ export default function AgentPage() {
               </button>
               {settingsOpen && (
                 <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-gray-200 bg-white p-3 text-sm shadow-lg">
-                  <div className="text-xs font-medium text-gray-500">Synapse 模型</div>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    {[
-                      ['deepseek-v4-pro', 'V4 Pro'],
-                      ['deepseek-v4-flash', 'V4 Flash'],
-                    ].map(([value, label]) => (
-                      <button
-                        key={value}
-                        onClick={() => setAgentSettings(prev => ({ ...prev, model: value as AgentSettings['model'] }))}
-                        className={`rounded-lg border px-3 py-2 text-xs ${
-                          agentSettings.model === value
-                            ? 'border-gray-900 bg-gray-900 text-white'
-                            : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                  <div className="text-xs font-medium text-gray-500">主控 Agent 管理</div>
+                  <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                    <div className="text-xs font-medium text-gray-800">DeepSeek V4 Flash</div>
+                    <div className="mt-1 text-[11px] leading-5 text-gray-400">
+                      Pro 已停用以控制成本。API Key 会优先读取个人设置，未配置时使用后台系统默认值。
+                    </div>
                   </div>
                   <label className="mt-3 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
                     <span>
@@ -684,6 +744,60 @@ export default function AgentPage() {
               </div>
             )}
 
+            {pendingEmbed && (
+              <div className="rounded-lg border border-emerald-100 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-[10px] font-medium uppercase text-emerald-600">Document skill</div>
+                    <h2 className="mt-1 text-sm font-medium text-gray-900">是否导入知识库并完成嵌入？</h2>
+                    <p className="mt-1 text-xs leading-5 text-gray-500">
+                      《{pendingEmbed.file.file_name}》已经解析出 {pendingEmbed.file.content_text.length} 个字符。确认后 Synapse 会创建/复用知识库、写入 Markdown 文档，并按设置启动 HyperRAG 同步。
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={confirmEmbedFile}
+                      disabled={loading || !pendingEmbed.kbName.trim()}
+                      className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                    >
+                      {loading ? '执行中...' : '确认导入'}
+                    </button>
+                    <button
+                      onClick={() => setPendingEmbed(null)}
+                      disabled={loading}
+                      className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 disabled:opacity-50"
+                    >
+                      暂不导入
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+                  <label className="block">
+                    <span className="text-xs font-medium text-gray-600">知识库名称</span>
+                    <input
+                      value={pendingEmbed.kbName}
+                      onChange={event => setPendingEmbed(prev => prev ? { ...prev, kbName: event.target.value } : prev)}
+                      className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-emerald-300"
+                    />
+                  </label>
+                  <label className="flex items-end gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={pendingEmbed.indexNow}
+                      onChange={event => setPendingEmbed(prev => prev ? { ...prev, indexNow: event.target.checked } : prev)}
+                      className="h-4 w-4"
+                    />
+                    <span>立即嵌入索引</span>
+                  </label>
+                </div>
+                <div className="mt-3 space-y-1 rounded-lg bg-gray-50 p-3">
+                  {pendingEmbed.logs.map((log, index) => (
+                    <div key={`${log}-${index}`} className="text-[11px] leading-5 text-gray-500">• {log}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {error && <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
             {loading && <div className="text-center text-xs text-gray-400">Agent 正在工作...</div>}
             <div ref={endRef} />
@@ -801,6 +915,11 @@ export default function AgentPage() {
                             <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-gray-500">{file.file_type}</span>
                           </div>
                           <div className="mt-1 text-[10px] text-gray-400">{file.file_size ? `${Math.ceil((file.file_size || 0) / 1024)} KB · ` : ''}{file.content_text ? `${file.content_text.length} 字符` : file.file_type === 'zip' ? 'MinerU 转换结果' : '未解析出文本'}</div>
+                          {file.metadata?.embeddingStatus && (
+                            <div className="mt-1 text-[10px] text-emerald-600">
+                              知识库：{file.metadata.kbName || '已导入'} · {file.metadata.embeddingStatus}
+                            </div>
+                          )}
                           {file.content_text && <p className="mt-2 line-clamp-4 text-xs leading-5 text-gray-500">{file.content_text}</p>}
                           <div className="mt-2 flex flex-wrap gap-2">
                             {file.file_url && (
@@ -809,6 +928,19 @@ export default function AgentPage() {
                                 className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600 hover:border-gray-300"
                               >
                                 下载
+                              </button>
+                            )}
+                            {file.content_text && !file.metadata?.kbDocumentId && (
+                              <button
+                                onClick={() => setPendingEmbed({
+                                  file,
+                                  kbName: 'Synapse Agent Files',
+                                  indexNow: true,
+                                  logs: ['文件已解析为 Markdown，等待你确认是否写入知识库。'],
+                                })}
+                                className="rounded-lg border border-emerald-200 bg-white px-2 py-1.5 text-xs text-emerald-700 hover:border-emerald-300"
+                              >
+                                导入知识库
                               </button>
                             )}
                             {file.file_type === 'pdf' && (
