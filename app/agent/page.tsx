@@ -63,6 +63,14 @@ function formatFileSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function conversionStatusLabel(file: AgentFile) {
+  const status = String(file.metadata?.conversionStatus || '');
+  if (status === 'processing') return 'MinerU 转换中';
+  if (status === 'completed') return file.metadata?.convertedMarkdownFileId ? '已生成 Markdown/ZIP' : '已生成 ZIP';
+  if (status === 'failed') return `转换失败：${file.metadata?.conversionError || '请重试'}`;
+  return '';
+}
+
 function modeLabel(mode: any) {
   if (mode === 'academic') return '学术检索';
   if (mode === 'general') return 'Web 检索';
@@ -234,6 +242,7 @@ export default function AgentPage() {
   const [activityText, setActivityText] = useState('');
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
+  const conversionPollsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     try {
@@ -250,6 +259,7 @@ export default function AgentPage() {
     }
     loadConversations();
     loadDocuments();
+    loadFiles();
   }, []);
 
   useEffect(() => {
@@ -259,6 +269,27 @@ export default function AgentPage() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, pendingPlan, loading]);
+
+  useEffect(() => {
+    for (const file of files) {
+      const taskId = String(file.metadata?.conversionTaskId || '');
+      if (file.metadata?.conversionStatus === 'processing' && taskId && !conversionPollsRef.current.has(file.id)) {
+        conversionPollsRef.current.add(file.id);
+        const callId = `conversion-${file.id}`;
+        setToolCalls(prev => prev.some(call => call.id === callId) ? prev : [{
+          id: callId,
+          tool: 'convertDocument',
+          title: '后台转换文档',
+          status: 'running',
+          args: { fileId: file.id, fileName: file.file_name },
+          result: '正在继续轮询 MinerU 转换结果。',
+        }, ...prev]);
+        pollConversion(file.id, taskId, callId).finally(() => {
+          conversionPollsRef.current.delete(file.id);
+        });
+      }
+    }
+  }, [files]);
 
   const pushMessage = (message: Omit<ChatMessage, 'id'>) => {
     setMessages(prev => [...prev, { id: id(), ...message }]);
@@ -291,6 +322,19 @@ export default function AgentPage() {
     }
   };
 
+  const loadFiles = async () => {
+    try {
+      const headers = await authHeaders();
+      if (!headers.Authorization) return;
+      const res = await fetch('/api/agent/files', { headers });
+      if (!res.ok) return;
+      const data = await res.json();
+      setFiles(data || []);
+    } catch {
+      // File library is useful context, but the chat can still run without it.
+    }
+  };
+
   const loadConversation = async (conversationId: string) => {
     try {
       const headers = await authHeaders();
@@ -301,6 +345,7 @@ export default function AgentPage() {
       setSelectedConversationId(conversationId);
       setMessages(messagesFromStored(data.messages || []));
       setFiles(data.files || []);
+      loadFiles();
       const traceToolCalls = (data.traces || []).map((trace: any) => ({
         id: trace.id,
         tool: trace.tool_name,
@@ -324,7 +369,6 @@ export default function AgentPage() {
     setPendingMessage('');
     setToolCalls([]);
     setSources([]);
-    setFiles([]);
     setActivityText('');
     setMessages([{
       id: id(),
@@ -387,6 +431,7 @@ export default function AgentPage() {
         setSelectedConversationId(data.conversationId);
         await loadConversation(data.conversationId);
       }
+      await loadFiles();
       await loadConversations();
       if (data.file?.content_text) {
         setPendingEmbed({
@@ -399,8 +444,8 @@ export default function AgentPage() {
       setUploadPreviews(prev => prev.map(item => item.id === previewId
         ? {
             ...item,
-            status: data.file?.content_text ? 'ready' : 'failed',
-            detail: data.file?.content_text ? `${data.file.content_text.length} 字符已解析` : '未解析出文本',
+            status: 'ready',
+            detail: data.file?.content_text ? `${data.file.content_text.length} 字符已解析` : '已加入文件库，PDF 可继续执行 MinerU 转换',
           }
         : item));
       pushMessage({
@@ -425,40 +470,106 @@ export default function AgentPage() {
   const convertFile = async (file: AgentFile) => {
     setError('');
     setActivityText(`正在调用 MinerU 转换 ${file.file_name}...`);
+    const callId = id();
     setToolCalls(prev => [{
-      id: id(),
+      id: callId,
       tool: 'convertDocument',
       title: '正在转换文档',
       status: 'running',
       args: { fileId: file.id, fileName: file.file_name },
-      result: '正在提交 MinerU 转换任务并等待 ZIP 结果。',
+      result: '正在提交 MinerU 转换任务。提交后会在后台继续处理，你可以继续对话。',
     }, ...prev]);
-    setLoading(true);
     try {
       const headers = await authHeaders();
       const res = await fetchWithTimeout(`/api/agent/files/${file.id}/convert`, {
         method: 'POST',
         headers,
-      }, LONG_REQUEST_TIMEOUT_MS);
+      }, 60_000);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '转换失败');
-      setFiles(prev => [data.file, ...prev]);
-      setToolCalls(prev => prev.map(call => call.tool === 'convertDocument' && call.status === 'running'
-        ? { ...call, status: 'completed', result: `MinerU 转换完成：${data.file.file_name}` }
+      if (data.file) {
+        setFiles(prev => prev.map(item => item.id === data.file.id ? data.file : item));
+      }
+      setToolCalls(prev => prev.map(call => call.id === callId
+        ? { ...call, id: call.id || callId, result: `MinerU 转换任务已提交：${data.taskId || '等待任务号'}。正在后台轮询结果。` }
         : call));
       setRightTab('files');
       setRightOpen(true);
       loadConversations();
+      if (data.async && data.taskId) {
+        pollConversion(file.id, data.taskId, callId);
+      } else if (data.status === 'completed') {
+        await loadFiles();
+      }
     } catch (err: any) {
-      setToolCalls(prev => prev.map(call => call.tool === 'convertDocument' && call.status === 'running'
+      setToolCalls(prev => prev.map(call => call.id === callId
         ? { ...call, status: 'failed', error: err.message || '转换失败' }
         : call));
       setError(err.message || '转换失败');
     } finally {
       setActivityText('');
-      setLoading(false);
     }
   };
+
+  async function pollConversion(fileId: string, taskId: string, callId: string) {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      await new Promise(resolve => window.setTimeout(resolve, 5000));
+      try {
+        const headers = await authHeaders();
+        const res = await fetch(`/api/agent/files/${fileId}/convert?task_id=${encodeURIComponent(taskId)}`, { headers });
+        const data = await res.json();
+
+        if (data.file) {
+          setFiles(prev => prev.map(item => item.id === data.file.id ? data.file : item));
+        }
+
+        if (!res.ok || data.status === 'failed') {
+          throw new Error(data.error || '转换失败');
+        }
+
+        if (data.status === 'completed') {
+          setFiles(prev => {
+            const next = [...prev];
+            if (data.file) {
+              const index = next.findIndex(item => item.id === data.file.id);
+              if (index >= 0) next[index] = data.file;
+              else next.unshift(data.file);
+            }
+            for (const generated of [data.markdownFile, data.zipFile].filter(Boolean)) {
+              if (!next.some(item => item.id === generated.id)) next.unshift(generated);
+            }
+            return next;
+          });
+          setToolCalls(prev => prev.map(call => call.id === callId
+            ? {
+                ...call,
+                status: 'completed',
+                result: data.markdownFile
+                  ? `MinerU 转换完成，Markdown 和 ZIP 已加入文件库：${data.markdownFile.file_name}`
+                  : `MinerU 转换完成，ZIP 已加入文件库：${data.zipFile?.file_name || '转换结果'}`,
+              }
+            : call));
+          await loadFiles();
+          await loadConversations();
+          return;
+        }
+
+        setToolCalls(prev => prev.map(call => call.id === callId
+          ? { ...call, result: `MinerU 正在处理：第 ${attempt + 1} 次检查，状态 ${data.state || data.status || 'processing'}。` }
+          : call));
+      } catch (err: any) {
+        setToolCalls(prev => prev.map(call => call.id === callId
+          ? { ...call, status: 'failed', error: err.message || '转换失败' }
+          : call));
+        setError(err.message || '转换失败');
+        return;
+      }
+    }
+
+    setToolCalls(prev => prev.map(call => call.id === callId
+      ? { ...call, status: 'failed', error: '转换仍在后台处理中，请稍后在文件库刷新查看。' }
+      : call));
+  }
 
   const confirmEmbedFile = async () => {
     if (!pendingEmbed || loading) return;
@@ -772,6 +883,35 @@ export default function AgentPage() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  };
+
+  const deleteFile = async (file: AgentFile) => {
+    if (!window.confirm(`删除文件「${file.file_name}」？`)) return;
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`/api/agent/files/${file.id}`, { method: 'DELETE', headers });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '删除失败');
+      setFiles(prev => prev.filter(item => item.id !== file.id));
+      await loadFiles();
+    } catch (err: any) {
+      setError(err.message || '删除失败');
+    }
+  };
+
+  const deleteDocument = async (document: AgentDocument) => {
+    if (!window.confirm(`删除文档「${document.title}」？`)) return;
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`/api/agent/documents/${document.id}`, { method: 'DELETE', headers });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '删除失败');
+      setDocuments(prev => prev.filter(item => item.id !== document.id));
+      if (selectedDocument?.id === document.id) setSelectedDocument(null);
+      await loadDocuments();
+    } catch (err: any) {
+      setError(err.message || '删除失败');
+    }
   };
 
   return (
@@ -1185,9 +1325,9 @@ export default function AgentPage() {
             {rightTab === 'files' && (
               <div className="space-y-4">
                 <section>
-                  <div className="mb-2 text-[11px] font-medium uppercase text-gray-400">会话文件</div>
+                  <div className="mb-2 text-[11px] font-medium uppercase text-gray-400">文件库</div>
                   {files.length === 0 ? (
-                    <div className="rounded-lg bg-gray-50 p-4 text-xs leading-5 text-gray-400">上传 PDF、DOCX、Markdown 或 TXT 后，Synapse 可以在对话中读取它们；PDF 还可以转换为 MinerU ZIP。</div>
+                    <div className="rounded-lg bg-gray-50 p-4 text-xs leading-5 text-gray-400">上传 PDF、DOCX、Markdown 或 TXT 后，Synapse 可以在任意对话中读取它们；PDF 还可以后台转换为 MinerU Markdown/ZIP。</div>
                   ) : (
                     <div className="space-y-2">
                       {files.map(file => (
@@ -1197,6 +1337,11 @@ export default function AgentPage() {
                             <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-gray-500">{file.file_type}</span>
                           </div>
                           <div className="mt-1 text-[10px] text-gray-400">{file.file_size ? `${Math.ceil((file.file_size || 0) / 1024)} KB · ` : ''}{file.content_text ? `${file.content_text.length} 字符` : file.file_type === 'zip' ? 'MinerU 转换结果' : '未解析出文本'}</div>
+                          {conversionStatusLabel(file) && (
+                            <div className={`mt-1 text-[10px] ${file.metadata?.conversionStatus === 'failed' ? 'text-red-600' : 'text-blue-600'}`}>
+                              {conversionStatusLabel(file)}
+                            </div>
+                          )}
                           {file.metadata?.embeddingStatus && (
                             <div className="mt-1 text-[10px] text-emerald-600">
                               知识库：{file.metadata.kbName || '已导入'} · {file.metadata.embeddingStatus}
@@ -1212,6 +1357,12 @@ export default function AgentPage() {
                                 下载
                               </button>
                             )}
+                            <button
+                              onClick={() => deleteFile(file)}
+                              className="rounded-lg border border-red-100 bg-white px-2 py-1.5 text-xs text-red-600 hover:border-red-200"
+                            >
+                              删除
+                            </button>
                             {file.content_text && !file.metadata?.kbDocumentId && (
                               <button
                                 onClick={() => setPendingEmbed({
@@ -1228,10 +1379,10 @@ export default function AgentPage() {
                             {file.file_type === 'pdf' && (
                               <button
                                 onClick={() => convertFile(file)}
-                                disabled={loading}
+                                disabled={file.metadata?.conversionStatus === 'processing'}
                                 className="rounded-lg bg-gray-900 px-2 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                               >
-                                MinerU 转换 ZIP
+                                {file.metadata?.conversionStatus === 'processing' ? '转换中' : 'MinerU 转换'}
                               </button>
                             )}
                           </div>
@@ -1265,6 +1416,9 @@ export default function AgentPage() {
                             </button>
                             <button onClick={() => downloadDocument(document, 'docx')} className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600 hover:border-gray-300">
                               DOCX
+                            </button>
+                            <button onClick={() => deleteDocument(document)} className="rounded-lg border border-red-100 bg-white px-2 py-1.5 text-xs text-red-600 hover:border-red-200">
+                              删除
                             </button>
                           </div>
                         </div>
@@ -1301,6 +1455,9 @@ export default function AgentPage() {
                       </button>
                       <button onClick={() => downloadDocument(selectedDocument, 'docx')} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 hover:border-gray-300">
                         下载 DOCX
+                      </button>
+                      <button onClick={() => deleteDocument(selectedDocument)} className="rounded-lg border border-red-100 bg-white px-3 py-2 text-xs text-red-600 hover:border-red-200">
+                        删除
                       </button>
                     </div>
                     <article

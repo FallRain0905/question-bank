@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import mammoth from 'mammoth';
-import { getUserMineruConfig } from '@/lib/user-settings';
 import { sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-runtime';
 
 export const runtime = 'nodejs';
@@ -46,75 +45,9 @@ async function ensureConversation(supabase: ReturnType<typeof clientForToken>, u
   return data.id;
 }
 
-async function parsePdfWithMineru(fileName: string, buffer: Buffer, token: string) {
-  try {
-    const createRes = await fetch('https://mineru.net/api/v1/agent/parse/file', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        file_name: fileName,
-        language: 'ch',
-        enable_table: true,
-        is_ocr: false,
-        enable_formula: true,
-      }),
-    });
-
-    if (createRes.ok) {
-      const createData = await createRes.json();
-      const taskId = createData?.data?.task_id || createData?.task_id;
-      const fileUrl = createData?.data?.file_url || createData?.data?.upload_url || createData?.file_url || createData?.upload_url;
-      if (taskId && fileUrl) {
-        const uploadBytes = new Uint8Array(buffer.length);
-        uploadBytes.set(buffer);
-        const uploadRes = await fetch(fileUrl, {
-          method: 'PUT',
-          body: uploadBytes,
-        });
-        if (uploadRes.ok) {
-          for (let attempt = 0; attempt < 40; attempt += 1) {
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            const pollRes = await fetch(`https://mineru.net/api/v1/agent/parse/${taskId}`);
-            if (!pollRes.ok) continue;
-            const pollData = await pollRes.json();
-            const state = pollData?.data?.state || pollData?.state;
-            if (state === 'failed') return '';
-            const markdownUrl = pollData?.data?.markdown_url || pollData?.markdown_url;
-            if (state === 'done' && markdownUrl) {
-              const mdRes = await fetch(markdownUrl);
-              if (mdRes.ok) return await mdRes.text();
-            }
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.warn('MinerU agent parse failed, trying legacy upload:', error);
-  }
-
-  try {
-    const mineru = await getUserMineruConfig(token);
-    const form = new FormData();
-    const bytes = new Uint8Array(buffer.length);
-    bytes.set(buffer);
-    form.append('file', new Blob([bytes.buffer], { type: 'application/pdf' }), fileName);
-    form.append('return_md', 'true');
-    const headers: Record<string, string> = {};
-    if (mineru.token) headers.Authorization = `Bearer ${mineru.token}`;
-    const res = await fetch('https://mineru.net/api/v1/agent/parse/file', { method: 'POST', headers, body: form });
-    if (res.ok) {
-      const data = await res.json();
-      return data.content || data.markdown || data.data?.content || data.data?.markdown || '';
-    }
-  } catch {
-    return '';
-  }
-  return '';
-}
-
-async function parseFile(file: File, buffer: Buffer, token: string) {
+async function parseFile(file: File, buffer: Buffer) {
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
-  if (ext === 'pdf') return parsePdfWithMineru(file.name, buffer, token);
+  if (ext === 'pdf') return '';
   if (ext === 'docx') {
     const result = await mammoth.extractRawText({ buffer });
     return result.value || '';
@@ -152,7 +85,7 @@ export async function POST(req: NextRequest) {
 
     const id = await ensureConversation(auth.supabase, auth.user.id, conversationId);
     const buffer = Buffer.from(await file.arrayBuffer());
-    const contentText = sanitizeTextForPostgres(await parseFile(file, buffer, auth.token));
+    const contentText = sanitizeTextForPostgres(await parseFile(file, buffer));
     const storagePath = `agent/${auth.user.id}/${id}/${Date.now()}-${safeStorageName(file.name)}`;
     let fileUrl = '';
     let uploadError = '';
@@ -200,4 +133,24 @@ export async function POST(req: NextRequest) {
     console.error('Synapse file upload error:', error);
     return NextResponse.json({ error: error.message || 'Upload failed' }, { status: 500 });
   }
+}
+
+export async function GET(req: NextRequest) {
+  const auth = await getAuthedClient(req);
+  if (auth.error) return auth.error;
+
+  const { searchParams } = new URL(req.url);
+  const conversationId = searchParams.get('conversation_id') || '';
+  let query = auth.supabase
+    .from('agent_files')
+    .select('*')
+    .eq('user_id', auth.user.id)
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  if (conversationId) query = query.eq('conversation_id', conversationId);
+
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data || []);
 }

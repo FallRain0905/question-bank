@@ -224,8 +224,28 @@ async function ensureConversation(supabase: SupabaseLike, userId: string, conver
   return data;
 }
 
+function documentAsWorkspaceFile(document: any) {
+  return {
+    id: `doc:${document.id}`,
+    conversation_id: document.conversation_id || '',
+    user_id: document.user_id,
+    file_name: `${document.title || 'Synapse document'}.md`,
+    file_type: 'agent_document',
+    file_size: String(document.content_md || '').length,
+    storage_path: null,
+    file_url: null,
+    content_text: document.content_md || '',
+    metadata: {
+      ...(document.metadata || {}),
+      source: 'agent_documents',
+      documentId: document.id,
+    },
+    created_at: document.updated_at || document.created_at,
+  };
+}
+
 async function loadConversationContext(supabase: SupabaseLike, userId: string, conversationId: string) {
-  const [{ data: messages }, { data: files }] = await Promise.all([
+  const [{ data: messages }, { data: files }, { data: documents }] = await Promise.all([
     supabase
       .from('agent_messages')
       .select('*')
@@ -236,15 +256,20 @@ async function loadConversationContext(supabase: SupabaseLike, userId: string, c
     supabase
       .from('agent_files')
       .select('*')
-      .eq('conversation_id', conversationId)
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(8),
+      .limit(30),
+    supabase
+      .from('agent_documents')
+      .select('*')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(20),
   ]);
 
   return {
     messages: (messages || []).reverse(),
-    files: files || [],
+    files: [...(files || []), ...(documents || []).map(documentAsWorkspaceFile)],
     memorySummary: '',
   };
 }
@@ -400,14 +425,14 @@ Return strict JSON only. Do not write prose outside JSON.
 
 Available tools:
 - researchSearch: Synap unified retrieval pipeline. Args: query, mode academic|general|both, depth fast|medium|deep.
-- readDocument: read uploaded conversation files. Args: query, fileIds optional.
+- readDocument: read the user's Synapse workspace files, including uploaded files, converted Markdown, and generated documents. Args: query, fileIds optional.
 - createDocument: create a saved Markdown document. This is a side-effect and needs user confirmation.
 
 Routing rules:
 - Normal questions, capability questions, model/settings questions, or conversational follow-ups should use no tools.
 - Use researchSearch only when the user needs external facts, latest information, papers, web evidence, project docs, or citations.
 - Choose academic for papers/literature/reviews/arXiv/Semantic Scholar/OpenAlex; general for web/news/docs/products/tutorials; both for broad research briefs or technical landscape questions.
-- Use readDocument when the user refers to uploaded files, "this document", "the PDF", attachments, or asks to summarize/analyze uploaded content.
+- Use readDocument when the user refers to uploaded files, converted files, generated documents, "this document", "the PDF", attachments, or asks to summarize/analyze workspace content.
 - Use createDocument only when the user explicitly wants to create/save/export/generate a document/report/markdown/docx. Mark needsConfirmation true.
 - If createDocument depends on external facts, include researchSearch before createDocument.
 - Do not call tools just to say what tools are available.
@@ -419,7 +444,7 @@ JSON shape:
     .slice(-8)
     .map((row: any) => `${row.role}: ${sanitizeTextForPostgres(String(row.content || ''), 600)}`)
     .join('\n');
-  const files = context.files.map((file: any) => `${file.id}: ${sanitizeTextForPostgres(file.file_name || '', 200)} (${file.file_type}, ${file.content_text?.length || 0} chars)`).join('\n') || 'No uploaded files.';
+  const files = context.files.map((file: any) => `${file.id}: ${sanitizeTextForPostgres(file.file_name || '', 200)} (${file.file_type}, ${file.content_text?.length || 0} chars)`).join('\n') || 'No workspace files.';
   const llm = await callSynapseLLM(llmConfig, [
     { role: 'system', content: system },
     { role: 'user', content: `Durable memory:\n${context.memorySummary || 'None'}\n\nRecent conversation:\n${history || 'None'}\n\nFiles:\n${files}\n\nUser message:\n${message}` },
@@ -524,33 +549,60 @@ async function runReadDocumentTool(decision: SynapseToolDecision, options: Synap
     tool: 'readDocument',
     title: decision.title || '读取文档',
     status: 'running',
-    message: '正在读取本会话上传文件...',
+    message: '正在读取你的 Synapse 文件库...',
     data: { fileIds: decision.args.fileIds || [] },
   });
-  let query = options.supabase
+  const requestedIds = Array.isArray(decision.args.fileIds)
+    ? decision.args.fileIds.map((item: any) => String(item)).filter(Boolean)
+    : [];
+  const requestedFileIds = requestedIds.filter((item: string) => !item.startsWith('doc:'));
+  const requestedDocumentIds = requestedIds
+    .filter((item: string) => item.startsWith('doc:'))
+    .map((item: string) => item.slice(4));
+
+  let fileQuery = options.supabase
     .from('agent_files')
     .select('*')
-    .eq('conversation_id', conversationId)
     .eq('user_id', options.userId)
     .order('created_at', { ascending: false })
-    .limit(8);
+    .limit(30);
 
-  if (Array.isArray(decision.args.fileIds) && decision.args.fileIds.length) {
-    query = query.in('id', decision.args.fileIds);
+  if (requestedFileIds.length) {
+    fileQuery = fileQuery.in('id', requestedFileIds);
+  } else if (requestedIds.length) {
+    fileQuery = fileQuery.limit(0);
   }
 
-  const { data: files, error } = await query;
-  if (error) throw error;
-  const readable = (files || []).filter((file: any) => String(file.content_text || '').trim());
+  let documentQuery = options.supabase
+    .from('agent_documents')
+    .select('*')
+    .eq('user_id', options.userId)
+    .order('updated_at', { ascending: false })
+    .limit(20);
+
+  if (requestedDocumentIds.length) {
+    documentQuery = documentQuery.in('id', requestedDocumentIds);
+  } else if (requestedIds.length) {
+    documentQuery = documentQuery.limit(0);
+  }
+
+  const [{ data: files, error: fileError }, { data: documents, error: documentError }] = await Promise.all([
+    fileQuery,
+    documentQuery,
+  ]);
+  if (fileError) throw fileError;
+  if (documentError) throw documentError;
+  const workspaceFiles = [...(files || []), ...(documents || []).map(documentAsWorkspaceFile)];
+  const readable = workspaceFiles.filter((file: any) => String(file.content_text || '').trim());
   const summary = readable.length
-    ? `已读取 ${readable.length} 个会话文档。`
-    : '没有找到可读取文本的会话文档。';
+    ? `已读取 ${readable.length} 个文件库文档。`
+    : '没有在文件库中找到可读取文本的文档。PDF 需要先完成 MinerU 转换，ZIP 结果本身不可直接作为文本读取。';
   await insertToolTrace(options.supabase, options.userId, conversationId, 'readDocument', { fileIds: decision.args.fileIds || [], query: decision.args.query || options.message }, { files: readable.map((file: any) => ({ id: file.id, file_name: file.file_name, chars: file.content_text?.length || 0 })) }, summary);
   await emitSynapseEvent(options, {
     type: 'tool_done',
     tool: 'readDocument',
     title: decision.title || '读取文档',
-    status: 'completed',
+    status: readable.length ? 'completed' : 'failed',
     message: readable.length ? `已读取 ${readable.length} 个文件。` : '没有找到可读取文本的文件。',
     data: { fileCount: readable.length },
   });
