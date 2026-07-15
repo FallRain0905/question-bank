@@ -584,6 +584,25 @@ function sandboxUidGid() {
   return `${uid}:${gid}`;
 }
 
+function dockerRuntimeHint(stderr: string) {
+  if (/docker\.sock|permission denied while trying to connect to the docker api/i.test(stderr)) {
+    return [
+      stderr,
+      '',
+      'Synapse could not talk to the host Docker daemon. This is a server permission issue, not a sandbox command restriction.',
+      'Fix on the server: add the PM2 user to the docker group, log out and back in, then restart PM2 with --update-env.',
+      'Commands: sudo usermod -aG docker deploy && exit',
+    ].join('\n').trim();
+  }
+  if (/Cannot connect to the Docker daemon|Is the docker daemon running/i.test(stderr)) {
+    return `${stderr}\n\nDocker daemon is not reachable. Start Docker on the server and restart the Synapse PM2 process.`;
+  }
+  if (/pull access denied|not found|No such image/i.test(stderr)) {
+    return `${stderr}\n\nSandbox image is missing. Build it with: docker build -t synapse-sandbox:latest docker/synapse-sandbox`;
+  }
+  return stderr;
+}
+
 async function prepareCommandWorkspace(userId: string, cwd = '.') {
   const { userRoot } = await ensureWorkspaceDirs(userId);
   const workingDirectory = path.resolve(userRoot, cwd || '.');
@@ -738,6 +757,7 @@ async function runDockerWorkspaceCommand(userId: string, command: string, cwd = 
       });
     });
     child.on('close', code => {
+      const finalStderr = dockerRuntimeHint(stderr.slice(-MAX_COMMAND_OUTPUT_CHARS));
       finish({
         command,
         cwd: relativeCwd || '.',
@@ -746,7 +766,7 @@ async function runDockerWorkspaceCommand(userId: string, command: string, cwd = 
         exitCode: code,
         timedOut,
         stdout: stdout.slice(-MAX_COMMAND_OUTPUT_CHARS),
-        stderr: stderr.slice(-MAX_COMMAND_OUTPUT_CHARS),
+        stderr: finalStderr.slice(-MAX_COMMAND_OUTPUT_CHARS),
         durationMs: Date.now() - startedAt,
       });
     });

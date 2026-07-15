@@ -1295,6 +1295,14 @@ async function loadSynapseGraphContext(state: typeof SynapseGraphState.State) {
     message: '正在加载会话、历史消息和文件上下文...',
   });
   const conversation = await ensureConversation(options.supabase, options.userId, options.conversationId, options.message);
+  await emitSynapseEvent(options, {
+    type: 'node_done',
+    node: 'ensure_conversation',
+    tool: 'synapse',
+    title: '会话已建立',
+    message: '已创建或恢复当前 Synapse 会话。',
+    data: { conversationId: conversation.id },
+  });
   const beforeContext = await loadConversationContext(options.supabase, options.userId, conversation.id);
   beforeContext.memorySummary = await maybeCompressMemory(options, conversation, beforeContext);
   await emitSynapseEvent(options, {

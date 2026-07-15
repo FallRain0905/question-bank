@@ -39,7 +39,7 @@ function id() {
 }
 
 const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
-const LONG_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
+const LONG_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = LONG_REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -276,6 +276,8 @@ export default function AgentPage() {
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
   const conversionPollsRef = useRef<Set<string>>(new Set());
+  const streamProgressRef = useRef<Set<string>>(new Set());
+  const activeStreamConversationRef = useRef('');
 
   useEffect(() => {
     try {
@@ -673,9 +675,25 @@ export default function AgentPage() {
   };
 
   const handleStreamEvent = async (event: string, data: any) => {
+    if (event === 'ping') return;
     if (event === 'error') throw new Error(data.error || 'Agent execution failed');
+    if (data?.conversationId) {
+      activeStreamConversationRef.current = data.conversationId;
+      setSelectedConversationId(data.conversationId);
+    }
     if (data?.message) setActivityText(data.message);
     mergeStreamToolCall(event, data);
+    if (
+      data?.message
+      && ['node_start', 'node_done', 'tool_start', 'tool_done', 'tool_error'].includes(event)
+      && data.tool
+    ) {
+      const key = `${event}:${data.tool}:${data.node || data.title || ''}:${data.message}`;
+      if (!streamProgressRef.current.has(key)) {
+        streamProgressRef.current.add(key);
+        pushMessage({ role: 'system', content: data.message });
+      }
+    }
   };
 
   const applyAgentResult = (data: any, options: { pushFallback?: boolean } = {}) => {
@@ -714,6 +732,8 @@ export default function AgentPage() {
     setError('');
     setPendingPlan(null);
     setPendingMessage(next);
+    streamProgressRef.current.clear();
+    activeStreamConversationRef.current = selectedConversationId || '';
     setToolCalls(optimisticToolCalls(next));
     setActivityText('Synapse 正在判断意图...');
     pushMessage({ role: 'user', content: next });
@@ -748,6 +768,10 @@ export default function AgentPage() {
       }
       loadConversations();
     } catch (err: any) {
+      const recoverId = activeStreamConversationRef.current || selectedConversationId;
+      if (recoverId) {
+        await loadConversation(recoverId).catch(() => {});
+      }
       setError(err.message || 'Agent planning failed');
     } finally {
       setActivityText('');
@@ -762,6 +786,8 @@ export default function AgentPage() {
     setError('');
     setPendingPlan(null);
     setPendingMessage(next);
+    streamProgressRef.current.clear();
+    activeStreamConversationRef.current = selectedConversationId || '';
     setToolCalls(optimisticToolCalls(next));
     setActivityText('Synapse 正在判断意图...');
     pushMessage({ role: 'user', content: next });
@@ -787,6 +813,10 @@ export default function AgentPage() {
       if (!finalData) throw new Error('Agent did not return a final result.');
       loadConversations();
     } catch (err: any) {
+      const recoverId = activeStreamConversationRef.current || selectedConversationId;
+      if (recoverId) {
+        await loadConversation(recoverId).catch(() => {});
+      }
       setError(err.message || 'Agent planning failed');
     } finally {
       setActivityText('');
@@ -798,6 +828,8 @@ export default function AgentPage() {
     if (!pendingPlan || !pendingMessage || loading) return;
     setLoading(true);
     setError('');
+    streamProgressRef.current.clear();
+    activeStreamConversationRef.current = selectedConversationId || '';
     setActivityText('正在执行已确认的文档生成...');
     pushMessage({ role: 'user', content: '确认执行这个计划。' });
     setToolCalls(pendingPlan.steps.map(step => ({
@@ -831,6 +863,10 @@ export default function AgentPage() {
       loadDocuments();
       loadFiles();
     } catch (err: any) {
+      const recoverId = activeStreamConversationRef.current || selectedConversationId;
+      if (recoverId) {
+        await loadConversation(recoverId).catch(() => {});
+      }
       setError(err.message || 'Agent execution failed');
     } finally {
       setActivityText('');

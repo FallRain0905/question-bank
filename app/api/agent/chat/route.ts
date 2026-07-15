@@ -6,7 +6,7 @@ import type { AgentPlan } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const maxDuration = 900;
 
 const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 
@@ -45,9 +45,14 @@ function sseResponse(run: (send: (event: string, data: Record<string, any>) => P
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      let closed = false;
       async function send(event: string, data: Record<string, any>) {
+        if (closed) return;
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       }
+      const heartbeat = setInterval(() => {
+        send('ping', { ts: Date.now() }).catch(() => {});
+      }, 15_000);
 
       try {
         await send('status', { message: 'Synapse 正在启动 LangGraph...' });
@@ -58,6 +63,8 @@ function sseResponse(run: (send: (event: string, data: Record<string, any>) => P
         console.error('Synapse stream error:', error);
         await send('error', { error: schemaHint(error) });
       } finally {
+        closed = true;
+        clearInterval(heartbeat);
         controller.close();
       }
     },
