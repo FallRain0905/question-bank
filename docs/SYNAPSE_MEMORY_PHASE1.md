@@ -83,13 +83,22 @@ The extractor is intentionally conservative. It only creates active memories for
 
 All routes require the existing Bearer Supabase token and rely on RLS.
 
-## Next Phase
+## Phase 2 Agent Integration
 
-Phase 2 should connect memory into Synapse LangGraph:
+Implemented in `lib/synapse-runtime.ts`:
 
-1. `load_context`: call `MemoryManager.getMemoryContext()`.
-2. `decide_tools` and `generate_answer`: receive compressed memory context separately from document/RAG context.
-3. `persist_turn`: run `MemoryExtractor` after the assistant answer.
-4. Show used/written memories in the right-side tool/status panel.
-5. Add a minimal `/memory` management page for view/edit/delete/disable.
+- `load_context` retrieves relevant long-term memories with `MemoryManager.getMemoryContext()`.
+- Tool routing receives both conversation-summary memory and structured memory context.
+- Answer generation receives structured memory as user/task context, not as external factual evidence.
+- `persist_turn` runs `MemoryWriter` after the assistant answer.
+- Explicit "记住/remember" requests become active memories; inferred preferences and research/project context are written as candidates.
+- Assistant message metadata stores `usedMemories` and `memoryWrite`.
+- SSE emits `load_memory` and `write_memory` progress events.
 
+## Remaining Next Phase
+
+1. Render `usedMemories` and `memoryWrite` in the right-side agent status panel.
+2. Add a minimal `/memory` management page for view/edit/delete/disable.
+3. Add vector embeddings and semantic retrieval.
+4. Add user confirmation or undo UI for candidate memories.
+5. Add learning/project-specific extraction prompts instead of only heuristic extraction.

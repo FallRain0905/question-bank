@@ -5,10 +5,13 @@ RUN apt-get update \
     bash \
     ca-certificates \
     coreutils \
+    curl \
     file \
     findutils \
     gawk \
+    git \
     grep \
+    jq \
     less \
     procps \
     python3 \
@@ -16,7 +19,9 @@ RUN apt-get update \
     ripgrep \
     sed \
     tar \
+    tree \
     unzip \
+    wget \
     zip \
   && rm -rf /var/lib/apt/lists/*
 

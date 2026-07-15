@@ -29,6 +29,9 @@ async function getAuthedClient(req: NextRequest) {
 
 function schemaHint(error: any) {
   const message = error?.message || String(error || '');
+  if (message.includes('memories') || message.includes('memory_settings') || message.includes('memory_events')) {
+    return `${message} 请先执行 supabase/migration_synapse_memory_phase1.sql。`;
+  }
   if (message.includes('agent_conversations') || message.includes('agent_messages') || message.includes('agent_tool_traces') || message.includes('agent_files')) {
     return `${message} 请先执行 supabase/migration_synapse_agent.sql。`;
   }

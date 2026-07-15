@@ -9,6 +9,7 @@ import {
   runWorkspaceCommand,
   textPreviewFromWorkspaceFile,
 } from '@/lib/agent-workspace';
+import { MemoryManager, MemoryWriter, type RankedMemory } from '@/lib/memory-service';
 import { normalizeResearchOptions, planResearchQueries, retrieveResearchSources } from '@/lib/research-retrieval';
 import type { AgentPlan, AgentToolCallLog, ResearchSource } from '@/types';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
@@ -79,6 +80,19 @@ type SynapseGraphTraceEvent = {
   finishedAt: string;
   durationMs: number;
   summary?: string;
+};
+
+type SynapseMemoryContext = {
+  memories: RankedMemory[];
+  contextText: string;
+  error?: string;
+};
+
+type SynapseConversationContext = {
+  messages: any[];
+  files: any[];
+  memorySummary?: string;
+  memoryContext?: SynapseMemoryContext;
 };
 
 const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
@@ -254,7 +268,7 @@ function documentAsWorkspaceFile(document: any) {
   };
 }
 
-async function loadConversationContext(supabase: SupabaseLike, userId: string, conversationId: string) {
+async function loadConversationContext(supabase: SupabaseLike, userId: string, conversationId: string): Promise<SynapseConversationContext> {
   const [{ data: messages }, { data: files }, { data: documents }] = await Promise.all([
     supabase
       .from('agent_messages')
@@ -281,13 +295,14 @@ async function loadConversationContext(supabase: SupabaseLike, userId: string, c
     messages: (messages || []).reverse(),
     files: [...(files || []), ...(documents || []).map(documentAsWorkspaceFile)],
     memorySummary: '',
+    memoryContext: { memories: [], contextText: '' },
   };
 }
 
 async function maybeCompressMemory(
   options: SynapseRunOptions,
   conversation: any,
-  context: { messages: any[]; files: any[]; memorySummary?: string }
+  context: SynapseConversationContext
 ) {
   const historyText = context.messages
     .map((row: any) => `${row.role}: ${sanitizeTextForPostgres(String(row.content || ''), 1200)}`)
@@ -331,6 +346,71 @@ Write an updated memory summary in Chinese, under 1200 Chinese characters.`,
       .eq('user_id', options.userId);
   }
   return memorySummary;
+}
+
+function compactMemory(memory: RankedMemory | any) {
+  return sanitizeForPostgres({
+    id: memory.id,
+    layer: memory.layer,
+    memoryType: memory.memory_type,
+    title: memory.title,
+    summary: memory.summary || memory.content?.slice(0, 240) || '',
+    relevanceScore: memory.relevanceScore ?? null,
+    matchedTerms: memory.matchedTerms || [],
+    tags: memory.tags || [],
+  });
+}
+
+async function retrieveSynapseMemoryContext(options: SynapseRunOptions, conversation: any, context: SynapseConversationContext): Promise<SynapseMemoryContext> {
+  try {
+    const manager = new MemoryManager(options.supabase, options.userId);
+    const query = [
+      options.message,
+      conversation?.title || '',
+      context.memorySummary || '',
+      context.messages.slice(-4).map((row: any) => `${row.role}: ${String(row.content || '').slice(0, 500)}`).join('\n'),
+    ].filter(Boolean).join('\n');
+    const result = await manager.getMemoryContext(query, { limit: 8 });
+    return {
+      memories: result.memories,
+      contextText: result.contextText,
+    };
+  } catch (error: any) {
+    const message = error?.message || String(error || '');
+    console.warn('Synapse memory retrieval skipped:', message);
+    return {
+      memories: [],
+      contextText: '',
+      error: message,
+    };
+  }
+}
+
+async function writeSynapseTurnMemories(
+  options: SynapseRunOptions,
+  conversationId: string,
+  userMessage: string,
+  assistantMessage: string
+) {
+  try {
+    const manager = new MemoryManager(options.supabase, options.userId);
+    const settings = await manager.ensureSettings();
+    if (settings?.auto_write_enabled === false) {
+      return { written: [], skipped: 'auto_write_disabled' };
+    }
+    const writer = new MemoryWriter(manager);
+    const written = await writer.writeCandidates({
+      userMessage,
+      assistantMessage,
+      sourceType: 'agent_conversation',
+      sourceId: conversationId,
+    });
+    return { written, skipped: '' };
+  } catch (error: any) {
+    const message = error?.message || String(error || '');
+    console.warn('Synapse memory write skipped:', message);
+    return { written: [], skipped: message };
+  }
 }
 
 async function insertMessage(supabase: SupabaseLike, userId: string, conversationId: string, role: string, content: string, metadata: Record<string, any> = {}) {
@@ -535,7 +615,7 @@ function heuristicDecision(message: string, files: any[]): SynapseDecision {
 
 async function decideTools(
   message: string,
-  context: { messages: any[]; files: any[]; memorySummary?: string },
+  context: SynapseConversationContext,
   llmConfig: LLMConfig | null,
   agentSettings?: SynapseRunOptions['agentSettings']
 ) {
@@ -578,7 +658,7 @@ JSON shape:
   const files = context.files.map((file: any) => `${file.id}: ${sanitizeTextForPostgres(file.file_name || '', 200)} (${file.file_type}, ${file.content_text?.length || 0} chars)`).join('\n') || 'No workspace files.';
   const llm = await callSynapseLLM(llmConfig, [
     { role: 'system', content: system },
-    { role: 'user', content: `Durable memory:\n${context.memorySummary || 'None'}\n\nRecent conversation:\n${history || 'None'}\n\nFiles:\n${files}\n\nUser message:\n${message}` },
+    { role: 'user', content: `Conversation summary memory:\n${context.memorySummary || 'None'}\n\nStructured long-term memory:\n${context.memoryContext?.contextText || 'None'}\n\nRecent conversation:\n${history || 'None'}\n\nFiles:\n${files}\n\nUser message:\n${message}` },
   ], 700, agentSettings);
 
   const parsed = parseJsonObject(llm.content);
@@ -941,7 +1021,7 @@ async function runTerminalTool(decision: SynapseToolDecision, options: SynapseRu
 async function generateAnswer(
   options: SynapseRunOptions,
   conversation: any,
-  context: { messages: any[]; files: any[]; memorySummary?: string },
+  context: SynapseConversationContext,
   decision: SynapseDecision,
   toolCalls: AgentToolCallLog[],
   sources: ResearchSource[],
@@ -962,6 +1042,7 @@ You do not have arbitrary host access. Confirmed terminal commands run through a
 If the user asks about your workspace or capabilities, explain this accurately instead of saying you have no persistent folder.
 If research sources are available, synthesize them into an actual answer and cite them as [S1], [S2].
 If uploaded files are used, cite them as [F1], [F2].
+Use structured long-term memories only as user/task context. They are not external factual citations.
 If tools were called, briefly mention the tool result only after answering the user; do not stop at "I searched".
 If evidence is thin or sources are noisy, say so plainly and suggest the next best action.
 If a createDocument action is pending, do not claim it has been created; explain that it needs user confirmation.`;
@@ -971,6 +1052,9 @@ ${history || 'None'}
 
 Durable memory:
 ${context.memorySummary || 'None'}
+
+Structured long-term memory:
+${context.memoryContext?.contextText || 'None'}
 
 User message:
 ${options.message}
@@ -1041,6 +1125,7 @@ export async function runSynapseTurn(options: SynapseRunOptions) {
   const conversation = await ensureConversation(options.supabase, options.userId, options.conversationId, options.message);
   const beforeContext = await loadConversationContext(options.supabase, options.userId, conversation.id);
   beforeContext.memorySummary = await maybeCompressMemory(options, conversation, beforeContext);
+  beforeContext.memoryContext = await retrieveSynapseMemoryContext(options, conversation, beforeContext);
   await insertMessage(options.supabase, options.userId, conversation.id, 'user', options.message);
 
   const decision = await decideTools(options.message, beforeContext, options.llmConfig, options.agentSettings);
@@ -1079,12 +1164,18 @@ export async function runSynapseTurn(options: SynapseRunOptions) {
   }
 
   const answer = await generateAnswer(options, conversation, beforeContext, decision, toolCalls, allSources, readFiles);
+  const memoryWrite = await writeSynapseTurnMemories(options, conversation.id, options.message, answer.content);
   const assistant = await insertMessage(options.supabase, options.userId, conversation.id, 'assistant', answer.content, {
     agent: 'synapse',
     decision,
     toolCalls,
     sources: allSources.slice(0, 12).map(compactSource),
     readFiles: readFiles.map(file => ({ id: file.id, file_name: file.file_name })),
+    usedMemories: (beforeContext.memoryContext?.memories || []).map(compactMemory),
+    memoryWrite: {
+      written: memoryWrite.written.map(compactMemory),
+      skipped: memoryWrite.skipped,
+    },
     reasoning: answer.reasoning,
     model: answer.model,
     usedThinking: answer.usedThinking,
@@ -1103,6 +1194,9 @@ export async function runSynapseTurn(options: SynapseRunOptions) {
     toolCalls,
     sources: allSources,
     files: readFiles,
+    usedMemories: beforeContext.memoryContext?.memories || [],
+    writtenMemories: memoryWrite.written,
+    memoryWriteSkipped: memoryWrite.skipped,
     reasoning: answer.reasoning,
     model: answer.model,
     usedThinking: answer.usedThinking,
@@ -1112,7 +1206,7 @@ export async function runSynapseTurn(options: SynapseRunOptions) {
 const SynapseGraphState = Annotation.Root({
   options: Annotation<SynapseRunOptions>,
   conversation: Annotation<any>,
-  beforeContext: Annotation<{ messages: any[]; files: any[]; memorySummary?: string }>,
+  beforeContext: Annotation<SynapseConversationContext>,
   decision: Annotation<SynapseDecision>,
   pendingPlan: Annotation<AgentPlan | null>,
   toolCalls: Annotation<AgentToolCallLog[]>({
@@ -1128,6 +1222,10 @@ const SynapseGraphState = Annotation.Root({
     default: () => [],
   }),
   answer: Annotation<{ content: string; reasoning: string; model: string; usedThinking: boolean }>,
+  memoryWrite: Annotation<{ written: any[]; skipped?: string }>({
+    reducer: (_left, right) => right,
+    default: () => ({ written: [], skipped: '' }),
+  }),
   assistant: Annotation<any>,
   messages: Annotation<any[]>({
     reducer: (_left, right) => right,
@@ -1178,6 +1276,8 @@ function synapseControllerCall(state: typeof SynapseGraphState.State): AgentTool
       intent: state.decision.intent,
       responseStyle: state.decision.responseStyle,
       executableTools: executableCount,
+      usedMemories: state.beforeContext.memoryContext?.memories.length || 0,
+      writtenMemories: state.memoryWrite?.written?.length || 0,
       route: state.graphTrace.map(event => event.node),
     },
     result: `路由：${route || '未记录'}。意图：${state.decision.intent}；执行工具数：${executableCount}${pendingWrite}。`,
@@ -1197,6 +1297,26 @@ async function loadSynapseGraphContext(state: typeof SynapseGraphState.State) {
   const conversation = await ensureConversation(options.supabase, options.userId, options.conversationId, options.message);
   const beforeContext = await loadConversationContext(options.supabase, options.userId, conversation.id);
   beforeContext.memorySummary = await maybeCompressMemory(options, conversation, beforeContext);
+  await emitSynapseEvent(options, {
+    type: 'node_start',
+    node: 'load_memory',
+    tool: 'synapse',
+    title: '检索长期记忆',
+    message: '正在检索与你当前问题相关的长期记忆...',
+  });
+  beforeContext.memoryContext = await retrieveSynapseMemoryContext(options, conversation, beforeContext);
+  await emitSynapseEvent(options, {
+    type: 'node_done',
+    node: 'load_memory',
+    tool: 'synapse',
+    title: '长期记忆检索完成',
+    message: `找到 ${beforeContext.memoryContext.memories.length} 条相关记忆。`,
+    data: {
+      memoryCount: beforeContext.memoryContext.memories.length,
+      memoryError: beforeContext.memoryContext.error || '',
+      memories: beforeContext.memoryContext.memories.slice(0, 5).map(compactMemory),
+    },
+  });
   await insertMessage(options.supabase, options.userId, conversation.id, 'user', options.message);
 
   await emitSynapseEvent(options, {
@@ -1210,7 +1330,7 @@ async function loadSynapseGraphContext(state: typeof SynapseGraphState.State) {
   return {
     conversation,
     beforeContext,
-    graphTrace: [graphTraceEvent('load_context', startedAt, `${beforeContext.messages.length} history messages, ${beforeContext.files.length} files`)],
+    graphTrace: [graphTraceEvent('load_context', startedAt, `${beforeContext.messages.length} history messages, ${beforeContext.files.length} files, ${beforeContext.memoryContext?.memories.length || 0} memories`)],
   };
 }
 
@@ -1346,6 +1466,33 @@ async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
   });
   const controllerCall = synapseControllerCall(state);
   const responseToolCalls = [controllerCall, ...state.toolCalls];
+  await emitSynapseEvent(state.options, {
+    type: 'node_start',
+    node: 'write_memory',
+    tool: 'synapse',
+    title: '提取候选记忆',
+    message: '正在判断本轮对话是否有值得保存的长期记忆...',
+  });
+  const memoryWrite = await writeSynapseTurnMemories(
+    state.options,
+    state.conversation.id,
+    state.options.message,
+    state.answer.content
+  );
+  await emitSynapseEvent(state.options, {
+    type: 'node_done',
+    node: 'write_memory',
+    tool: 'synapse',
+    title: '候选记忆处理完成',
+    message: memoryWrite.skipped
+      ? `记忆写入已跳过：${memoryWrite.skipped}`
+      : `写入/更新 ${memoryWrite.written.length} 条记忆。`,
+    data: {
+      writtenCount: memoryWrite.written.length,
+      skipped: memoryWrite.skipped || '',
+      memories: memoryWrite.written.slice(0, 5).map(compactMemory),
+    },
+  });
   const assistant = await insertMessage(state.options.supabase, state.options.userId, state.conversation.id, 'assistant', state.answer.content, {
     agent: 'synapse',
     runtime: 'langgraph',
@@ -1355,6 +1502,11 @@ async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
     toolCalls: responseToolCalls,
     sources: state.sources.slice(0, 12).map(compactSource),
     readFiles: state.readFiles.map(file => ({ id: file.id, file_name: file.file_name })),
+    usedMemories: (state.beforeContext.memoryContext?.memories || []).map(compactMemory),
+    memoryWrite: {
+      written: memoryWrite.written.map(compactMemory),
+      skipped: memoryWrite.skipped,
+    },
     reasoning: state.answer.reasoning,
     model: state.answer.model,
     usedThinking: state.answer.usedThinking,
@@ -1373,6 +1525,9 @@ async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
     toolCalls: responseToolCalls,
     sources: state.sources,
     files: state.readFiles,
+    usedMemories: state.beforeContext.memoryContext?.memories || [],
+    writtenMemories: memoryWrite.written,
+    memoryWriteSkipped: memoryWrite.skipped,
     reasoning: state.answer.reasoning,
     model: state.answer.model,
     usedThinking: state.answer.usedThinking,
@@ -1391,6 +1546,7 @@ async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
   return {
     assistant,
     messages: refreshed.messages,
+    memoryWrite,
     graphTrace: [graphTraceEvent('persist_turn', startedAt, 'response persisted')],
     response,
   };
