@@ -38,6 +38,37 @@ function schemaHint(error: any) {
   return message || 'Agent request failed';
 }
 
+function sseResponse(run: (send: (event: string, data: Record<string, any>) => Promise<void>) => Promise<any>) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      async function send(event: string, data: Record<string, any>) {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      }
+
+      try {
+        await send('status', { message: 'Synapse 正在启动 LangGraph...' });
+        const result = await run(send);
+        await send('result', result);
+        await send('done', { ok: true });
+      } catch (error: any) {
+        console.error('Synapse stream error:', error);
+        await send('error', { error: schemaHint(error) });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  });
+}
+
 export async function POST(req: NextRequest) {
   const auth = await getAuthedClient(req);
   if (auth.error) return auth.error;
@@ -57,9 +88,11 @@ export async function POST(req: NextRequest) {
       getUserResearchToolConfig(auth.token),
     ]);
 
+    const shouldStream = body.stream === true || req.headers.get('accept')?.includes('text/event-stream');
+
     if (body.confirmedPlan) {
       if (!conversationId) return NextResponse.json({ error: 'Missing conversationId for confirmed action' }, { status: 400 });
-      const result = await runConfirmedDocumentLangGraphTurn({
+      const input = {
         userId: auth.user.id,
         message,
         conversationId,
@@ -68,11 +101,18 @@ export async function POST(req: NextRequest) {
         llmConfig,
         toolConfig,
         agentSettings,
-      });
+      };
+      if (shouldStream) {
+        return sseResponse(send => runConfirmedDocumentLangGraphTurn({
+          ...input,
+          onEvent: event => send(event.type, event as any),
+        }));
+      }
+      const result = await runConfirmedDocumentLangGraphTurn(input);
       return NextResponse.json(result);
     }
 
-    const result = await runSynapseLangGraphTurn({
+    const input = {
       userId: auth.user.id,
       message,
       conversationId,
@@ -80,8 +120,15 @@ export async function POST(req: NextRequest) {
       llmConfig,
       toolConfig,
       agentSettings,
-    });
+    };
+    if (shouldStream) {
+      return sseResponse(send => runSynapseLangGraphTurn({
+        ...input,
+        onEvent: event => send(event.type, event as any),
+      }));
+    }
 
+    const result = await runSynapseLangGraphTurn(input);
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('Synapse chat error:', error);

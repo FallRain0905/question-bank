@@ -45,11 +45,22 @@ type SynapseRunOptions = {
     model?: string;
     thinkingEnabled?: boolean;
   };
+  onEvent?: (event: SynapseRuntimeEvent) => void | Promise<void>;
 };
 
 type SynapseConfirmedDocumentOptions = SynapseRunOptions & {
   conversationId: string;
   confirmedPlan: AgentPlan;
+};
+
+type SynapseRuntimeEvent = {
+  type: 'node_start' | 'node_done' | 'tool_start' | 'tool_done' | 'tool_error';
+  node?: string;
+  tool?: SynapseToolDecision['tool'] | 'synapse';
+  title?: string;
+  message?: string;
+  status?: AgentToolCallLog['status'];
+  data?: Record<string, any>;
 };
 
 type SynapseGraphTraceEvent = {
@@ -384,19 +395,22 @@ async function decideTools(
   agentSettings?: SynapseRunOptions['agentSettings']
 ) {
   const system = `You are Synapse, the main agent controller for Synap.
-Choose tools only when useful. Return strict JSON only.
+Your job is to decide whether the next assistant reply should answer directly or call tools first.
+Return strict JSON only. Do not write prose outside JSON.
 
 Available tools:
-- researchSearch: external retrieval pipeline. Args: query, mode academic|general|both, depth fast|medium|deep.
+- researchSearch: Synap unified retrieval pipeline. Args: query, mode academic|general|both, depth fast|medium|deep.
 - readDocument: read uploaded conversation files. Args: query, fileIds optional.
 - createDocument: create a saved Markdown document. This is a side-effect and needs user confirmation.
 
-Rules:
-- Conversation is primary. If the user asks a normal question, answer without tools.
-- If external facts/latest papers/web info are needed, use researchSearch.
-- If the user asks about uploaded files, use readDocument.
-- If the user asks to create/save/export a document, include createDocument and set needsConfirmation true.
-- Do not include createDocument for simple capability/model questions.
+Routing rules:
+- Normal questions, capability questions, model/settings questions, or conversational follow-ups should use no tools.
+- Use researchSearch only when the user needs external facts, latest information, papers, web evidence, project docs, or citations.
+- Choose academic for papers/literature/reviews/arXiv/Semantic Scholar/OpenAlex; general for web/news/docs/products/tutorials; both for broad research briefs or technical landscape questions.
+- Use readDocument when the user refers to uploaded files, "this document", "the PDF", attachments, or asks to summarize/analyze uploaded content.
+- Use createDocument only when the user explicitly wants to create/save/export/generate a document/report/markdown/docx. Mark needsConfirmation true.
+- If createDocument depends on external facts, include researchSearch before createDocument.
+- Do not call tools just to say what tools are available.
 
 JSON shape:
 {"intent":"answer|research|read|write","responseStyle":"concise|normal|detailed","needsConfirmation":false,"tools":[{"tool":"researchSearch|readDocument|createDocument","title":"...","reason":"...","args":{}}]}`;
@@ -454,6 +468,14 @@ Excerpt: ${sanitizeTextForPostgres(String(file.content_text || ''), 1800)}`;
 async function runResearchTool(decision: SynapseToolDecision, options: SynapseRunOptions, conversationId: string) {
   const selected = normalizeResearchOptions(decision.args.mode, decision.args.depth);
   const query = String(decision.args.query || options.message).trim();
+  await emitSynapseEvent(options, {
+    type: 'tool_start',
+    tool: 'researchSearch',
+    title: decision.title || '检索资料',
+    status: 'running',
+    message: `正在检索：${query}`,
+    data: { query, mode: selected.mode, depth: selected.depth },
+  });
   const retrievalOptions = {
     query,
     mode: selected.mode,
@@ -475,6 +497,14 @@ async function runResearchTool(decision: SynapseToolDecision, options: SynapseRu
   const sources = await retrieveResearchSources({ ...retrievalOptions, plan });
   const summary = `${selected.mode === 'academic' ? '学术检索' : selected.mode === 'general' ? 'Web 检索' : '综合检索'}完成：${sources.length} 个来源。`;
   await insertToolTrace(options.supabase, options.userId, conversationId, 'researchSearch', { query, mode: selected.mode, depth: selected.depth }, { sourceCount: sources.length, plannedQueries: plan, sources: sources.slice(0, 12).map(compactSource) }, summary);
+  await emitSynapseEvent(options, {
+    type: 'tool_done',
+    tool: 'researchSearch',
+    title: decision.title || '检索资料',
+    status: 'completed',
+    message: `检索完成，获得 ${sources.length} 个来源。`,
+    data: { query, mode: selected.mode, depth: selected.depth, sourceCount: sources.length },
+  });
   return {
     call: {
       id: id('tool'),
@@ -489,6 +519,14 @@ async function runResearchTool(decision: SynapseToolDecision, options: SynapseRu
 }
 
 async function runReadDocumentTool(decision: SynapseToolDecision, options: SynapseRunOptions, conversationId: string) {
+  await emitSynapseEvent(options, {
+    type: 'tool_start',
+    tool: 'readDocument',
+    title: decision.title || '读取文档',
+    status: 'running',
+    message: '正在读取本会话上传文件...',
+    data: { fileIds: decision.args.fileIds || [] },
+  });
   let query = options.supabase
     .from('agent_files')
     .select('*')
@@ -508,6 +546,14 @@ async function runReadDocumentTool(decision: SynapseToolDecision, options: Synap
     ? `已读取 ${readable.length} 个会话文档。`
     : '没有找到可读取文本的会话文档。';
   await insertToolTrace(options.supabase, options.userId, conversationId, 'readDocument', { fileIds: decision.args.fileIds || [], query: decision.args.query || options.message }, { files: readable.map((file: any) => ({ id: file.id, file_name: file.file_name, chars: file.content_text?.length || 0 })) }, summary);
+  await emitSynapseEvent(options, {
+    type: 'tool_done',
+    tool: 'readDocument',
+    title: decision.title || '读取文档',
+    status: 'completed',
+    message: readable.length ? `已读取 ${readable.length} 个文件。` : '没有找到可读取文本的文件。',
+    data: { fileCount: readable.length },
+  });
   return {
     call: {
       id: id('tool'),
@@ -539,10 +585,12 @@ async function generateAnswer(
   const pendingWrite = decision.tools.find(tool => tool.tool === 'createDocument');
 
   const system = `You are Synapse, the main conversational research agent for Synap.
-Answer in the user's language. Be direct and useful.
-If sources are available, cite them as [S1], [S2]. If uploaded files are used, cite them as [F1], [F2].
-Always briefly mention what tools you used when tools were called.
-If a createDocument action is pending, do not claim it has been created; say it needs confirmation.`;
+Answer in the user's language. Be direct, useful, and grounded in the provided context.
+If research sources are available, synthesize them into an actual answer and cite them as [S1], [S2].
+If uploaded files are used, cite them as [F1], [F2].
+If tools were called, briefly mention the tool result only after answering the user; do not stop at "I searched".
+If evidence is thin or sources are noisy, say so plainly and suggest the next best action.
+If a createDocument action is pending, do not claim it has been created; explain that it needs user confirmation.`;
 
   const prompt = `Conversation:
 ${history || 'None'}
@@ -718,6 +766,14 @@ function graphTraceEvent(node: string, startedAtMs: number, summary?: string): S
   };
 }
 
+async function emitSynapseEvent(options: Pick<SynapseRunOptions, 'onEvent'> | undefined, event: SynapseRuntimeEvent) {
+  try {
+    await options?.onEvent?.(event);
+  } catch (error) {
+    console.warn('Synapse runtime event listener failed:', error);
+  }
+}
+
 function graphRouteAfterDecision(state: typeof SynapseGraphState.State) {
   return state.decision.tools.some(tool => tool.tool !== 'createDocument')
     ? 'execute_tools'
@@ -747,10 +803,25 @@ function synapseControllerCall(state: typeof SynapseGraphState.State): AgentTool
 async function loadSynapseGraphContext(state: typeof SynapseGraphState.State) {
   const startedAt = Date.now();
   const options = state.options;
+  await emitSynapseEvent(options, {
+    type: 'node_start',
+    node: 'load_context',
+    tool: 'synapse',
+    title: '加载上下文',
+    message: '正在加载会话、历史消息和文件上下文...',
+  });
   const conversation = await ensureConversation(options.supabase, options.userId, options.conversationId, options.message);
   const beforeContext = await loadConversationContext(options.supabase, options.userId, conversation.id);
   beforeContext.memorySummary = await maybeCompressMemory(options, conversation, beforeContext);
   await insertMessage(options.supabase, options.userId, conversation.id, 'user', options.message);
+
+  await emitSynapseEvent(options, {
+    type: 'node_done',
+    node: 'load_context',
+    tool: 'synapse',
+    title: '上下文已加载',
+    message: `已加载 ${beforeContext.messages.length} 条历史消息和 ${beforeContext.files.length} 个文件。`,
+  });
 
   return {
     conversation,
@@ -761,12 +832,27 @@ async function loadSynapseGraphContext(state: typeof SynapseGraphState.State) {
 
 async function decideSynapseGraphTools(state: typeof SynapseGraphState.State) {
   const startedAt = Date.now();
+  await emitSynapseEvent(state.options, {
+    type: 'node_start',
+    node: 'decide_tools',
+    tool: 'synapse',
+    title: '判断意图',
+    message: 'Synapse 正在判断是否需要调用检索、文档阅读或文档生成工具...',
+  });
   const decision = await decideTools(
     state.options.message,
     state.beforeContext,
     state.options.llmConfig,
     state.options.agentSettings
   );
+  await emitSynapseEvent(state.options, {
+    type: 'node_done',
+    node: 'decide_tools',
+    tool: 'synapse',
+    title: '意图判断完成',
+    message: `意图：${decision.intent}；计划工具数：${decision.tools.length}。`,
+    data: { decision },
+  });
 
   return {
     decision,
@@ -778,6 +864,13 @@ async function decideSynapseGraphTools(state: typeof SynapseGraphState.State) {
 async function executeSynapseGraphTools(state: typeof SynapseGraphState.State) {
   const startedAt = Date.now();
   const executableTools = state.decision.tools.filter(tool => tool.tool !== 'createDocument');
+  await emitSynapseEvent(state.options, {
+    type: 'node_start',
+    node: 'execute_tools',
+    tool: 'synapse',
+    title: '执行工具',
+    message: executableTools.length ? `准备执行 ${executableTools.length} 个工具...` : '本轮不需要执行外部工具。',
+  });
   const toolCalls: AgentToolCallLog[] = [];
   const allSources: ResearchSource[] = [];
   const readFiles: any[] = [];
@@ -806,6 +899,14 @@ async function executeSynapseGraphTools(state: typeof SynapseGraphState.State) {
     }
   }
 
+  await emitSynapseEvent(state.options, {
+    type: 'node_done',
+    node: 'execute_tools',
+    tool: 'synapse',
+    title: '工具执行完成',
+    message: `完成 ${toolCalls.length} 个工具调用，获得 ${allSources.length} 个来源，读取 ${readFiles.length} 个文件。`,
+  });
+
   return {
     toolCalls,
     sources: allSources,
@@ -816,6 +917,13 @@ async function executeSynapseGraphTools(state: typeof SynapseGraphState.State) {
 
 async function generateSynapseGraphAnswer(state: typeof SynapseGraphState.State) {
   const startedAt = Date.now();
+  await emitSynapseEvent(state.options, {
+    type: 'node_start',
+    node: 'generate_answer',
+    tool: 'synapse',
+    title: '生成回答',
+    message: '正在压缩工具结果并生成最终回复...',
+  });
   const answer = await generateAnswer(
     state.options,
     state.conversation,
@@ -825,6 +933,13 @@ async function generateSynapseGraphAnswer(state: typeof SynapseGraphState.State)
     state.sources,
     state.readFiles
   );
+  await emitSynapseEvent(state.options, {
+    type: 'node_done',
+    node: 'generate_answer',
+    tool: 'synapse',
+    title: '回答生成完成',
+    message: `已生成 ${answer.content.length} 个字符的回复。`,
+  });
 
   return {
     answer,
@@ -834,6 +949,13 @@ async function generateSynapseGraphAnswer(state: typeof SynapseGraphState.State)
 
 async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
   const startedAt = Date.now();
+  await emitSynapseEvent(state.options, {
+    type: 'node_start',
+    node: 'persist_turn',
+    tool: 'synapse',
+    title: '保存对话',
+    message: '正在保存回答、工具轨迹和图执行记录...',
+  });
   const controllerCall = synapseControllerCall(state);
   const responseToolCalls = [controllerCall, ...state.toolCalls];
   const assistant = await insertMessage(state.options.supabase, state.options.userId, state.conversation.id, 'assistant', state.answer.content, {
@@ -869,6 +991,14 @@ async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
     runtime: 'langgraph',
     graphTrace: [...state.graphTrace, graphTraceEvent('persist_turn', startedAt, 'response persisted')],
   };
+
+  await emitSynapseEvent(state.options, {
+    type: 'node_done',
+    node: 'persist_turn',
+    tool: 'synapse',
+    title: '保存完成',
+    message: '本轮对话已保存。',
+  });
 
   return {
     assistant,
@@ -951,11 +1081,25 @@ function confirmedControllerCall(state: typeof SynapseConfirmedDocumentState.Sta
 
 async function loadConfirmedDocumentSources(state: typeof SynapseConfirmedDocumentState.State) {
   const startedAt = Date.now();
+  await emitSynapseEvent(state.options, {
+    type: 'node_start',
+    node: 'load_recent_sources',
+    tool: 'synapse',
+    title: '加载来源',
+    message: '正在读取本会话最近检索来源...',
+  });
   const sources = await loadRecentResearchSources(
     state.options.supabase,
     state.options.userId,
     state.options.conversationId
   );
+  await emitSynapseEvent(state.options, {
+    type: 'node_done',
+    node: 'load_recent_sources',
+    tool: 'synapse',
+    title: '来源已加载',
+    message: `已加载 ${sources.length} 个最近来源。`,
+  });
 
   return {
     sources,
@@ -965,6 +1109,14 @@ async function loadConfirmedDocumentSources(state: typeof SynapseConfirmedDocume
 
 async function createConfirmedDocument(state: typeof SynapseConfirmedDocumentState.State) {
   const startedAt = Date.now();
+  await emitSynapseEvent(state.options, {
+    type: 'tool_start',
+    node: 'create_document',
+    tool: 'createDocument',
+    title: '创建文档',
+    status: 'running',
+    message: '正在根据对话和来源生成 Markdown 文档...',
+  });
   const effectiveLLMConfig = {
     ...state.options.llmConfig,
     defaultModel: state.options.agentSettings?.model || state.options.llmConfig?.defaultModel,
@@ -1011,6 +1163,15 @@ async function createConfirmedDocument(state: typeof SynapseConfirmedDocumentSta
       draft.warnings?.length ? `注意：${draft.warnings.join('；')}` : '',
     ].filter(Boolean).join('\n'),
   };
+  await emitSynapseEvent(state.options, {
+    type: 'tool_done',
+    node: 'create_document',
+    tool: 'createDocument',
+    title: '创建文档',
+    status: 'completed',
+    message: `文档《${document.title}》已创建。`,
+    data: { documentId: document.id, title: document.title },
+  });
 
   return {
     document,
@@ -1022,6 +1183,13 @@ async function createConfirmedDocument(state: typeof SynapseConfirmedDocumentSta
 
 async function persistConfirmedDocumentTurn(state: typeof SynapseConfirmedDocumentState.State) {
   const startedAt = Date.now();
+  await emitSynapseEvent(state.options, {
+    type: 'node_start',
+    node: 'persist_confirmed_document',
+    tool: 'synapse',
+    title: '保存文档结果',
+    message: '正在保存文档创建记录和工具轨迹...',
+  });
   const controllerCall = confirmedControllerCall(state);
   const responseToolCalls = [controllerCall, ...state.toolCalls];
 
@@ -1055,6 +1223,13 @@ async function persistConfirmedDocumentTurn(state: typeof SynapseConfirmedDocume
       .eq('id', state.options.conversationId)
       .eq('user_id', state.options.userId),
   ]);
+  await emitSynapseEvent(state.options, {
+    type: 'node_done',
+    node: 'persist_confirmed_document',
+    tool: 'synapse',
+    title: '文档结果已保存',
+    message: '文档创建结果已写入会话。',
+  });
 
   const response = {
     type: 'result',

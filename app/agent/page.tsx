@@ -139,6 +139,53 @@ function optimisticToolCalls(message: string): AgentToolCallLog[] {
   return calls;
 }
 
+async function readSseResponse(
+  response: Response,
+  onEvent: (event: string, data: any) => void | Promise<void>
+) {
+  if (!response.body) throw new Error('服务器没有返回可读取的事件流。');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  async function flushEvent(raw: string) {
+    const lines = raw.split('\n');
+    const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim() || 'message';
+    const dataText = lines
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trimStart())
+      .join('\n');
+    if (!dataText) return;
+    await onEvent(event, JSON.parse(dataText));
+  }
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split('\n\n');
+    buffer = chunks.pop() || '';
+    for (const chunk of chunks) {
+      if (chunk.trim()) await flushEvent(chunk);
+    }
+  }
+  if (buffer.trim()) await flushEvent(buffer);
+}
+
+function streamEventToolCall(event: string, data: any): AgentToolCallLog | null {
+  if (!data?.tool) return null;
+  if (!['tool_start', 'tool_done', 'tool_error', 'node_start', 'node_done'].includes(event)) return null;
+  return {
+    id: `${data.tool}-${data.node || data.title || 'event'}`,
+    tool: data.tool,
+    title: data.title || toolLabel(data.tool),
+    status: event === 'tool_error' ? 'failed' : event.endsWith('_done') ? 'completed' : 'running',
+    args: data.data || {},
+    result: data.message,
+    error: event === 'tool_error' ? data.message : undefined,
+  };
+}
+
 function messagesFromStored(rows: AgentStoredMessage[]): ChatMessage[] {
   return rows
     .filter(row => row.role === 'user' || row.role === 'assistant' || row.role === 'system')
@@ -174,6 +221,7 @@ export default function AgentPage() {
   const [documents, setDocuments] = useState<AgentDocument[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<AgentDocument | null>(null);
   const [rightTab, setRightTab] = useState<RightTab>('tools');
+  const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentSettings, setAgentSettings] = useState<AgentSettings>({
@@ -468,6 +516,53 @@ export default function AgentPage() {
     }
   };
 
+  const mergeStreamToolCall = (event: string, data: any) => {
+    const call = streamEventToolCall(event, data);
+    if (!call) return;
+    setToolCalls(prev => {
+      const index = prev.findIndex(item => item.id === call.id || item.tool === call.tool);
+      if (index < 0) return [call, ...prev];
+      const next = [...prev];
+      next[index] = { ...next[index], ...call };
+      return next;
+    });
+  };
+
+  const handleStreamEvent = async (event: string, data: any) => {
+    if (event === 'error') throw new Error(data.error || 'Agent execution failed');
+    if (data?.message) setActivityText(data.message);
+    mergeStreamToolCall(event, data);
+  };
+
+  const applyAgentResult = (data: any, options: { pushFallback?: boolean } = {}) => {
+    if (data.conversation?.id) setSelectedConversationId(data.conversation.id);
+    if (data.messages) setMessages(messagesFromStored(data.messages));
+    if (data.toolCalls) setToolCalls(data.toolCalls);
+    if (data.sources) setSources(data.sources);
+    if (data.files) setFiles(data.files);
+    if (data.document) {
+      setSelectedDocument(data.document);
+      setRightTab('documents');
+      setRightOpen(true);
+    } else if (data.sources?.length) {
+      setRightTab('sources');
+    }
+
+    if (data.type === 'plan' && data.plan) {
+      setPendingPlan(data.plan);
+      if (options.pushFallback && !data.messages) {
+        pushMessage({ role: 'assistant', content: data.message || '需要你确认后我再执行这个动作。' });
+      }
+      return;
+    }
+
+    setPendingPlan(null);
+    if (data.type === 'response') setPendingMessage('');
+    if (options.pushFallback && !data.messages) {
+      pushMessage({ role: 'assistant', content: data.message || '执行完成。' });
+    }
+  };
+
   const askAgent = async () => {
     const next = input.trim();
     if (!next || loading) return;
@@ -510,6 +605,88 @@ export default function AgentPage() {
       loadConversations();
     } catch (err: any) {
       setError(err.message || 'Agent planning failed');
+    } finally {
+      setActivityText('');
+      setLoading(false);
+    }
+  };
+
+  const askAgentStream = async () => {
+    const next = input.trim();
+    if (!next || loading) return;
+    setInput('');
+    setError('');
+    setPendingPlan(null);
+    setPendingMessage(next);
+    setToolCalls(optimisticToolCalls(next));
+    setActivityText('Synapse 正在判断意图...');
+    pushMessage({ role: 'user', content: next });
+    setLoading(true);
+
+    try {
+      const headers = await authHeaders();
+      const res = await fetchWithTimeout('/api/agent/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...headers },
+        body: JSON.stringify({ message: next, conversationId: selectedConversationId || undefined, agentSettings, stream: true }),
+      }, LONG_REQUEST_TIMEOUT_MS);
+      if (!res.ok) throw new Error('Agent planning failed');
+
+      let finalData: any = null;
+      await readSseResponse(res, async (event, data) => {
+        await handleStreamEvent(event, data);
+        if (event === 'result') {
+          finalData = data;
+          applyAgentResult(data, { pushFallback: true });
+        }
+      });
+      if (!finalData) throw new Error('Agent did not return a final result.');
+      loadConversations();
+    } catch (err: any) {
+      setError(err.message || 'Agent planning failed');
+    } finally {
+      setActivityText('');
+      setLoading(false);
+    }
+  };
+
+  const confirmPlanStream = async () => {
+    if (!pendingPlan || !pendingMessage || loading) return;
+    setLoading(true);
+    setError('');
+    setActivityText('正在执行已确认的文档生成...');
+    pushMessage({ role: 'user', content: '确认执行这个计划。' });
+    setToolCalls(pendingPlan.steps.map(step => ({
+      id: step.id,
+      tool: step.tool,
+      title: step.title,
+      status: 'pending',
+      args: step.args,
+    })));
+
+    try {
+      const headers = await authHeaders();
+      const res = await fetchWithTimeout('/api/agent/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...headers },
+        body: JSON.stringify({ message: pendingMessage, conversationId: selectedConversationId || undefined, confirmedPlan: pendingPlan, agentSettings, stream: true }),
+      }, LONG_REQUEST_TIMEOUT_MS);
+      if (!res.ok) throw new Error('Agent execution failed');
+
+      let finalData: any = null;
+      await readSseResponse(res, async (event, data) => {
+        await handleStreamEvent(event, data);
+        if (event === 'result') {
+          finalData = data;
+          setPendingPlan(null);
+          applyAgentResult(data, { pushFallback: true });
+        }
+      });
+      if (!finalData) throw new Error('Agent did not return a final result.');
+      loadConversations();
+      loadDocuments();
+    } catch (err: any) {
+      setError(err.message || 'Agent execution failed');
     } finally {
       setActivityText('');
       setLoading(false);
@@ -566,6 +743,9 @@ export default function AgentPage() {
     pushMessage({ role: 'assistant', content: '好的，我不会执行这个计划。你可以换一种说法重新发起任务。' });
   };
 
+  void askAgent;
+  void confirmPlan;
+
   const downloadUrl = (url: string, name: string) => {
     const a = window.document.createElement('a');
     a.href = url;
@@ -596,13 +776,21 @@ export default function AgentPage() {
 
   return (
     <div className="mx-auto flex h-[calc(100dvh-6rem)] max-w-[1800px] overflow-hidden bg-gray-50 lg:h-[calc(100vh-4rem)]">
+      {leftOpen && (
       <aside className="hidden w-[280px] flex-shrink-0 border-r border-gray-200 bg-white lg:flex lg:flex-col">
-        <div className="border-b border-gray-100 p-3">
+        <div className="flex gap-2 border-b border-gray-100 p-3">
           <button
             onClick={newConversation}
-            className="w-full rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+            className="flex-1 rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
           >
             新建 Synapse 对话
+          </button>
+          <button
+            onClick={() => setLeftOpen(false)}
+            className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-sm text-gray-500 hover:border-gray-300 hover:text-gray-700"
+            title="收起会话栏"
+          >
+            ←
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-2">
@@ -630,6 +818,7 @@ export default function AgentPage() {
           ))}
         </div>
       </aside>
+      )}
 
       <main className="flex min-w-0 flex-1 flex-col bg-white">
         <header className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
@@ -638,6 +827,14 @@ export default function AgentPage() {
             <h1 className="truncate text-base font-semibold text-gray-900">Synapse 主控 Agent</h1>
           </div>
           <div className="flex items-center gap-2">
+            {!leftOpen && (
+              <button
+                onClick={() => setLeftOpen(true)}
+                className="hidden rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300 lg:inline-flex"
+              >
+                会话
+              </button>
+            )}
             <div className="relative">
               <button
                 onClick={() => setSettingsOpen(prev => !prev)}
@@ -761,7 +958,7 @@ export default function AgentPage() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={confirmPlan}
+                      onClick={confirmPlanStream}
                       disabled={loading}
                       className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                     >
@@ -896,14 +1093,14 @@ export default function AgentPage() {
                 onKeyDown={event => {
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault();
-                    askAgent();
+                    askAgentStream();
                   }
                 }}
                 placeholder="例如：总结我刚上传的文档，必要时联网补充资料"
                 className="min-h-12 flex-1 resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-base outline-none focus:border-blue-300 sm:text-sm"
               />
               <button
-                onClick={askAgent}
+                onClick={askAgentStream}
                 disabled={loading || !input.trim()}
                 className="self-end rounded-lg bg-gray-900 px-4 py-3 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
               >

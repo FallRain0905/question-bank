@@ -410,11 +410,7 @@ export default function Sidebar() {
               <img src="/logo.png" alt="" className="w-7 h-7 rounded-md" />
               <span className="text-sm font-semibold text-gray-900">SynapFlow</span>
             </Link>
-          ) : (
-            <Link href="/" className="mx-auto">
-              <img src="/logo.png" alt="" className="w-7 h-7 rounded-md" />
-            </Link>
-          )}
+          ) : null}
           {!isMobile && (
             <button
               onClick={() => setCollapsed(!collapsed)}
