@@ -10,6 +10,7 @@ import {
   textPreviewFromWorkspaceFile,
 } from '@/lib/agent-workspace';
 import { MemoryManager, MemoryWriter, type RankedMemory } from '@/lib/memory-service';
+import { appendAgentRunEvent, updateAgentRun } from '@/lib/agent-run-service';
 import { normalizeResearchOptions, planResearchQueries, retrieveResearchSources } from '@/lib/research-retrieval';
 import type { AgentPlan, AgentToolCallLog, ResearchSource } from '@/types';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
@@ -56,6 +57,7 @@ type SynapseRunOptions = {
     model?: string;
     thinkingEnabled?: boolean;
   };
+  runId?: string;
   onEvent?: (event: SynapseRuntimeEvent) => void | Promise<void>;
 };
 
@@ -65,7 +67,7 @@ type SynapseConfirmedDocumentOptions = SynapseRunOptions & {
 };
 
 type SynapseRuntimeEvent = {
-  type: 'node_start' | 'node_done' | 'tool_start' | 'tool_done' | 'tool_error';
+  type: 'run' | 'token' | 'node_start' | 'node_done' | 'tool_start' | 'tool_done' | 'tool_error';
   node?: string;
   tool?: SynapseToolDecision['tool'] | 'synapse';
   title?: string;
@@ -225,6 +227,101 @@ async function callSynapseLLM(config: LLMConfig | null, messages: any[], maxToke
     model,
     usedThinking,
   };
+}
+
+async function callSynapseLLMStreaming(
+  config: LLMConfig | null,
+  messages: any[],
+  maxTokens = 1200,
+  options: { model?: string; thinkingEnabled?: boolean } = {},
+  onToken?: (token: string, meta: { kind: 'content' | 'reasoning' }) => void | Promise<void>
+) {
+  if (!onToken || !config?.apiKey || !config?.endpoint) {
+    return callSynapseLLM(config, messages, maxTokens, options);
+  }
+
+  const model = preferredModel(config, options.model);
+  const endpoint = config.endpoint;
+  const apiKey = config.apiKey;
+  const emitToken = onToken;
+  const baseBody = {
+    model,
+    messages,
+    temperature: 0.15,
+    max_tokens: maxTokens,
+    stream: true,
+  };
+
+  async function postStream(body: Record<string, any>) {
+    return fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(body),
+    });
+  }
+
+  let usedThinking = false;
+  let res = options.thinkingEnabled === false
+    ? await postStream(baseBody)
+    : await postStream({
+        ...baseBody,
+        enable_thinking: true,
+        return_reasoning: true,
+      });
+
+  if (!res.ok && options.thinkingEnabled !== false) {
+    res = await postStream(baseBody);
+  } else {
+    usedThinking = options.thinkingEnabled !== false;
+  }
+
+  if (!res.ok || !res.body) {
+    return callSynapseLLM(config, messages, maxTokens, options);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let content = '';
+  let reasoning = '';
+
+  async function handleLine(line: string) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) return;
+    const payload = trimmed.slice(5).trim();
+    if (!payload || payload === '[DONE]') return;
+    let data: any = null;
+    try {
+      data = JSON.parse(payload);
+    } catch {
+      return;
+    }
+    const delta = data?.choices?.[0]?.delta || data?.choices?.[0]?.message || {};
+    const reasoningToken = delta.reasoning_content || delta.reasoning || '';
+    const contentToken = delta.content || '';
+    if (reasoningToken) {
+      reasoning += reasoningToken;
+      await emitToken(reasoningToken, { kind: 'reasoning' });
+    }
+    if (contentToken) {
+      content += contentToken;
+      await emitToken(contentToken, { kind: 'content' });
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      await handleLine(line);
+    }
+  }
+  if (buffer.trim()) await handleLine(buffer);
+
+  return { content, reasoning, model, usedThinking };
 }
 
 async function ensureConversation(supabase: SupabaseLike, userId: string, conversationId: string | undefined, message: string) {
@@ -1073,10 +1170,18 @@ ${pendingWrite ? `${pendingWrite.title}: ${pendingWrite.reason}` : 'None'}
 
 Write the final assistant response now.`;
 
-  const llm = await callSynapseLLM(options.llmConfig, [
+  const llm = await callSynapseLLMStreaming(options.llmConfig, [
     { role: 'system', content: system },
     { role: 'user', content: prompt },
-  ], decision.responseStyle === 'detailed' ? 2200 : decision.responseStyle === 'concise' ? 800 : 1400, options.agentSettings);
+  ], decision.responseStyle === 'detailed' ? 2200 : decision.responseStyle === 'concise' ? 800 : 1400, options.agentSettings, async (token, meta) => {
+    await emitSynapseEvent(options, {
+      type: 'token',
+      tool: 'synapse',
+      title: meta.kind === 'reasoning' ? 'Synapse thinking' : 'Synapse answer',
+      message: token,
+      data: { token, kind: meta.kind },
+    });
+  });
 
   if (llm.content.trim()) {
     return {
@@ -1248,11 +1353,28 @@ function graphTraceEvent(node: string, startedAtMs: number, summary?: string): S
   };
 }
 
-async function emitSynapseEvent(options: Pick<SynapseRunOptions, 'onEvent'> | undefined, event: SynapseRuntimeEvent) {
+async function emitSynapseEvent(
+  options: Pick<SynapseRunOptions, 'onEvent' | 'supabase' | 'userId' | 'runId' | 'conversationId'> | undefined,
+  event: SynapseRuntimeEvent
+) {
   try {
     await options?.onEvent?.(event);
   } catch (error) {
     console.warn('Synapse runtime event listener failed:', error);
+  }
+  if (options?.runId && options.supabase && options.userId) {
+    try {
+      await appendAgentRunEvent(
+        options.supabase,
+        options.userId,
+        options.runId,
+        event.type,
+        sanitizeForPostgres(event),
+        event.data?.conversationId || options.conversationId || null
+      );
+    } catch (error) {
+      console.warn('Synapse run event persistence failed:', error);
+    }
   }
 }
 
@@ -1295,6 +1417,12 @@ async function loadSynapseGraphContext(state: typeof SynapseGraphState.State) {
     message: '正在加载会话、历史消息和文件上下文...',
   });
   const conversation = await ensureConversation(options.supabase, options.userId, options.conversationId, options.message);
+  if (options.runId) {
+    updateAgentRun(options.supabase, options.userId, options.runId, {
+      conversationId: conversation.id,
+      status: 'running',
+    }).catch(error => console.warn('Synapse run conversation update failed:', error));
+  }
   await emitSynapseEvent(options, {
     type: 'node_done',
     node: 'ensure_conversation',
@@ -1550,6 +1678,21 @@ async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
     title: '保存完成',
     message: '本轮对话已保存。',
   });
+
+  if (state.options.runId) {
+    updateAgentRun(state.options.supabase, state.options.userId, state.options.runId, {
+      conversationId: state.conversation.id,
+      status: 'completed',
+      output: {
+        conversationId: state.conversation.id,
+        messageId: assistant.id,
+        type: response.type,
+        toolCallCount: responseToolCalls.length,
+        sourceCount: state.sources.length,
+      },
+      finishedAt: new Date().toISOString(),
+    }).catch(error => console.warn('Synapse run completion update failed:', error));
+  }
 
   return {
     assistant,

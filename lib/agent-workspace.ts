@@ -170,7 +170,7 @@ export type MineruZipWorkspaceResult = {
 export type SandboxCommandResult = {
   command: string;
   cwd: string;
-  runtime: 'docker' | 'local';
+  runtime: 'docker' | 'local' | 'worker';
   containerName?: string;
   exitCode: number | null;
   timedOut: boolean;
@@ -572,6 +572,10 @@ function sandboxRuntime(): 'docker' | 'local' {
   return process.env.NODE_ENV === 'production' ? 'docker' : 'local';
 }
 
+function sandboxWorkerUrl() {
+  return String(process.env.SYNAPSE_SANDBOX_WORKER_URL || '').trim().replace(/\/+$/, '');
+}
+
 function boundedCommandTimeout(timeoutMs: number) {
   return Math.min(Math.max(timeoutMs || MAX_COMMAND_TIMEOUT_MS, 1000), MAX_COMMAND_TIMEOUT_MS);
 }
@@ -773,7 +777,84 @@ async function runDockerWorkspaceCommand(userId: string, command: string, cwd = 
   });
 }
 
+async function runWorkerWorkspaceCommand(userId: string, command: string, cwd = '.', timeoutMs = MAX_COMMAND_TIMEOUT_MS): Promise<SandboxCommandResult> {
+  const { userRoot, workingDirectory } = await prepareCommandWorkspace(userId, cwd);
+  assertCommandAllowed(command);
+
+  const workerUrl = sandboxWorkerUrl();
+  const relativeCwd = path.relative(userRoot, workingDirectory).replace(/\\/g, '/') || '.';
+  const controller = new AbortController();
+  const timeout = boundedCommandTimeout(timeoutMs) + 5000;
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const startedAt = Date.now();
+
+  try {
+    const token = String(process.env.SYNAPSE_SANDBOX_WORKER_TOKEN || '').trim();
+    const res = await fetch(`${workerUrl}/run`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        userId,
+        command,
+        cwd: relativeCwd,
+        timeoutMs: boundedCommandTimeout(timeoutMs),
+        workspaceRoot: userRoot,
+      }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data: any = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = null;
+    }
+    if (!res.ok) {
+      return {
+        command,
+        cwd: relativeCwd,
+        runtime: 'worker',
+        exitCode: null,
+        timedOut: false,
+        stdout: '',
+        stderr: (data?.error || text || `Sandbox worker returned HTTP ${res.status}`).slice(-MAX_COMMAND_OUTPUT_CHARS),
+        durationMs: Date.now() - startedAt,
+      };
+    }
+    return {
+      command: String(data?.command || command),
+      cwd: String(data?.cwd || relativeCwd),
+      runtime: 'worker',
+      containerName: data?.containerName,
+      exitCode: Number.isFinite(Number(data?.exitCode)) ? Number(data.exitCode) : null,
+      timedOut: Boolean(data?.timedOut),
+      stdout: String(data?.stdout || '').slice(-MAX_COMMAND_OUTPUT_CHARS),
+      stderr: String(data?.stderr || '').slice(-MAX_COMMAND_OUTPUT_CHARS),
+      durationMs: Number.isFinite(Number(data?.durationMs)) ? Number(data.durationMs) : Date.now() - startedAt,
+    };
+  } catch (error: any) {
+    return {
+      command,
+      cwd: relativeCwd,
+      runtime: 'worker',
+      exitCode: null,
+      timedOut: error?.name === 'AbortError',
+      stdout: '',
+      stderr: `Sandbox worker request failed: ${error?.message || String(error)}`.slice(-MAX_COMMAND_OUTPUT_CHARS),
+      durationMs: Date.now() - startedAt,
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function runWorkspaceCommand(userId: string, command: string, cwd = '.', timeoutMs = MAX_COMMAND_TIMEOUT_MS): Promise<SandboxCommandResult> {
+  if (sandboxWorkerUrl()) {
+    return runWorkerWorkspaceCommand(userId, command, cwd, timeoutMs);
+  }
   if (sandboxRuntime() === 'docker') {
     return runDockerWorkspaceCommand(userId, command, cwd, timeoutMs);
   }

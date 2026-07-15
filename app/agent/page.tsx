@@ -278,6 +278,8 @@ export default function AgentPage() {
   const conversionPollsRef = useRef<Set<string>>(new Set());
   const streamProgressRef = useRef<Set<string>>(new Set());
   const activeStreamConversationRef = useRef('');
+  const streamingAssistantIdRef = useRef('');
+  const currentRunIdRef = useRef('');
 
   useEffect(() => {
     try {
@@ -328,6 +330,21 @@ export default function AgentPage() {
 
   const pushMessage = (message: Omit<ChatMessage, 'id'>) => {
     setMessages(prev => [...prev, { id: id(), ...message }]);
+  };
+
+  const appendStreamingAssistantToken = (token: string) => {
+    if (!token) return;
+    setMessages(prev => {
+      const existingId = streamingAssistantIdRef.current;
+      if (existingId && prev.some(message => message.id === existingId)) {
+        return prev.map(message => message.id === existingId
+          ? { ...message, content: `${message.content}${token}` }
+          : message);
+      }
+      const nextId = id();
+      streamingAssistantIdRef.current = nextId;
+      return [...prev, { id: nextId, role: 'assistant', content: token }];
+    });
   };
 
   const loadDocuments = async () => {
@@ -677,6 +694,19 @@ export default function AgentPage() {
   const handleStreamEvent = async (event: string, data: any) => {
     if (event === 'ping') return;
     if (event === 'error') throw new Error(data.error || 'Agent execution failed');
+    if (event === 'run') {
+      currentRunIdRef.current = data?.runId || '';
+      if (data?.runId) setActivityText(`Synapse run ${String(data.runId).slice(0, 8)} is running...`);
+      return;
+    }
+    if (event === 'token') {
+      if (data?.kind === 'reasoning') {
+        setActivityText('Synapse is thinking...');
+        return;
+      }
+      appendStreamingAssistantToken(String(data?.token || data?.message || ''));
+      return;
+    }
     if (data?.conversationId) {
       activeStreamConversationRef.current = data.conversationId;
       setSelectedConversationId(data.conversationId);
@@ -697,6 +727,7 @@ export default function AgentPage() {
   };
 
   const applyAgentResult = (data: any, options: { pushFallback?: boolean } = {}) => {
+    streamingAssistantIdRef.current = '';
     if (data.conversation?.id) setSelectedConversationId(data.conversation.id);
     if (data.messages) setMessages(messagesFromStored(data.messages));
     if (data.toolCalls) setToolCalls(data.toolCalls);
@@ -733,6 +764,8 @@ export default function AgentPage() {
     setPendingPlan(null);
     setPendingMessage(next);
     streamProgressRef.current.clear();
+    streamingAssistantIdRef.current = '';
+    currentRunIdRef.current = '';
     activeStreamConversationRef.current = selectedConversationId || '';
     setToolCalls(optimisticToolCalls(next));
     setActivityText('Synapse 正在判断意图...');
@@ -787,6 +820,8 @@ export default function AgentPage() {
     setPendingPlan(null);
     setPendingMessage(next);
     streamProgressRef.current.clear();
+    streamingAssistantIdRef.current = '';
+    currentRunIdRef.current = '';
     activeStreamConversationRef.current = selectedConversationId || '';
     setToolCalls(optimisticToolCalls(next));
     setActivityText('Synapse 正在判断意图...');
@@ -829,6 +864,8 @@ export default function AgentPage() {
     setLoading(true);
     setError('');
     streamProgressRef.current.clear();
+    streamingAssistantIdRef.current = '';
+    currentRunIdRef.current = '';
     activeStreamConversationRef.current = selectedConversationId || '';
     setActivityText('正在执行已确认的文档生成...');
     pushMessage({ role: 'user', content: '确认执行这个计划。' });
