@@ -90,6 +90,9 @@ function toolLabel(tool: any) {
   if (tool === 'readDocument') return '文档阅读';
   if (tool === 'convertDocument') return '文档转换';
   if (tool === 'createDocument') return '文档生成';
+  if (tool === 'downloadFile') return '沙箱下载';
+  if (tool === 'runTerminal') return '沙箱终端';
+  if (tool === 'listSandboxFiles') return '沙箱文件';
   if (tool === 'synapse') return '意图判断';
   return String(tool || '工具');
 }
@@ -132,6 +135,36 @@ function optimisticToolCalls(message: string): AgentToolCallLog[] {
       status: 'pending',
       args: {},
       result: '文档转换会使用 MinerU，完成后 ZIP 会进入文件库。',
+    });
+  }
+  if (/下载.*https?:\/\/|download\s+https?:\/\//i.test(message)) {
+    calls.push({
+      id: id(),
+      tool: 'downloadFile',
+      title: '准备下载到沙箱',
+      status: 'pending',
+      args: {},
+      result: '下载外部链接会写入服务器沙箱，执行前会请求确认。',
+    });
+  }
+  if (/运行命令|执行命令|终端|命令行|shell|terminal|run command|execute command/.test(lower)) {
+    calls.push({
+      id: id(),
+      tool: 'runTerminal',
+      title: '准备运行沙箱命令',
+      status: 'pending',
+      args: {},
+      result: '终端命令只会在服务器沙箱工作区中运行，执行前会请求确认。',
+    });
+  }
+  if (/沙箱.*文件|工作区.*文件|列出.*文件|list.*files|ls workspace/.test(lower)) {
+    calls.push({
+      id: id(),
+      tool: 'listSandboxFiles',
+      title: '准备列出沙箱文件',
+      status: 'pending',
+      args: {},
+      result: 'Synapse 会列出当前服务器沙箱工作区中的文件。',
     });
   }
   if (/创建|生成|写.*文档|写.*报告|保存|导出|markdown|docx|create|generate|export/.test(lower)) {
@@ -796,6 +829,7 @@ export default function AgentPage() {
       if (!finalData) throw new Error('Agent did not return a final result.');
       loadConversations();
       loadDocuments();
+      loadFiles();
     } catch (err: any) {
       setError(err.message || 'Agent execution failed');
     } finally {
@@ -841,6 +875,7 @@ export default function AgentPage() {
       pushMessage({ role: 'assistant', content: data.message || '执行完成。' });
       loadConversations();
       loadDocuments();
+      loadFiles();
     } catch (err: any) {
       setError(err.message || 'Agent execution failed');
     } finally {
@@ -1010,11 +1045,11 @@ export default function AgentPage() {
               )}
             </div>
             <label className="cursor-pointer rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300">
-              上传文档
+              上传文件
               <input
                 type="file"
                 className="hidden"
-                accept=".pdf,.docx,.txt,.md,.markdown,.csv"
+                accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.js,.jsx,.ts,.tsx,.py,.ipynb,.java,.c,.cpp,.h,.hpp,.cs,.go,.rs,.rb,.html,.css,.sql,.xml,.toml,.ini,.zip"
                 onChange={event => {
                   const file = event.target.files?.[0];
                   event.target.value = '';
@@ -1039,6 +1074,9 @@ export default function AgentPage() {
               ['readDocument', '文档阅读'],
               ['convertDocument', '文档转换'],
               ['createDocument', '文档生成'],
+              ['downloadFile', '沙箱下载'],
+              ['runTerminal', '终端'],
+              ['listSandboxFiles', '文件列表'],
             ].map(([tool, label]) => {
               const active = toolCalls.find(call => call.tool === tool);
               const status = active?.status || 'ready';
@@ -1327,7 +1365,7 @@ export default function AgentPage() {
                 <section>
                   <div className="mb-2 text-[11px] font-medium uppercase text-gray-400">文件库</div>
                   {files.length === 0 ? (
-                    <div className="rounded-lg bg-gray-50 p-4 text-xs leading-5 text-gray-400">上传 PDF、DOCX、Markdown 或 TXT 后，Synapse 可以在任意对话中读取它们；PDF 还可以后台转换为 MinerU Markdown/ZIP。</div>
+                    <div className="rounded-lg bg-gray-50 p-4 text-xs leading-5 text-gray-400">上传 PDF、DOCX、Markdown、代码文件或 ZIP 后，Synapse 可以在任意对话中读取文本内容；ZIP 会安全解压到服务器沙箱。</div>
                   ) : (
                     <div className="space-y-2">
                       {files.map(file => (
@@ -1340,6 +1378,13 @@ export default function AgentPage() {
                           {conversionStatusLabel(file) && (
                             <div className={`mt-1 text-[10px] ${file.metadata?.conversionStatus === 'failed' ? 'text-red-600' : 'text-blue-600'}`}>
                               {conversionStatusLabel(file)}
+                            </div>
+                          )}
+                          {file.metadata?.workspace?.archive?.extractionStatus && (
+                            <div className={`mt-1 text-[10px] ${file.metadata.workspace.archive.extractionStatus === 'completed' ? 'text-blue-600' : 'text-red-600'}`}>
+                              ZIP {file.metadata.workspace.archive.extractionStatus === 'completed'
+                                ? `已安全解压 ${file.metadata.workspace.archive.extractedFiles?.length || 0} 个文件`
+                                : `解压失败：${file.metadata.workspace.archive.extractionError || '未知错误'}`}
                             </div>
                           )}
                           {file.metadata?.embeddingStatus && (

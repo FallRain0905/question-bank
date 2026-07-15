@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import mammoth from 'mammoth';
-import { writeUploadedFileToWorkspace } from '@/lib/agent-workspace';
+import {
+  extractWorkspaceZipForFile,
+  isDangerousFileName,
+  isSupportedArchive,
+  isTextLikeFile,
+  MAX_AGENT_FILES_PER_USER,
+  MAX_AGENT_UPLOAD_BYTES,
+  textPreviewFromBuffer,
+  writeUploadedFileToWorkspace,
+} from '@/lib/agent-workspace';
 import { sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-runtime';
 
 export const runtime = 'nodejs';
@@ -53,9 +62,7 @@ async function parseFile(file: File, buffer: Buffer) {
     const result = await mammoth.extractRawText({ buffer });
     return result.value || '';
   }
-  if (ext === 'txt' || ext === 'md' || ext === 'markdown' || ext === 'csv') {
-    return new TextDecoder().decode(buffer);
-  }
+  if (isTextLikeFile(file.name)) return textPreviewFromBuffer(file.name, buffer);
   return '';
 }
 
@@ -76,12 +83,26 @@ export async function POST(req: NextRequest) {
     const file = formData.get('file') as File | null;
     const conversationId = String(formData.get('conversation_id') || '').trim() || undefined;
     if (!file) return NextResponse.json({ error: 'Missing file' }, { status: 400 });
-    if (file.type.startsWith('image/')) return NextResponse.json({ error: 'Synapse 暂不支持图片上传，请上传 PDF、DOCX、Markdown 或 TXT。' }, { status: 400 });
+    if (file.size > MAX_AGENT_UPLOAD_BYTES) {
+      return NextResponse.json({ error: `文件过大，当前限制为 ${Math.floor(MAX_AGENT_UPLOAD_BYTES / 1024 / 1024)} MB。` }, { status: 413 });
+    }
+    if (isDangerousFileName(file.name)) {
+      return NextResponse.json({ error: '出于安全原因，暂不允许上传可执行文件或脚本安装包。' }, { status: 400 });
+    }
 
     const ext = file.name.split('.').pop()?.toLowerCase() || 'file';
-    const allowed = new Set(['pdf', 'docx', 'txt', 'md', 'markdown', 'csv']);
-    if (!allowed.has(ext)) {
-      return NextResponse.json({ error: '暂只支持 PDF、DOCX、Markdown、TXT、CSV 文档。' }, { status: 400 });
+    const allowedDocuments = new Set(['pdf', 'docx']);
+    if (!allowedDocuments.has(ext) && !isTextLikeFile(file.name) && !isSupportedArchive(file.name)) {
+      return NextResponse.json({ error: '暂支持 PDF、DOCX、文本/代码文件和 ZIP 压缩包。' }, { status: 400 });
+    }
+
+    const { count, error: countError } = await auth.supabase
+      .from('agent_files')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', auth.user.id);
+    if (countError) throw countError;
+    if ((count || 0) >= MAX_AGENT_FILES_PER_USER) {
+      return NextResponse.json({ error: `文件库已达到 ${MAX_AGENT_FILES_PER_USER} 个文件限制，请先删除一些文件。` }, { status: 400 });
     }
 
     const id = await ensureConversation(auth.supabase, auth.user.id, conversationId);
@@ -124,18 +145,44 @@ export async function POST(req: NextRequest) {
     if (insertError) throw insertError;
 
     let savedRow = row;
+    let workspaceRef: any = null;
+    let extraction: any = null;
+    let extractionError = '';
     try {
-      const workspaceFile = await writeUploadedFileToWorkspace(auth.user.id, row.id, file.name, buffer);
+      workspaceRef = await writeUploadedFileToWorkspace(auth.user.id, row.id, file.name, buffer);
+      if (isSupportedArchive(file.name)) {
+        try {
+          extraction = await extractWorkspaceZipForFile(auth.user.id, row.id, workspaceRef, 'uploaded');
+        } catch (error: any) {
+          extractionError = error?.message || 'Archive extraction failed';
+        }
+      }
       const nextMetadata = sanitizeForPostgres({
         ...(row.metadata || {}),
         workspace: {
-          originalFile: workspaceFile,
+          originalFile: workspaceRef,
           storedOnServer: true,
+          archive: extraction ? {
+            extractionStatus: 'completed',
+            extractedDir: extraction.extractRelativeDir,
+            extractedFiles: (extraction.files || []).slice(0, 200).map((item: any) => ({
+              relativePath: item.relativePath,
+              originalName: item.originalName,
+              bytes: item.bytes,
+            })),
+            markdownFile: extraction.markdownFile || null,
+          } : isSupportedArchive(file.name) ? {
+            extractionStatus: 'failed',
+            extractionError,
+          } : null,
         },
       });
       const { data: updated } = await auth.supabase
         .from('agent_files')
-        .update({ metadata: nextMetadata })
+        .update({
+          metadata: nextMetadata,
+          content_text: sanitizeTextForPostgres(contentText || extraction?.markdown || ''),
+        })
         .eq('id', row.id)
         .eq('user_id', auth.user.id)
         .select()

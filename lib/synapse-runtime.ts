@@ -1,4 +1,14 @@
 import { generateAgentDocument } from '@/lib/agent-runtime';
+import {
+  downloadUrlToWorkspace,
+  extractWorkspaceZipForFile,
+  fileExtension,
+  isSupportedArchive,
+  isTextLikeFile,
+  listWorkspaceFiles,
+  runWorkspaceCommand,
+  textPreviewFromWorkspaceFile,
+} from '@/lib/agent-workspace';
 import { normalizeResearchOptions, planResearchQueries, retrieveResearchSources } from '@/lib/research-retrieval';
 import type { AgentPlan, AgentToolCallLog, ResearchSource } from '@/types';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
@@ -21,7 +31,7 @@ type SupabaseLike = {
 };
 
 type SynapseToolDecision = {
-  tool: 'researchSearch' | 'readDocument' | 'createDocument';
+  tool: 'researchSearch' | 'readDocument' | 'createDocument' | 'downloadFile' | 'runTerminal' | 'listSandboxFiles';
   title: string;
   reason: string;
   args: Record<string, any>;
@@ -370,7 +380,10 @@ function heuristicDecision(message: string, files: any[]): SynapseDecision {
   const lower = message.toLowerCase();
   const wantsSearch = /检索|搜索|联网|查找|查一下|搜一下|资料|论文|文献|综述|最新|趋势|进展|research|search|paper|literature|source|web/.test(lower);
   const wantsRead = /文件|文档|附件|上传|pdf|docx|阅读|总结这份|分析这份|file|document|attachment|read|summarize/.test(lower) && files.length > 0;
-  const wantsWrite = /创建|生成|写.*文档|写.*报告|写.*简报|整理成|保存|下载|导出|markdown|docx|create|generate|write|document|report|export/.test(lower);
+  const wantsWrite = /创建|生成|写.*文档|写.*报告|写.*简报|整理成.*文档|保存.*文档|导出|markdown|docx|create|generate|write|document|report|export/.test(lower);
+  const wantsDownload = /(下载|抓取|保存).*(https?:\/\/\S+)|download\s+https?:\/\/\S+/i.test(message);
+  const wantsTerminal = /运行命令|执行命令|终端|命令行|shell|terminal|run command|execute command/.test(lower);
+  const wantsListSandbox = /沙箱.*文件|工作区.*文件|列出.*文件|list.*files|ls workspace/.test(lower);
   const tools: SynapseToolDecision[] = [];
 
   if (wantsRead) {
@@ -405,11 +418,39 @@ function heuristicDecision(message: string, files: any[]): SynapseDecision {
     });
   }
 
+  if (wantsListSandbox) {
+    tools.push({
+      tool: 'listSandboxFiles',
+      title: '列出沙箱文件',
+      reason: '用户想查看服务器沙箱/工作区内的文件。',
+      args: { maxFiles: 80 },
+    });
+  }
+
+  if (wantsDownload) {
+    const url = message.match(/https?:\/\/[^\s"'<>]+/)?.[0] || '';
+    tools.push({
+      tool: 'downloadFile',
+      title: '下载文件到沙箱',
+      reason: '从外部链接下载文件会改变服务器工作区，需要用户确认。',
+      args: { url },
+    });
+  }
+
+  if (wantsTerminal) {
+    tools.push({
+      tool: 'runTerminal',
+      title: '运行沙箱终端命令',
+      reason: '终端命令会在服务器沙箱中执行，需要用户确认。',
+      args: { command: message.replace(/^(运行命令|执行命令|终端|命令行)[:：]?\s*/i, '').trim() },
+    });
+  }
+
   return {
-    intent: wantsWrite ? 'write' : wantsSearch ? 'research' : wantsRead ? 'read' : 'answer',
+    intent: (wantsWrite || wantsDownload || wantsTerminal) ? 'write' : wantsSearch ? 'research' : wantsRead ? 'read' : 'answer',
     responseStyle: /简短|简单|brief|short/.test(lower) ? 'concise' : /详细|全面|deep|detailed/.test(lower) ? 'detailed' : 'normal',
     tools,
-    needsConfirmation: wantsWrite,
+    needsConfirmation: wantsWrite || wantsDownload || wantsTerminal,
   };
 }
 
@@ -427,6 +468,9 @@ Available tools:
 - researchSearch: Synap unified retrieval pipeline. Args: query, mode academic|general|both, depth fast|medium|deep.
 - readDocument: read the user's Synapse workspace files, including uploaded files, converted Markdown, and generated documents. Args: query, fileIds optional.
 - createDocument: create a saved Markdown document. This is a side-effect and needs user confirmation.
+- listSandboxFiles: list files in the user's server sandbox workspace. Args: maxFiles optional.
+- downloadFile: download a public http/https URL into the user's server sandbox workspace. Args: url, fileName optional. This is a side-effect and needs user confirmation.
+- runTerminal: run a restricted terminal command inside the user's server sandbox workspace. Args: command, cwd optional. This is a side-effect and needs user confirmation.
 
 Routing rules:
 - Normal questions, capability questions, model/settings questions, or conversational follow-ups should use no tools.
@@ -435,10 +479,13 @@ Routing rules:
 - Use readDocument when the user refers to uploaded files, converted files, generated documents, "this document", "the PDF", attachments, or asks to summarize/analyze workspace content.
 - Use createDocument only when the user explicitly wants to create/save/export/generate a document/report/markdown/docx. Mark needsConfirmation true.
 - If createDocument depends on external facts, include researchSearch before createDocument.
+- Use listSandboxFiles when the user asks what files are in the sandbox/workspace.
+- Use downloadFile when the user asks to download/save/fetch a URL into the sandbox. Mark needsConfirmation true.
+- Use runTerminal when the user explicitly asks to run a command or use terminal/shell. Mark needsConfirmation true.
 - Do not call tools just to say what tools are available.
 
 JSON shape:
-{"intent":"answer|research|read|write","responseStyle":"concise|normal|detailed","needsConfirmation":false,"tools":[{"tool":"researchSearch|readDocument|createDocument","title":"...","reason":"...","args":{}}]}`;
+{"intent":"answer|research|read|write","responseStyle":"concise|normal|detailed","needsConfirmation":false,"tools":[{"tool":"researchSearch|readDocument|createDocument|listSandboxFiles|downloadFile|runTerminal","title":"...","reason":"...","args":{}}]}`;
 
   const history = context.messages
     .slice(-8)
@@ -454,7 +501,7 @@ JSON shape:
   if (!parsed || !Array.isArray(parsed.tools)) return heuristicDecision(message, context.files);
 
   const validTools = parsed.tools
-    .filter((tool: any) => tool?.tool === 'researchSearch' || tool?.tool === 'readDocument' || tool?.tool === 'createDocument')
+    .filter((tool: any) => tool?.tool === 'researchSearch' || tool?.tool === 'readDocument' || tool?.tool === 'createDocument' || tool?.tool === 'listSandboxFiles' || tool?.tool === 'downloadFile' || tool?.tool === 'runTerminal')
     .slice(0, 4)
     .map((tool: any) => ({
       tool: tool.tool,
@@ -466,7 +513,7 @@ JSON shape:
   return {
     intent: parsed.intent === 'research' || parsed.intent === 'read' || parsed.intent === 'write' ? parsed.intent : 'answer',
     responseStyle: parsed.responseStyle === 'concise' || parsed.responseStyle === 'detailed' ? parsed.responseStyle : 'normal',
-    needsConfirmation: Boolean(parsed.needsConfirmation || validTools.some(tool => tool.tool === 'createDocument')),
+    needsConfirmation: Boolean(parsed.needsConfirmation || validTools.some(tool => tool.tool === 'createDocument' || tool.tool === 'downloadFile' || tool.tool === 'runTerminal')),
     tools: validTools,
   } satisfies SynapseDecision;
 }
@@ -488,6 +535,10 @@ function filesContext(files: any[]) {
 Type: ${file.file_type}
 Excerpt: ${sanitizeTextForPostgres(String(file.content_text || ''), 1800)}`;
   }).join('\n\n');
+}
+
+function isSideEffectTool(tool: SynapseToolDecision | { tool: string }) {
+  return tool.tool === 'createDocument' || tool.tool === 'downloadFile' || tool.tool === 'runTerminal';
 }
 
 async function runResearchTool(decision: SynapseToolDecision, options: SynapseRunOptions, conversationId: string) {
@@ -619,6 +670,181 @@ async function runReadDocumentTool(decision: SynapseToolDecision, options: Synap
   };
 }
 
+async function runListSandboxFilesTool(decision: SynapseToolDecision, options: SynapseRunOptions, conversationId: string) {
+  await emitSynapseEvent(options, {
+    type: 'tool_start',
+    tool: 'listSandboxFiles',
+    title: decision.title || '列出沙箱文件',
+    status: 'running',
+    message: '正在列出服务器沙箱文件...',
+  });
+  const maxFiles = Math.min(Number(decision.args.maxFiles || 80), 200);
+  const files = await listWorkspaceFiles(options.userId, maxFiles);
+  const summary = files.length
+    ? `沙箱中找到 ${files.length} 个文件。\n${files.slice(0, 30).map(file => `- ${file.relativePath} (${file.bytes} bytes)`).join('\n')}`
+    : '沙箱中暂时没有文件。';
+  await insertToolTrace(options.supabase, options.userId, conversationId, 'listSandboxFiles', { maxFiles }, { files: files.slice(0, maxFiles) }, summary);
+  await emitSynapseEvent(options, {
+    type: 'tool_done',
+    tool: 'listSandboxFiles',
+    title: decision.title || '列出沙箱文件',
+    status: 'completed',
+    message: `已列出 ${files.length} 个文件。`,
+    data: { fileCount: files.length },
+  });
+  return {
+    call: {
+      id: id('tool'),
+      tool: 'listSandboxFiles',
+      title: decision.title || '列出沙箱文件',
+      status: 'completed',
+      args: { maxFiles },
+      result: summary,
+    } as AgentToolCallLog,
+    files,
+  };
+}
+
+async function runDownloadFileTool(decision: SynapseToolDecision, options: SynapseRunOptions, conversationId: string) {
+  const url = String(decision.args.url || '').trim();
+  const fileName = sanitizeTextForPostgres(String(decision.args.fileName || ''), 180);
+  if (!url) throw new Error('Missing URL for downloadFile');
+  await emitSynapseEvent(options, {
+    type: 'tool_start',
+    tool: 'downloadFile',
+    title: decision.title || '下载文件到沙箱',
+    status: 'running',
+    message: `正在下载：${url}`,
+    data: { url, fileName },
+  });
+
+  const placeholderId = id('download').replace(/^download-/, '');
+  const downloaded = await downloadUrlToWorkspace(options.userId, placeholderId, url, fileName || undefined);
+  const ext = fileExtension(downloaded.fileName).replace('.', '') || 'file';
+  const contentText = isTextLikeFile(downloaded.fileName)
+    ? sanitizeTextForPostgres(await textPreviewFromWorkspaceFile(downloaded.fileName, downloaded.ref).catch(() => ''))
+    : '';
+
+  const { data: file, error } = await options.supabase
+    .from('agent_files')
+    .insert({
+      user_id: options.userId,
+      conversation_id: conversationId,
+      file_name: sanitizeTextForPostgres(downloaded.fileName, 240),
+      file_type: ext,
+      file_size: downloaded.ref.bytes,
+      storage_path: null,
+      file_url: downloaded.url,
+      content_text: contentText,
+      metadata: sanitizeForPostgres({
+        source: 'sandbox_download',
+        downloadUrl: downloaded.url,
+        workspace: {
+          originalFile: downloaded.ref,
+          storedOnServer: true,
+        },
+      }),
+    })
+    .select()
+    .single();
+  if (error) throw error;
+
+  let extraction: any = null;
+  if (isSupportedArchive(downloaded.fileName)) {
+    try {
+      extraction = await extractWorkspaceZipForFile(options.userId, file.id, downloaded.ref, 'downloaded');
+      const metadata = sanitizeForPostgres({
+        ...(file.metadata || {}),
+        workspace: {
+          ...(file.metadata?.workspace || {}),
+          archive: {
+            extractionStatus: 'completed',
+            extractedDir: extraction.extractRelativeDir,
+            extractedFiles: (extraction.files || []).slice(0, 200).map((item: any) => ({
+              relativePath: item.relativePath,
+              originalName: item.originalName,
+              bytes: item.bytes,
+            })),
+          },
+        },
+      });
+      await options.supabase
+        .from('agent_files')
+        .update({
+          metadata,
+          content_text: sanitizeTextForPostgres(extraction.markdown || contentText || ''),
+        })
+        .eq('id', file.id)
+        .eq('user_id', options.userId);
+    } catch {
+      // Keep the downloaded file even if archive extraction fails.
+    }
+  }
+
+  const summary = `已下载到沙箱：${downloaded.ref.relativePath}${extraction ? `，并解压 ${extraction.files.length} 个文件。` : ''}`;
+  await insertToolTrace(options.supabase, options.userId, conversationId, 'downloadFile', { url, fileName }, { file, workspace: downloaded.ref, extraction }, summary);
+  await emitSynapseEvent(options, {
+    type: 'tool_done',
+    tool: 'downloadFile',
+    title: decision.title || '下载文件到沙箱',
+    status: 'completed',
+    message: summary,
+    data: { fileId: file.id, relativePath: downloaded.ref.relativePath },
+  });
+  return {
+    call: {
+      id: id('tool'),
+      tool: 'downloadFile',
+      title: decision.title || '下载文件到沙箱',
+      status: 'completed',
+      args: { url, fileName },
+      result: summary,
+    } as AgentToolCallLog,
+    file,
+  };
+}
+
+async function runTerminalTool(decision: SynapseToolDecision, options: SynapseRunOptions, conversationId: string) {
+  const command = String(decision.args.command || '').trim();
+  const cwd = String(decision.args.cwd || '.').trim() || '.';
+  if (!command) throw new Error('Missing terminal command');
+  await emitSynapseEvent(options, {
+    type: 'tool_start',
+    tool: 'runTerminal',
+    title: decision.title || '运行沙箱终端',
+    status: 'running',
+    message: `正在沙箱中运行：${command}`,
+    data: { command, cwd },
+  });
+  const result = await runWorkspaceCommand(options.userId, command, cwd);
+  const summary = [
+    `命令：${result.command}`,
+    `工作目录：${result.cwd}`,
+    `退出码：${result.exitCode}${result.timedOut ? '（超时终止）' : ''}`,
+    result.stdout ? `stdout:\n${result.stdout}` : '',
+    result.stderr ? `stderr:\n${result.stderr}` : '',
+  ].filter(Boolean).join('\n');
+  await insertToolTrace(options.supabase, options.userId, conversationId, 'runTerminal', { command, cwd }, result as any, summary);
+  await emitSynapseEvent(options, {
+    type: 'tool_done',
+    tool: 'runTerminal',
+    title: decision.title || '运行沙箱终端',
+    status: result.exitCode === 0 ? 'completed' : 'failed',
+    message: `命令结束，退出码 ${result.exitCode}${result.timedOut ? '，已超时终止' : ''}。`,
+    data: { exitCode: result.exitCode, timedOut: result.timedOut },
+  });
+  return {
+    call: {
+      id: id('tool'),
+      tool: 'runTerminal',
+      title: decision.title || '运行沙箱终端',
+      status: result.exitCode === 0 ? 'completed' : 'failed',
+      args: { command, cwd },
+      result: summary,
+    } as AgentToolCallLog,
+  };
+}
+
 async function generateAnswer(
   options: SynapseRunOptions,
   conversation: any,
@@ -688,22 +914,28 @@ Write the final assistant response now.`;
 }
 
 function confirmationPlan(message: string, decision: SynapseDecision): AgentPlan | null {
-  const writeTool = decision.tools.find(tool => tool.tool === 'createDocument');
-  if (!writeTool) return null;
+  const sideEffectTools = decision.tools.filter(isSideEffectTool);
+  if (!sideEffectTools.length) return null;
   return {
     id: id('plan'),
-    title: '创建文档',
-    summary: '创建或保存文档属于副作用动作，需要你确认后再执行。',
-    steps: [{
+    title: sideEffectTools.length === 1 ? sideEffectTools[0].title : '确认沙箱操作',
+    summary: '这些操作会修改服务器沙箱、运行命令或创建文档，需要你确认后再执行。',
+    steps: sideEffectTools.map(tool => ({
       id: id('step'),
-      tool: 'createDocument',
-      title: writeTool.title || '创建 Markdown 文档',
-      description: writeTool.reason || '基于本轮对话、工具结果和用户要求创建文档。',
-      args: {
-        title: writeTool.args.title || titleFromMessage(message),
-        documentType: writeTool.args.documentType || 'synapse_document',
-      },
-    }],
+      tool: tool.tool,
+      title: tool.title || (
+        tool.tool === 'createDocument' ? '创建 Markdown 文档' :
+        tool.tool === 'downloadFile' ? '下载文件到沙箱' :
+        '运行沙箱终端命令'
+      ),
+      description: tool.reason || '该操作会改变服务器工作区状态。',
+      args: tool.tool === 'createDocument'
+        ? {
+            title: tool.args.title || titleFromMessage(message),
+            documentType: tool.args.documentType || 'synapse_document',
+          }
+        : tool.args,
+    })),
     requiresConfirmation: true,
     createdAt: new Date().toISOString(),
   };
@@ -716,7 +948,7 @@ export async function runSynapseTurn(options: SynapseRunOptions) {
   await insertMessage(options.supabase, options.userId, conversation.id, 'user', options.message);
 
   const decision = await decideTools(options.message, beforeContext, options.llmConfig, options.agentSettings);
-  const executableTools = decision.tools.filter(tool => tool.tool !== 'createDocument');
+  const executableTools = decision.tools.filter(tool => !isSideEffectTool(tool));
   const pendingPlan = confirmationPlan(options.message, decision);
   const toolCalls: AgentToolCallLog[] = [];
   const allSources: ResearchSource[] = [];
@@ -733,6 +965,10 @@ export async function runSynapseTurn(options: SynapseRunOptions) {
         const result = await runReadDocumentTool(tool, options, conversation.id);
         toolCalls.push(result.call);
         readFiles.push(...result.files);
+      }
+      if (tool.tool === 'listSandboxFiles') {
+        const result = await runListSandboxFilesTool(tool, options, conversation.id);
+        toolCalls.push(result.call);
       }
     } catch (error: any) {
       toolCalls.push({
@@ -827,15 +1063,15 @@ async function emitSynapseEvent(options: Pick<SynapseRunOptions, 'onEvent'> | un
 }
 
 function graphRouteAfterDecision(state: typeof SynapseGraphState.State) {
-  return state.decision.tools.some(tool => tool.tool !== 'createDocument')
+  return state.decision.tools.some(tool => !isSideEffectTool(tool))
     ? 'execute_tools'
     : 'generate_answer';
 }
 
 function synapseControllerCall(state: typeof SynapseGraphState.State): AgentToolCallLog {
   const route = state.graphTrace.map(event => `${event.node} ${event.durationMs}ms`).join(' -> ');
-  const executableCount = state.decision.tools.filter(tool => tool.tool !== 'createDocument').length;
-  const pendingWrite = state.pendingPlan ? '；有待确认的文档创建计划' : '';
+  const executableCount = state.decision.tools.filter(tool => !isSideEffectTool(tool)).length;
+  const pendingWrite = state.pendingPlan ? '；有待确认的沙箱/文档操作' : '';
 
   return {
     id: id('graph'),
@@ -915,7 +1151,7 @@ async function decideSynapseGraphTools(state: typeof SynapseGraphState.State) {
 
 async function executeSynapseGraphTools(state: typeof SynapseGraphState.State) {
   const startedAt = Date.now();
-  const executableTools = state.decision.tools.filter(tool => tool.tool !== 'createDocument');
+  const executableTools = state.decision.tools.filter(tool => !isSideEffectTool(tool));
   await emitSynapseEvent(state.options, {
     type: 'node_start',
     node: 'execute_tools',
@@ -938,6 +1174,10 @@ async function executeSynapseGraphTools(state: typeof SynapseGraphState.State) {
         const result = await runReadDocumentTool(tool, state.options, state.conversation.id);
         toolCalls.push(result.call);
         readFiles.push(...result.files);
+      }
+      if (tool.tool === 'listSandboxFiles') {
+        const result = await runListSandboxFilesTool(tool, state.options, state.conversation.id);
+        toolCalls.push(result.call);
       }
     } catch (error: any) {
       toolCalls.push({
@@ -1127,7 +1367,7 @@ function confirmedControllerCall(state: typeof SynapseConfirmedDocumentState.Sta
       executableTools: 1,
       route: state.graphTrace.map(event => event.node),
     },
-    result: `路由：${route || '未记录'}。确认后的文档创建已由 LangGraph 执行。`,
+    result: `路由：${route || '未记录'}。确认后的沙箱/文档操作已由 LangGraph 执行。`,
   };
 }
 
@@ -1159,77 +1399,112 @@ async function loadConfirmedDocumentSources(state: typeof SynapseConfirmedDocume
   };
 }
 
-async function createConfirmedDocument(state: typeof SynapseConfirmedDocumentState.State) {
+async function executeConfirmedActions(state: typeof SynapseConfirmedDocumentState.State) {
   const startedAt = Date.now();
   await emitSynapseEvent(state.options, {
     type: 'tool_start',
-    node: 'create_document',
-    tool: 'createDocument',
-    title: '创建文档',
+    node: 'execute_confirmed_actions',
+    tool: 'synapse',
+    title: '执行确认操作',
     status: 'running',
-    message: '正在根据对话和来源生成 Markdown 文档...',
-  });
-  const effectiveLLMConfig = {
-    ...state.options.llmConfig,
-    defaultModel: state.options.agentSettings?.model || state.options.llmConfig?.defaultModel,
-  };
-  const draft = await generateAgentDocument({
-    userId: state.options.userId,
-    message: state.options.message,
-    plan: state.options.confirmedPlan,
-    sources: state.sources,
-    llmConfig: effectiveLLMConfig,
+    message: `正在执行 ${state.options.confirmedPlan.steps.length} 个已确认操作...`,
   });
 
-  const { data: document, error } = await state.options.supabase
-    .from('agent_documents')
-    .insert({
-      user_id: state.options.userId,
-      title: sanitizeTextForPostgres(draft.title, 240),
-      content_md: sanitizeTextForPostgres(draft.markdown),
-      source: 'synapse',
-      metadata: sanitizeForPostgres({
-        runtime: draft.runtime,
-        agent: 'synapse',
-        graphRuntime: 'langgraph',
-        conversationId: state.options.conversationId,
+  const toolCalls: AgentToolCallLog[] = [];
+  let document: any = null;
+  const answerParts: string[] = [];
+
+  for (const step of state.options.confirmedPlan.steps) {
+    const decision: SynapseToolDecision = {
+      tool: step.tool as SynapseToolDecision['tool'],
+      title: step.title,
+      reason: step.description,
+      args: step.args || {},
+    };
+
+    if (step.tool === 'downloadFile') {
+      const result = await runDownloadFileTool(decision, state.options, state.options.conversationId);
+      toolCalls.push({ ...result.call, id: step.id || result.call.id });
+      answerParts.push(result.call.result || '下载完成。');
+    } else if (step.tool === 'runTerminal') {
+      const result = await runTerminalTool(decision, state.options, state.options.conversationId);
+      toolCalls.push({ ...result.call, id: step.id || result.call.id });
+      answerParts.push(result.call.result || '终端命令已执行。');
+    } else if (step.tool === 'createDocument') {
+      const effectiveLLMConfig = {
+        ...state.options.llmConfig,
+        defaultModel: state.options.agentSettings?.model || state.options.llmConfig?.defaultModel,
+      };
+      const draft = await generateAgentDocument({
+        userId: state.options.userId,
+        message: state.options.message,
         plan: state.options.confirmedPlan,
-        sourceCount: state.sources.length,
-        warnings: draft.warnings || [],
-      }),
-    })
-    .select()
-    .single();
-  if (error) throw error;
+        sources: state.sources,
+        llmConfig: effectiveLLMConfig,
+      });
 
-  const createStep = state.options.confirmedPlan.steps.find(step => step.tool === 'createDocument')
-    || state.options.confirmedPlan.steps[0];
-  const call: AgentToolCallLog = {
-    id: createStep?.id || id('tool'),
-    tool: 'createDocument',
-    title: createStep?.title || '创建文档',
-    status: 'completed',
-    args: createStep?.args || {},
-    result: [
-      `已创建文档：${document.title}`,
-      draft.warnings?.length ? `注意：${draft.warnings.join('；')}` : '',
-    ].filter(Boolean).join('\n'),
-  };
+      const { data, error } = await state.options.supabase
+        .from('agent_documents')
+        .insert({
+          user_id: state.options.userId,
+          title: sanitizeTextForPostgres(draft.title, 240),
+          content_md: sanitizeTextForPostgres(draft.markdown),
+          source: 'synapse',
+          metadata: sanitizeForPostgres({
+            runtime: draft.runtime,
+            agent: 'synapse',
+            graphRuntime: 'langgraph',
+            conversationId: state.options.conversationId,
+            plan: state.options.confirmedPlan,
+            sourceCount: state.sources.length,
+            warnings: draft.warnings || [],
+          }),
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      document = data;
+
+      const call: AgentToolCallLog = {
+        id: step.id || id('tool'),
+        tool: 'createDocument',
+        title: step.title || '创建文档',
+        status: 'completed',
+        args: step.args || {},
+        result: [
+          `已创建文档：${document.title}`,
+          draft.warnings?.length ? `注意：${draft.warnings.join('；')}` : '',
+        ].filter(Boolean).join('\n'),
+      };
+      toolCalls.push(call);
+      answerParts.push(`已创建文档《${document.title}》。你可以在右侧“文档”面板预览或下载 Markdown / DOCX。`);
+      await state.options.supabase.from('agent_tool_traces').insert({
+        user_id: state.options.userId,
+        conversation_id: state.options.conversationId,
+        tool_name: 'createDocument',
+        status: 'completed',
+        input: sanitizeForPostgres({ message: state.options.message, plan: state.options.confirmedPlan }),
+        output: sanitizeForPostgres({ document, sourceCount: state.sources.length }),
+        summary: sanitizeTextForPostgres(call.result || ''),
+      });
+    }
+  }
+
   await emitSynapseEvent(state.options, {
     type: 'tool_done',
-    node: 'create_document',
-    tool: 'createDocument',
-    title: '创建文档',
+    node: 'execute_confirmed_actions',
+    tool: 'synapse',
+    title: '确认操作已执行',
     status: 'completed',
-    message: `文档《${document.title}》已创建。`,
-    data: { documentId: document.id, title: document.title },
+    message: `已完成 ${toolCalls.length} 个操作。`,
+    data: { toolCount: toolCalls.length, documentId: document?.id },
   });
 
   return {
     document,
-    toolCalls: [call],
-    answer: `已创建文档《${document.title}》。你可以在右侧“文档”面板预览或下载 Markdown / DOCX。`,
-    graphTrace: [graphTraceEvent('create_document', startedAt, `${draft.runtime}, ${draft.markdown.length} chars`)],
+    toolCalls,
+    answer: answerParts.join('\n\n') || '已完成确认操作。',
+    graphTrace: [graphTraceEvent('execute_confirmed_actions', startedAt, `${toolCalls.length} confirmed actions`)],
   };
 }
 
@@ -1246,15 +1521,6 @@ async function persistConfirmedDocumentTurn(state: typeof SynapseConfirmedDocume
   const responseToolCalls = [controllerCall, ...state.toolCalls];
 
   await Promise.all([
-    state.options.supabase.from('agent_tool_traces').insert({
-      user_id: state.options.userId,
-      conversation_id: state.options.conversationId,
-      tool_name: 'createDocument',
-      status: 'completed',
-      input: sanitizeForPostgres({ message: state.options.message, plan: state.options.confirmedPlan }),
-      output: sanitizeForPostgres({ document: state.document, sourceCount: state.sources.length }),
-      summary: sanitizeTextForPostgres(state.toolCalls[0]?.result || ''),
-    }),
     state.options.supabase.from('agent_messages').insert({
       user_id: state.options.userId,
       conversation_id: state.options.conversationId,
@@ -1303,11 +1569,11 @@ async function persistConfirmedDocumentTurn(state: typeof SynapseConfirmedDocume
 
 const confirmedDocumentGraph = new StateGraph(SynapseConfirmedDocumentState)
   .addNode('load_recent_sources', loadConfirmedDocumentSources)
-  .addNode('create_document', createConfirmedDocument)
+  .addNode('execute_confirmed_actions', executeConfirmedActions)
   .addNode('persist_confirmed_document', persistConfirmedDocumentTurn)
   .addEdge(START, 'load_recent_sources')
-  .addEdge('load_recent_sources', 'create_document')
-  .addEdge('create_document', 'persist_confirmed_document')
+  .addEdge('load_recent_sources', 'execute_confirmed_actions')
+  .addEdge('execute_confirmed_actions', 'persist_confirmed_document')
   .addEdge('persist_confirmed_document', END)
   .compile();
 
