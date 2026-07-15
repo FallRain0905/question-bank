@@ -253,14 +253,15 @@ export default function AgentPage() {
       setSelectedConversationId(conversationId);
       setMessages(messagesFromStored(data.messages || []));
       setFiles(data.files || []);
-      setToolCalls((data.traces || []).map((trace: any) => ({
+      const traceToolCalls = (data.traces || []).map((trace: any) => ({
         id: trace.id,
         tool: trace.tool_name,
         title: trace.tool_name,
         status: trace.status || 'completed',
         args: trace.input || {},
         result: trace.summary,
-      })));
+      }));
+      setToolCalls(Array.isArray(data.toolCalls) && data.toolCalls.length ? data.toolCalls : traceToolCalls);
       setSources((data.traces || []).flatMap((trace: any) => Array.isArray(trace.output?.sources) ? trace.output.sources : []));
       setPendingPlan(null);
       setPendingMessage('');

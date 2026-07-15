@@ -1,5 +1,7 @@
+import { generateAgentDocument } from '@/lib/agent-runtime';
 import { normalizeResearchOptions, planResearchQueries, retrieveResearchSources } from '@/lib/research-retrieval';
 import type { AgentPlan, AgentToolCallLog, ResearchSource } from '@/types';
+import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 
 type LLMConfig = {
   apiKey?: string;
@@ -43,6 +45,19 @@ type SynapseRunOptions = {
     model?: string;
     thinkingEnabled?: boolean;
   };
+};
+
+type SynapseConfirmedDocumentOptions = SynapseRunOptions & {
+  conversationId: string;
+  confirmedPlan: AgentPlan;
+};
+
+type SynapseGraphTraceEvent = {
+  node: string;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  summary?: string;
 };
 
 const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
@@ -660,6 +675,431 @@ export async function runSynapseTurn(options: SynapseRunOptions) {
     model: answer.model,
     usedThinking: answer.usedThinking,
   };
+}
+
+const SynapseGraphState = Annotation.Root({
+  options: Annotation<SynapseRunOptions>,
+  conversation: Annotation<any>,
+  beforeContext: Annotation<{ messages: any[]; files: any[]; memorySummary?: string }>,
+  decision: Annotation<SynapseDecision>,
+  pendingPlan: Annotation<AgentPlan | null>,
+  toolCalls: Annotation<AgentToolCallLog[]>({
+    reducer: (_left, right) => right,
+    default: () => [],
+  }),
+  sources: Annotation<ResearchSource[]>({
+    reducer: (_left, right) => right,
+    default: () => [],
+  }),
+  readFiles: Annotation<any[]>({
+    reducer: (_left, right) => right,
+    default: () => [],
+  }),
+  answer: Annotation<{ content: string; reasoning: string; model: string; usedThinking: boolean }>,
+  assistant: Annotation<any>,
+  messages: Annotation<any[]>({
+    reducer: (_left, right) => right,
+    default: () => [],
+  }),
+  graphTrace: Annotation<SynapseGraphTraceEvent[]>({
+    reducer: (left, right) => left.concat(right),
+    default: () => [],
+  }),
+  response: Annotation<any>,
+});
+
+function graphTraceEvent(node: string, startedAtMs: number, summary?: string): SynapseGraphTraceEvent {
+  return {
+    node,
+    startedAt: new Date(startedAtMs).toISOString(),
+    finishedAt: new Date().toISOString(),
+    durationMs: Date.now() - startedAtMs,
+    summary,
+  };
+}
+
+function graphRouteAfterDecision(state: typeof SynapseGraphState.State) {
+  return state.decision.tools.some(tool => tool.tool !== 'createDocument')
+    ? 'execute_tools'
+    : 'generate_answer';
+}
+
+function synapseControllerCall(state: typeof SynapseGraphState.State): AgentToolCallLog {
+  const route = state.graphTrace.map(event => `${event.node} ${event.durationMs}ms`).join(' -> ');
+  const executableCount = state.decision.tools.filter(tool => tool.tool !== 'createDocument').length;
+  const pendingWrite = state.pendingPlan ? '；有待确认的文档创建计划' : '';
+
+  return {
+    id: id('graph'),
+    tool: 'synapse',
+    title: 'LangGraph 控制器',
+    status: 'completed',
+    args: {
+      intent: state.decision.intent,
+      responseStyle: state.decision.responseStyle,
+      executableTools: executableCount,
+      route: state.graphTrace.map(event => event.node),
+    },
+    result: `路由：${route || '未记录'}。意图：${state.decision.intent}；执行工具数：${executableCount}${pendingWrite}。`,
+  };
+}
+
+async function loadSynapseGraphContext(state: typeof SynapseGraphState.State) {
+  const startedAt = Date.now();
+  const options = state.options;
+  const conversation = await ensureConversation(options.supabase, options.userId, options.conversationId, options.message);
+  const beforeContext = await loadConversationContext(options.supabase, options.userId, conversation.id);
+  beforeContext.memorySummary = await maybeCompressMemory(options, conversation, beforeContext);
+  await insertMessage(options.supabase, options.userId, conversation.id, 'user', options.message);
+
+  return {
+    conversation,
+    beforeContext,
+    graphTrace: [graphTraceEvent('load_context', startedAt, `${beforeContext.messages.length} history messages, ${beforeContext.files.length} files`)],
+  };
+}
+
+async function decideSynapseGraphTools(state: typeof SynapseGraphState.State) {
+  const startedAt = Date.now();
+  const decision = await decideTools(
+    state.options.message,
+    state.beforeContext,
+    state.options.llmConfig,
+    state.options.agentSettings
+  );
+
+  return {
+    decision,
+    pendingPlan: confirmationPlan(state.options.message, decision),
+    graphTrace: [graphTraceEvent('decide_tools', startedAt, `${decision.intent}, ${decision.tools.length} planned tools`)],
+  };
+}
+
+async function executeSynapseGraphTools(state: typeof SynapseGraphState.State) {
+  const startedAt = Date.now();
+  const executableTools = state.decision.tools.filter(tool => tool.tool !== 'createDocument');
+  const toolCalls: AgentToolCallLog[] = [];
+  const allSources: ResearchSource[] = [];
+  const readFiles: any[] = [];
+
+  for (const tool of executableTools) {
+    try {
+      if (tool.tool === 'researchSearch') {
+        const result = await runResearchTool(tool, state.options, state.conversation.id);
+        toolCalls.push(result.call);
+        allSources.push(...result.sources);
+      }
+      if (tool.tool === 'readDocument') {
+        const result = await runReadDocumentTool(tool, state.options, state.conversation.id);
+        toolCalls.push(result.call);
+        readFiles.push(...result.files);
+      }
+    } catch (error: any) {
+      toolCalls.push({
+        id: id('tool'),
+        tool: tool.tool,
+        title: tool.title,
+        status: 'failed',
+        args: tool.args || {},
+        error: error.message || 'Tool failed',
+      } as AgentToolCallLog);
+    }
+  }
+
+  return {
+    toolCalls,
+    sources: allSources,
+    readFiles,
+    graphTrace: [graphTraceEvent('execute_tools', startedAt, `${toolCalls.length} calls, ${allSources.length} sources, ${readFiles.length} files`)],
+  };
+}
+
+async function generateSynapseGraphAnswer(state: typeof SynapseGraphState.State) {
+  const startedAt = Date.now();
+  const answer = await generateAnswer(
+    state.options,
+    state.conversation,
+    state.beforeContext,
+    state.decision,
+    state.toolCalls,
+    state.sources,
+    state.readFiles
+  );
+
+  return {
+    answer,
+    graphTrace: [graphTraceEvent('generate_answer', startedAt, `${answer.content.length} chars`)],
+  };
+}
+
+async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
+  const startedAt = Date.now();
+  const controllerCall = synapseControllerCall(state);
+  const responseToolCalls = [controllerCall, ...state.toolCalls];
+  const assistant = await insertMessage(state.options.supabase, state.options.userId, state.conversation.id, 'assistant', state.answer.content, {
+    agent: 'synapse',
+    runtime: 'langgraph',
+    graphVersion: 2,
+    graphTrace: state.graphTrace,
+    decision: state.decision,
+    toolCalls: responseToolCalls,
+    sources: state.sources.slice(0, 12).map(compactSource),
+    readFiles: state.readFiles.map(file => ({ id: file.id, file_name: file.file_name })),
+    reasoning: state.answer.reasoning,
+    model: state.answer.model,
+    usedThinking: state.answer.usedThinking,
+    agentSettings: state.options.agentSettings || {},
+    pendingPlan: state.pendingPlan,
+  });
+
+  const refreshed = await loadConversationContext(state.options.supabase, state.options.userId, state.conversation.id);
+  const response = {
+    conversation: state.conversation,
+    assistant,
+    messages: refreshed.messages,
+    type: state.pendingPlan ? 'plan' : 'result',
+    message: state.answer.content,
+    plan: state.pendingPlan,
+    toolCalls: responseToolCalls,
+    sources: state.sources,
+    files: state.readFiles,
+    reasoning: state.answer.reasoning,
+    model: state.answer.model,
+    usedThinking: state.answer.usedThinking,
+    runtime: 'langgraph',
+    graphTrace: [...state.graphTrace, graphTraceEvent('persist_turn', startedAt, 'response persisted')],
+  };
+
+  return {
+    assistant,
+    messages: refreshed.messages,
+    graphTrace: [graphTraceEvent('persist_turn', startedAt, 'response persisted')],
+    response,
+  };
+}
+
+const synapseGraph = new StateGraph(SynapseGraphState)
+  .addNode('load_context', loadSynapseGraphContext)
+  .addNode('decide_tools', decideSynapseGraphTools)
+  .addNode('execute_tools', executeSynapseGraphTools)
+  .addNode('generate_answer', generateSynapseGraphAnswer)
+  .addNode('persist_turn', persistSynapseGraphTurn)
+  .addEdge(START, 'load_context')
+  .addEdge('load_context', 'decide_tools')
+  .addConditionalEdges('decide_tools', graphRouteAfterDecision, {
+    execute_tools: 'execute_tools',
+    generate_answer: 'generate_answer',
+  })
+  .addEdge('execute_tools', 'generate_answer')
+  .addEdge('generate_answer', 'persist_turn')
+  .addEdge('persist_turn', END)
+  .compile();
+
+export async function runSynapseLangGraphTurn(options: SynapseRunOptions) {
+  const result = await synapseGraph.invoke(
+    { options },
+    {
+      configurable: {
+        thread_id: options.conversationId || `synapse-${options.userId}-${Date.now()}`,
+      },
+      tags: ['synapse', 'langgraph'],
+      metadata: {
+        userId: options.userId,
+        conversationId: options.conversationId || null,
+      },
+    }
+  );
+
+  return result.response;
+}
+
+const SynapseConfirmedDocumentState = Annotation.Root({
+  options: Annotation<SynapseConfirmedDocumentOptions>,
+  sources: Annotation<ResearchSource[]>({
+    reducer: (_left, right) => right,
+    default: () => [],
+  }),
+  document: Annotation<any>,
+  toolCalls: Annotation<AgentToolCallLog[]>({
+    reducer: (_left, right) => right,
+    default: () => [],
+  }),
+  answer: Annotation<string>,
+  graphTrace: Annotation<SynapseGraphTraceEvent[]>({
+    reducer: (left, right) => left.concat(right),
+    default: () => [],
+  }),
+  response: Annotation<any>,
+});
+
+function confirmedControllerCall(state: typeof SynapseConfirmedDocumentState.State): AgentToolCallLog {
+  const route = state.graphTrace.map(event => `${event.node} ${event.durationMs}ms`).join(' -> ');
+  return {
+    id: id('graph'),
+    tool: 'synapse',
+    title: 'LangGraph 控制器',
+    status: 'completed',
+    args: {
+      intent: 'write',
+      responseStyle: 'normal',
+      executableTools: 1,
+      route: state.graphTrace.map(event => event.node),
+    },
+    result: `路由：${route || '未记录'}。确认后的文档创建已由 LangGraph 执行。`,
+  };
+}
+
+async function loadConfirmedDocumentSources(state: typeof SynapseConfirmedDocumentState.State) {
+  const startedAt = Date.now();
+  const sources = await loadRecentResearchSources(
+    state.options.supabase,
+    state.options.userId,
+    state.options.conversationId
+  );
+
+  return {
+    sources,
+    graphTrace: [graphTraceEvent('load_recent_sources', startedAt, `${sources.length} recent sources`)],
+  };
+}
+
+async function createConfirmedDocument(state: typeof SynapseConfirmedDocumentState.State) {
+  const startedAt = Date.now();
+  const effectiveLLMConfig = {
+    ...state.options.llmConfig,
+    defaultModel: state.options.agentSettings?.model || state.options.llmConfig?.defaultModel,
+  };
+  const draft = await generateAgentDocument({
+    userId: state.options.userId,
+    message: state.options.message,
+    plan: state.options.confirmedPlan,
+    sources: state.sources,
+    llmConfig: effectiveLLMConfig,
+  });
+
+  const { data: document, error } = await state.options.supabase
+    .from('agent_documents')
+    .insert({
+      user_id: state.options.userId,
+      title: sanitizeTextForPostgres(draft.title, 240),
+      content_md: sanitizeTextForPostgres(draft.markdown),
+      source: 'synapse',
+      metadata: sanitizeForPostgres({
+        runtime: draft.runtime,
+        agent: 'synapse',
+        graphRuntime: 'langgraph',
+        conversationId: state.options.conversationId,
+        plan: state.options.confirmedPlan,
+        sourceCount: state.sources.length,
+        warnings: draft.warnings || [],
+      }),
+    })
+    .select()
+    .single();
+  if (error) throw error;
+
+  const createStep = state.options.confirmedPlan.steps.find(step => step.tool === 'createDocument')
+    || state.options.confirmedPlan.steps[0];
+  const call: AgentToolCallLog = {
+    id: createStep?.id || id('tool'),
+    tool: 'createDocument',
+    title: createStep?.title || '创建文档',
+    status: 'completed',
+    args: createStep?.args || {},
+    result: [
+      `已创建文档：${document.title}`,
+      draft.warnings?.length ? `注意：${draft.warnings.join('；')}` : '',
+    ].filter(Boolean).join('\n'),
+  };
+
+  return {
+    document,
+    toolCalls: [call],
+    answer: `已创建文档《${document.title}》。你可以在右侧“文档”面板预览或下载 Markdown / DOCX。`,
+    graphTrace: [graphTraceEvent('create_document', startedAt, `${draft.runtime}, ${draft.markdown.length} chars`)],
+  };
+}
+
+async function persistConfirmedDocumentTurn(state: typeof SynapseConfirmedDocumentState.State) {
+  const startedAt = Date.now();
+  const controllerCall = confirmedControllerCall(state);
+  const responseToolCalls = [controllerCall, ...state.toolCalls];
+
+  await Promise.all([
+    state.options.supabase.from('agent_tool_traces').insert({
+      user_id: state.options.userId,
+      conversation_id: state.options.conversationId,
+      tool_name: 'createDocument',
+      status: 'completed',
+      input: sanitizeForPostgres({ message: state.options.message, plan: state.options.confirmedPlan }),
+      output: sanitizeForPostgres({ document: state.document, sourceCount: state.sources.length }),
+      summary: sanitizeTextForPostgres(state.toolCalls[0]?.result || ''),
+    }),
+    state.options.supabase.from('agent_messages').insert({
+      user_id: state.options.userId,
+      conversation_id: state.options.conversationId,
+      role: 'assistant',
+      content: sanitizeTextForPostgres(state.answer),
+      metadata: sanitizeForPostgres({
+        agent: 'synapse',
+        runtime: 'langgraph',
+        graphVersion: 2,
+        graphTrace: state.graphTrace,
+        toolCalls: responseToolCalls,
+        document: state.document,
+      }),
+    }),
+    state.options.supabase
+      .from('agent_conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', state.options.conversationId)
+      .eq('user_id', state.options.userId),
+  ]);
+
+  const response = {
+    type: 'result',
+    conversation: { id: state.options.conversationId },
+    message: state.answer,
+    plan: state.options.confirmedPlan,
+    toolCalls: responseToolCalls,
+    sources: state.sources,
+    document: state.document,
+    runtime: 'langgraph',
+    graphTrace: [...state.graphTrace, graphTraceEvent('persist_confirmed_document', startedAt, 'confirmed document response persisted')],
+  };
+
+  return {
+    graphTrace: [graphTraceEvent('persist_confirmed_document', startedAt, 'confirmed document response persisted')],
+    response,
+  };
+}
+
+const confirmedDocumentGraph = new StateGraph(SynapseConfirmedDocumentState)
+  .addNode('load_recent_sources', loadConfirmedDocumentSources)
+  .addNode('create_document', createConfirmedDocument)
+  .addNode('persist_confirmed_document', persistConfirmedDocumentTurn)
+  .addEdge(START, 'load_recent_sources')
+  .addEdge('load_recent_sources', 'create_document')
+  .addEdge('create_document', 'persist_confirmed_document')
+  .addEdge('persist_confirmed_document', END)
+  .compile();
+
+export async function runConfirmedDocumentLangGraphTurn(options: SynapseConfirmedDocumentOptions) {
+  const result = await confirmedDocumentGraph.invoke(
+    { options },
+    {
+      configurable: {
+        thread_id: options.conversationId,
+      },
+      tags: ['synapse', 'langgraph', 'confirmed-document'],
+      metadata: {
+        userId: options.userId,
+        conversationId: options.conversationId,
+      },
+    }
+  );
+
+  return result.response;
 }
 
 export async function loadRecentResearchSources(supabase: SupabaseLike, userId: string, conversationId: string) {

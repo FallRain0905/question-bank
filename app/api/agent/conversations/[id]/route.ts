@@ -56,7 +56,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!conversation) return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
-  return NextResponse.json({ conversation, messages: messages || [], files: files || [], traces: traces || [] });
+  const latestAssistantWithTools = [...(messages || [])]
+    .reverse()
+    .find((message: any) => message.role === 'assistant' && Array.isArray(message.metadata?.toolCalls));
+
+  return NextResponse.json({
+    conversation,
+    messages: messages || [],
+    files: files || [],
+    traces: traces || [],
+    toolCalls: latestAssistantWithTools?.metadata?.toolCalls || null,
+    graphTrace: latestAssistantWithTools?.metadata?.graphTrace || null,
+  });
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

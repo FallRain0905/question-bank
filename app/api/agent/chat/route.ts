@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfig, getUserResearchToolConfig } from '@/lib/user-settings';
-import { generateAgentDocument } from '@/lib/agent-runtime';
-import { loadRecentResearchSources, runSynapseTurn, sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-runtime';
-import type { AgentPlan, AgentToolCallLog } from '@/types';
+import { runConfirmedDocumentLangGraphTurn, runSynapseLangGraphTurn } from '@/lib/synapse-runtime';
+import type { AgentPlan } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,89 +38,6 @@ function schemaHint(error: any) {
   return message || 'Agent request failed';
 }
 
-async function executeConfirmedDocument(
-  supabase: ReturnType<typeof clientForToken>,
-  userId: string,
-  conversationId: string,
-  message: string,
-  plan: AgentPlan,
-  llmConfig: any,
-  agentSettings: { model?: string; thinkingEnabled?: boolean } = {}
-) {
-  const effectiveLLMConfig = {
-    ...llmConfig,
-    defaultModel: agentSettings.model || llmConfig?.defaultModel,
-  };
-  const sources = await loadRecentResearchSources(supabase, userId, conversationId);
-  const draft = await generateAgentDocument({
-    userId,
-    message,
-    plan,
-    sources,
-    llmConfig: effectiveLLMConfig,
-  });
-
-  const { data: document, error } = await supabase
-    .from('agent_documents')
-    .insert({
-      user_id: userId,
-      title: sanitizeTextForPostgres(draft.title, 240),
-      content_md: sanitizeTextForPostgres(draft.markdown),
-      source: 'synapse',
-      metadata: sanitizeForPostgres({
-        runtime: draft.runtime,
-        agent: 'synapse',
-        conversationId,
-        plan,
-        sourceCount: sources.length,
-        warnings: draft.warnings || [],
-      }),
-    })
-    .select()
-    .single();
-  if (error) throw error;
-
-  const call: AgentToolCallLog = {
-    id: plan.steps[0]?.id || `tool-${Date.now()}`,
-    tool: 'createDocument',
-    title: plan.steps[0]?.title || '创建文档',
-    status: 'completed',
-    args: plan.steps[0]?.args || {},
-    result: [
-      `已创建文档：${document.title}`,
-      draft.warnings?.length ? `注意：${draft.warnings.join('；')}` : '',
-    ].filter(Boolean).join('\n'),
-  };
-
-  const answer = `已创建文档《${document.title}》。你可以在右侧“文档”面板预览或下载 Markdown / DOCX。`;
-
-  await Promise.all([
-    supabase.from('agent_tool_traces').insert({
-      user_id: userId,
-      conversation_id: conversationId,
-      tool_name: 'createDocument',
-      status: 'completed',
-      input: sanitizeForPostgres({ message, plan }),
-      output: sanitizeForPostgres({ document, sourceCount: sources.length }),
-      summary: sanitizeTextForPostgres(call.result || ''),
-    }),
-    supabase.from('agent_messages').insert({
-      user_id: userId,
-      conversation_id: conversationId,
-      role: 'assistant',
-      content: sanitizeTextForPostgres(answer),
-      metadata: sanitizeForPostgres({ agent: 'synapse', toolCalls: [call], document }),
-    }),
-    supabase
-      .from('agent_conversations')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', conversationId)
-      .eq('user_id', userId),
-  ]);
-
-  return { document, call, answer, sources };
-}
-
 export async function POST(req: NextRequest) {
   const auth = await getAuthedClient(req);
   if (auth.error) return auth.error;
@@ -143,27 +59,20 @@ export async function POST(req: NextRequest) {
 
     if (body.confirmedPlan) {
       if (!conversationId) return NextResponse.json({ error: 'Missing conversationId for confirmed action' }, { status: 400 });
-      const result = await executeConfirmedDocument(
-        auth.supabase,
-        auth.user.id,
-        conversationId,
+      const result = await runConfirmedDocumentLangGraphTurn({
+        userId: auth.user.id,
         message,
-        body.confirmedPlan as AgentPlan,
+        conversationId,
+        confirmedPlan: body.confirmedPlan as AgentPlan,
+        supabase: auth.supabase,
         llmConfig,
-        agentSettings
-      );
-      return NextResponse.json({
-        type: 'result',
-        conversation: { id: conversationId },
-        message: result.answer,
-        plan: body.confirmedPlan,
-        toolCalls: [result.call],
-        sources: result.sources,
-        document: result.document,
+        toolConfig,
+        agentSettings,
       });
+      return NextResponse.json(result);
     }
 
-    const result = await runSynapseTurn({
+    const result = await runSynapseLangGraphTurn({
       userId: auth.user.id,
       message,
       conversationId,
