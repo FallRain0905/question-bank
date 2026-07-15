@@ -144,6 +144,8 @@ export type MineruZipWorkspaceResult = {
 export type SandboxCommandResult = {
   command: string;
   cwd: string;
+  runtime: 'docker' | 'local';
+  containerName?: string;
   exitCode: number | null;
   timedOut: boolean;
   stdout: string;
@@ -538,12 +540,36 @@ function assertCommandAllowed(command: string) {
   }
 }
 
-export async function runWorkspaceCommand(userId: string, command: string, cwd = '.', timeoutMs = MAX_COMMAND_TIMEOUT_MS): Promise<SandboxCommandResult> {
-  assertCommandAllowed(command);
+function sandboxRuntime(): 'docker' | 'local' {
+  const configured = String(process.env.SYNAPSE_SANDBOX_RUNTIME || '').trim().toLowerCase();
+  if (configured === 'docker' || configured === 'local') return configured;
+  return process.env.NODE_ENV === 'production' ? 'docker' : 'local';
+}
+
+function boundedCommandTimeout(timeoutMs: number) {
+  return Math.min(Math.max(timeoutMs || MAX_COMMAND_TIMEOUT_MS, 1000), MAX_COMMAND_TIMEOUT_MS);
+}
+
+function sandboxUidGid() {
+  const configured = String(process.env.SYNAPSE_SANDBOX_USER || '').trim();
+  if (configured) return configured;
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 1000;
+  const gid = typeof process.getgid === 'function' ? process.getgid() : 1000;
+  return `${uid}:${gid}`;
+}
+
+async function prepareCommandWorkspace(userId: string, cwd = '.') {
   const { userRoot } = await ensureWorkspaceDirs(userId);
   const workingDirectory = path.resolve(userRoot, cwd || '.');
   assertInside(userRoot, workingDirectory);
   await fs.mkdir(workingDirectory, { recursive: true, mode: 0o700 });
+  return { userRoot, workingDirectory };
+}
+
+async function runLocalWorkspaceCommand(userId: string, command: string, cwd = '.', timeoutMs = MAX_COMMAND_TIMEOUT_MS): Promise<SandboxCommandResult> {
+  const { userRoot, workingDirectory } = await prepareCommandWorkspace(userId, cwd);
+
+  assertCommandAllowed(command);
 
   const shell = process.platform === 'win32' ? 'powershell.exe' : '/bin/bash';
   const args = process.platform === 'win32'
@@ -582,6 +608,7 @@ export async function runWorkspaceCommand(userId: string, command: string, cwd =
       resolve({
         command,
         cwd: path.relative(userRoot, workingDirectory).replace(/\\/g, '/') || '.',
+        runtime: 'local',
         exitCode: null,
         timedOut,
         stdout,
@@ -594,6 +621,7 @@ export async function runWorkspaceCommand(userId: string, command: string, cwd =
       resolve({
         command,
         cwd: path.relative(userRoot, workingDirectory).replace(/\\/g, '/') || '.',
+        runtime: 'local',
         exitCode: code,
         timedOut,
         stdout: stdout.slice(-MAX_COMMAND_OUTPUT_CHARS),
@@ -602,6 +630,108 @@ export async function runWorkspaceCommand(userId: string, command: string, cwd =
       });
     });
   });
+}
+
+async function runDockerWorkspaceCommand(userId: string, command: string, cwd = '.', timeoutMs = MAX_COMMAND_TIMEOUT_MS): Promise<SandboxCommandResult> {
+  const { userRoot, workingDirectory } = await prepareCommandWorkspace(userId, cwd);
+
+  assertCommandAllowed(command);
+
+  const relativeCwd = path.relative(userRoot, workingDirectory).replace(/\\/g, '/');
+  const containerCwd = relativeCwd ? `/workspace/${relativeCwd}` : '/workspace';
+  const image = process.env.SYNAPSE_SANDBOX_IMAGE || 'synapse-sandbox:latest';
+  const dockerBin = process.env.SYNAPSE_SANDBOX_DOCKER_BIN || 'docker';
+  const network = process.env.SYNAPSE_SANDBOX_NETWORK || 'none';
+  const memory = process.env.SYNAPSE_SANDBOX_MEMORY || '512m';
+  const cpus = process.env.SYNAPSE_SANDBOX_CPUS || '1';
+  const pidsLimit = process.env.SYNAPSE_SANDBOX_PIDS_LIMIT || '128';
+  const readOnly = process.env.SYNAPSE_SANDBOX_READ_ONLY !== '0';
+  const containerName = `synapse-sandbox-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const startedAt = Date.now();
+  const args = [
+    'run',
+    '--rm',
+    '--name', containerName,
+    '--network', network,
+    '--cpus', cpus,
+    '--memory', memory,
+    '--pids-limit', pidsLimit,
+    '--security-opt', 'no-new-privileges',
+    '--cap-drop', 'ALL',
+    '--stop-timeout', '1',
+    '--tmpfs', '/tmp:rw,nosuid,nodev,size=128m',
+    '-e', 'HOME=/workspace',
+    '-e', 'TMPDIR=/tmp',
+    '-v', `${userRoot}:/workspace:rw`,
+    '-w', containerCwd,
+    '--user', sandboxUidGid(),
+  ];
+  if (readOnly) args.push('--read-only');
+  args.push(image, '/bin/bash', '-lc', command);
+
+  return await new Promise<SandboxCommandResult>((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    let settled = false;
+    const child = spawn(dockerBin, args, { windowsHide: true });
+
+    const finish = (result: SandboxCommandResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+      spawn(dockerBin, ['rm', '-f', containerName], { windowsHide: true }).on('error', () => {});
+    }, boundedCommandTimeout(timeoutMs));
+
+    child.stdout.on('data', chunk => {
+      stdout = (stdout + String(chunk)).slice(-MAX_COMMAND_OUTPUT_CHARS);
+    });
+    child.stderr.on('data', chunk => {
+      stderr = (stderr + String(chunk)).slice(-MAX_COMMAND_OUTPUT_CHARS);
+    });
+    child.on('error', error => {
+      const hint = (error as any)?.code === 'ENOENT'
+        ? 'Docker is not available to the Synapse process. Install Docker, build the sandbox image, and make sure the PM2 user can run docker.'
+        : error.message;
+      finish({
+        command,
+        cwd: relativeCwd || '.',
+        runtime: 'docker',
+        containerName,
+        exitCode: null,
+        timedOut,
+        stdout,
+        stderr: `${stderr}\n${hint}`.trim().slice(-MAX_COMMAND_OUTPUT_CHARS),
+        durationMs: Date.now() - startedAt,
+      });
+    });
+    child.on('close', code => {
+      finish({
+        command,
+        cwd: relativeCwd || '.',
+        runtime: 'docker',
+        containerName,
+        exitCode: code,
+        timedOut,
+        stdout: stdout.slice(-MAX_COMMAND_OUTPUT_CHARS),
+        stderr: stderr.slice(-MAX_COMMAND_OUTPUT_CHARS),
+        durationMs: Date.now() - startedAt,
+      });
+    });
+  });
+}
+
+export async function runWorkspaceCommand(userId: string, command: string, cwd = '.', timeoutMs = MAX_COMMAND_TIMEOUT_MS): Promise<SandboxCommandResult> {
+  if (sandboxRuntime() === 'docker') {
+    return runDockerWorkspaceCommand(userId, command, cwd, timeoutMs);
+  }
+  return runLocalWorkspaceCommand(userId, command, cwd, timeoutMs);
 }
 
 function collectWorkspaceRelativePaths(value: any, paths: Set<string>) {

@@ -376,7 +376,86 @@ async function insertToolTrace(
   });
 }
 
+function cleanHeuristicDecision(message: string, files: any[]): SynapseDecision {
+  const lower = message.toLowerCase();
+  const wantsSearch = /检索|搜索|联网|查找|查一下|搜一下|资料|论文|文献|综述|最新|趋势|进展|research|search|paper|literature|source|web/.test(lower);
+  const wantsRead = /文件|文档|附件|上传|pdf|docx|阅读|总结这份|分析这份|file|document|attachment|read|summarize/.test(lower) && files.length > 0;
+  const wantsWrite = /创建|生成|写.*文档|写.*报告|写.*简报|整理成.*文档|保存.*文档|导出|markdown|docx|create|generate|write|document|report|export/.test(lower);
+  const wantsDownload = /(下载|抓取|保存).*(https?:\/\/\S+)|download\s+https?:\/\/\S+/i.test(message);
+  const wantsTerminal = /运行命令|执行命令|终端|命令行|shell|terminal|run command|execute command/.test(lower);
+  const wantsListSandbox = /沙箱.*文件|工作区.*文件|列出.*文件|list.*files|ls workspace/.test(lower);
+  const tools: SynapseToolDecision[] = [];
+
+  if (wantsRead) {
+    tools.push({
+      tool: 'readDocument',
+      title: '读取会话文档',
+      reason: '用户提到了已上传文件或文档，需要先读取文档内容。',
+      args: { query: message },
+    });
+  }
+
+  if (wantsSearch) {
+    const mode = /论文|文献|综述|学术|paper|literature|semantic scholar|openalex|arxiv/.test(lower)
+      ? 'academic'
+      : /网页|官网|新闻|博客|产业|项目|github|web|news|blog|official|docs/.test(lower)
+        ? 'general'
+        : 'both';
+    tools.push({
+      tool: 'researchSearch',
+      title: mode === 'academic' ? '学术检索' : mode === 'general' ? 'Web 检索' : '综合检索',
+      reason: '用户需要外部资料支撑回答。',
+      args: { query: message, mode, depth: /深度|全面|详细|deep/.test(lower) ? 'deep' : 'medium' },
+    });
+  }
+
+  if (wantsWrite) {
+    tools.push({
+      tool: 'createDocument',
+      title: '创建文档',
+      reason: '创建或导出文档属于副作用动作，需要用户确认。',
+      args: { title: titleFromMessage(message), documentType: 'synapse_document' },
+    });
+  }
+
+  if (wantsListSandbox) {
+    tools.push({
+      tool: 'listSandboxFiles',
+      title: '列出沙箱文件',
+      reason: '用户想查看服务器沙箱/工作区内的文件。',
+      args: { maxFiles: 80 },
+    });
+  }
+
+  if (wantsDownload) {
+    const url = message.match(/https?:\/\/[^\s"'<>]+/)?.[0] || '';
+    tools.push({
+      tool: 'downloadFile',
+      title: '下载文件到沙箱',
+      reason: '从外部链接下载文件会改变服务器工作区，需要用户确认。',
+      args: { url },
+    });
+  }
+
+  if (wantsTerminal) {
+    tools.push({
+      tool: 'runTerminal',
+      title: '运行沙箱终端命令',
+      reason: '终端命令会在服务器 Docker 沙箱中执行，需要用户确认。',
+      args: { command: message.replace(/^(运行命令|执行命令|终端|命令行)[:：]?\s*/i, '').trim() },
+    });
+  }
+
+  return {
+    intent: (wantsWrite || wantsDownload || wantsTerminal) ? 'write' : wantsSearch ? 'research' : wantsRead ? 'read' : 'answer',
+    responseStyle: /简短|简洁|brief|short/.test(lower) ? 'concise' : /详细|全面|deep|detailed/.test(lower) ? 'detailed' : 'normal',
+    tools,
+    needsConfirmation: wantsWrite || wantsDownload || wantsTerminal,
+  };
+}
+
 function heuristicDecision(message: string, files: any[]): SynapseDecision {
+  return cleanHeuristicDecision(message, files);
   const lower = message.toLowerCase();
   const wantsSearch = /检索|搜索|联网|查找|查一下|搜一下|资料|论文|文献|综述|最新|趋势|进展|research|search|paper|literature|source|web/.test(lower);
   const wantsRead = /文件|文档|附件|上传|pdf|docx|阅读|总结这份|分析这份|file|document|attachment|read|summarize/.test(lower) && files.length > 0;
@@ -463,6 +542,11 @@ async function decideTools(
   const system = `You are Synapse, the main agent controller for Synap.
 Your job is to decide whether the next assistant reply should answer directly or call tools first.
 Return strict JSON only. Do not write prose outside JSON.
+
+Runtime facts:
+- Synapse has a persistent per-user server workspace. Uploaded files, downloaded files, extracted archives, converted Markdown, and generated documents can persist across conversations.
+- Terminal commands, when confirmed by the user, run in a restricted Docker sandbox mounted at /workspace. The sandbox is not arbitrary host access.
+- When the user asks what workspace you have, choose no tools so the answer generator can explain these facts. Only call listSandboxFiles if they ask to inspect actual files.
 
 Available tools:
 - researchSearch: Synap unified retrieval pipeline. Args: query, mode academic|general|both, depth fast|medium|deep.
@@ -824,14 +908,23 @@ async function runTerminalTool(decision: SynapseToolDecision, options: SynapseRu
     result.stdout ? `stdout:\n${result.stdout}` : '',
     result.stderr ? `stderr:\n${result.stderr}` : '',
   ].filter(Boolean).join('\n');
-  await insertToolTrace(options.supabase, options.userId, conversationId, 'runTerminal', { command, cwd }, result as any, summary);
+  void summary;
+  const sandboxSummary = [
+    `命令：${result.command}`,
+    `运行环境：${result.runtime}${result.containerName ? ` (${result.containerName})` : ''}`,
+    `工作目录：${result.cwd}`,
+    `退出码：${result.exitCode}${result.timedOut ? '（超时终止）' : ''}`,
+    result.stdout ? `stdout:\n${result.stdout}` : '',
+    result.stderr ? `stderr:\n${result.stderr}` : '',
+  ].filter(Boolean).join('\n');
+  await insertToolTrace(options.supabase, options.userId, conversationId, 'runTerminal', { command, cwd }, result as any, sandboxSummary);
   await emitSynapseEvent(options, {
     type: 'tool_done',
     tool: 'runTerminal',
     title: decision.title || '运行沙箱终端',
     status: result.exitCode === 0 ? 'completed' : 'failed',
     message: `命令结束，退出码 ${result.exitCode}${result.timedOut ? '，已超时终止' : ''}。`,
-    data: { exitCode: result.exitCode, timedOut: result.timedOut },
+    data: { exitCode: result.exitCode, timedOut: result.timedOut, runtime: result.runtime, containerName: result.containerName },
   });
   return {
     call: {
@@ -840,7 +933,7 @@ async function runTerminalTool(decision: SynapseToolDecision, options: SynapseRu
       title: decision.title || '运行沙箱终端',
       status: result.exitCode === 0 ? 'completed' : 'failed',
       args: { command, cwd },
-      result: summary,
+      result: sandboxSummary,
     } as AgentToolCallLog,
   };
 }
@@ -864,6 +957,9 @@ async function generateAnswer(
 
   const system = `You are Synapse, the main conversational research agent for Synap.
 Answer in the user's language. Be direct, useful, and grounded in the provided context.
+You have a persistent per-user Synapse server workspace. Uploaded files, downloaded artifacts, extracted ZIP contents, converted Markdown, generated documents, and sandbox command outputs can persist across conversations.
+You do not have arbitrary host access. Confirmed terminal commands run through a restricted Docker sandbox mounted at /workspace.
+If the user asks about your workspace or capabilities, explain this accurately instead of saying you have no persistent folder.
 If research sources are available, synthesize them into an actual answer and cite them as [S1], [S2].
 If uploaded files are used, cite them as [F1], [F2].
 If tools were called, briefly mention the tool result only after answering the user; do not stop at "I searched".

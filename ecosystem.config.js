@@ -10,7 +10,14 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3000,
-        SYNAPSE_AGENT_WORKSPACE_DIR: '/srv/synap-agent'
+        SYNAPSE_AGENT_WORKSPACE_DIR: '/srv/synap-agent',
+        SYNAPSE_SANDBOX_RUNTIME: 'docker',
+        SYNAPSE_SANDBOX_IMAGE: 'synapse-sandbox:latest',
+        SYNAPSE_SANDBOX_NETWORK: 'none',
+        SYNAPSE_SANDBOX_MEMORY: '512m',
+        SYNAPSE_SANDBOX_CPUS: '1',
+        SYNAPSE_SANDBOX_PIDS_LIMIT: '128',
+        SYNAPSE_SANDBOX_READ_ONLY: '1'
       },
       instances: 1,
       autorestart: true,
