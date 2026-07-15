@@ -9,7 +9,8 @@ module.exports = {
       cwd: rootDir,
       env: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: 3000,
+        SYNAPSE_AGENT_WORKSPACE_DIR: '/srv/synap-agent'
       },
       instances: 1,
       autorestart: true,

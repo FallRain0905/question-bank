@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import mammoth from 'mammoth';
+import { writeUploadedFileToWorkspace } from '@/lib/agent-workspace';
 import { sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-runtime';
 
 export const runtime = 'nodejs';
@@ -122,13 +123,49 @@ export async function POST(req: NextRequest) {
       .single();
     if (insertError) throw insertError;
 
+    let savedRow = row;
+    try {
+      const workspaceFile = await writeUploadedFileToWorkspace(auth.user.id, row.id, file.name, buffer);
+      const nextMetadata = sanitizeForPostgres({
+        ...(row.metadata || {}),
+        workspace: {
+          originalFile: workspaceFile,
+          storedOnServer: true,
+        },
+      });
+      const { data: updated } = await auth.supabase
+        .from('agent_files')
+        .update({ metadata: nextMetadata })
+        .eq('id', row.id)
+        .eq('user_id', auth.user.id)
+        .select()
+        .single();
+      savedRow = updated || { ...row, metadata: nextMetadata };
+    } catch (workspaceError: any) {
+      const nextMetadata = sanitizeForPostgres({
+        ...(row.metadata || {}),
+        workspace: {
+          storedOnServer: false,
+          error: workspaceError?.message || 'Workspace write failed',
+        },
+      });
+      const { data: updated } = await auth.supabase
+        .from('agent_files')
+        .update({ metadata: nextMetadata })
+        .eq('id', row.id)
+        .eq('user_id', auth.user.id)
+        .select()
+        .single();
+      savedRow = updated || { ...row, metadata: nextMetadata };
+    }
+
     await auth.supabase
       .from('agent_conversations')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', id)
       .eq('user_id', auth.user.id);
 
-    return NextResponse.json({ conversationId: id, file: row });
+    return NextResponse.json({ conversationId: id, file: savedRow });
   } catch (error: any) {
     console.error('Synapse file upload error:', error);
     return NextResponse.json({ error: error.message || 'Upload failed' }, { status: 500 });

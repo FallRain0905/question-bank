@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { removeWorkspaceReferences } from '@/lib/agent-workspace';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,6 +38,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   if (file.storage_path) {
     await auth.supabase.storage.from('files').remove([file.storage_path]);
+  }
+  try {
+    await removeWorkspaceReferences(auth.user.id, file.metadata);
+  } catch (error) {
+    console.warn('Synapse workspace cleanup failed:', error);
   }
 
   const { error } = await auth.supabase

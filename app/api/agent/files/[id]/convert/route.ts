@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { materializeMineruZip } from '@/lib/agent-workspace';
 import { getUserMineruConfig } from '@/lib/user-settings';
 import { sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-runtime';
 
@@ -178,6 +179,16 @@ async function updateSourceMetadata(auth: Awaited<ReturnType<typeof getAuthedCli
 }
 
 async function finalizeConversion(auth: Awaited<ReturnType<typeof getAuthedClient>> & { error?: undefined }, file: any, taskId: string, task: any, zipUrl: string) {
+  let workspaceResult: Awaited<ReturnType<typeof materializeMineruZip>> | null = null;
+  let workspaceError = '';
+  if (!file.metadata?.workspace?.mineruZip?.extractionStatus || file.metadata?.workspace?.mineruZip?.extractionStatus !== 'completed') {
+    try {
+      workspaceResult = await materializeMineruZip(auth.user.id, file.id, file.file_name, zipUrl);
+    } catch (error: any) {
+      workspaceError = error?.message || 'Workspace extraction failed';
+    }
+  }
+
   let zipFile = null;
   const existingZipId = file.metadata?.convertedZipFileId;
   if (existingZipId) {
@@ -198,7 +209,7 @@ async function finalizeConversion(auth: Awaited<ReturnType<typeof getAuthedClien
         conversation_id: file.conversation_id,
         file_name: sanitizeTextForPostgres(zipName(file.file_name), 240),
         file_type: 'zip',
-        file_size: 0,
+        file_size: workspaceResult?.zip.bytes || 0,
         storage_path: null,
         file_url: zipUrl,
         content_text: '',
@@ -208,6 +219,17 @@ async function finalizeConversion(auth: Awaited<ReturnType<typeof getAuthedClien
           sourceFileName: file.file_name,
           taskId,
           state: task?.state || task?.status || 'done',
+          workspace: {
+            zip: workspaceResult?.zip || null,
+            extractedDir: workspaceResult?.extractRelativeDir || '',
+            extractedFiles: (workspaceResult?.files || []).slice(0, 200).map(item => ({
+              relativePath: item.relativePath,
+              originalName: item.originalName,
+              bytes: item.bytes,
+            })),
+            extractionStatus: workspaceResult ? 'completed' : 'failed',
+            extractionError: workspaceError,
+          },
         }),
       })
       .select()
@@ -216,7 +238,9 @@ async function finalizeConversion(auth: Awaited<ReturnType<typeof getAuthedClien
     zipFile = data;
   }
 
-  const { markdown, markdownUrl } = await fetchMarkdownFromTask(task);
+  const taskMarkdown = await fetchMarkdownFromTask(task);
+  const markdown = taskMarkdown.markdown || workspaceResult?.markdown || '';
+  const markdownUrl = taskMarkdown.markdownUrl;
   let markdownFile = null;
   if (markdown) {
     const existingMarkdownId = file.metadata?.convertedMarkdownFileId;
@@ -248,6 +272,10 @@ async function finalizeConversion(auth: Awaited<ReturnType<typeof getAuthedClien
             sourceFileName: file.file_name,
             taskId,
             markdownUrl,
+            workspace: workspaceResult?.markdownFile ? {
+              markdownFile: workspaceResult.markdownFile,
+              extractedDir: workspaceResult.extractRelativeDir,
+            } : null,
           }),
         })
         .select()
@@ -265,6 +293,21 @@ async function finalizeConversion(auth: Awaited<ReturnType<typeof getAuthedClien
     convertedZipUrl: zipUrl || file.metadata?.convertedZipUrl || '',
     convertedMarkdownFileId: markdownFile?.id || file.metadata?.convertedMarkdownFileId || '',
     convertedMarkdownUrl: markdownUrl || file.metadata?.convertedMarkdownUrl || '',
+    workspace: {
+      ...(file.metadata?.workspace || {}),
+      mineruZip: {
+        zip: workspaceResult?.zip || file.metadata?.workspace?.mineruZip?.zip || null,
+        extractedDir: workspaceResult?.extractRelativeDir || file.metadata?.workspace?.mineruZip?.extractedDir || '',
+        extractedFiles: (workspaceResult?.files || []).slice(0, 200).map(item => ({
+          relativePath: item.relativePath,
+          originalName: item.originalName,
+          bytes: item.bytes,
+        })),
+        markdownFile: workspaceResult?.markdownFile || file.metadata?.workspace?.mineruZip?.markdownFile || null,
+        extractionStatus: workspaceResult ? 'completed' : (workspaceError ? 'failed' : file.metadata?.workspace?.mineruZip?.extractionStatus || ''),
+        extractionError: workspaceError,
+      },
+    },
     conversionCompletedAt: new Date().toISOString(),
     conversionError: '',
   });
@@ -286,7 +329,7 @@ async function finalizeConversion(auth: Awaited<ReturnType<typeof getAuthedClien
     tool_name: 'convertDocument',
     status: 'completed',
     input: sanitizeForPostgres({ fileId: file.id, fileName: file.file_name }),
-    output: sanitizeForPostgres({ taskId, zipUrl, zipFile, markdownFile }),
+    output: sanitizeForPostgres({ taskId, zipUrl, zipFile, markdownFile, workspace: completedMetadata.workspace }),
     summary: `MinerU 转换完成：${zipFile?.file_name || file.file_name}`,
   });
 
