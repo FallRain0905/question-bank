@@ -10,6 +10,7 @@ import type { ResearchAgentSource, ResearchAgentToolCall } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 type ToolName = ResearchAgentToolCall['name'];
 

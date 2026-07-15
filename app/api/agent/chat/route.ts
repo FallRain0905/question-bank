@@ -7,6 +7,7 @@ import type { AgentPlan, AgentToolCallLog } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 

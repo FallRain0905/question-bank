@@ -25,11 +25,43 @@ type PendingEmbedAction = {
   logs: string[];
 };
 
+type UploadPreview = {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  status: 'uploading' | 'ready' | 'failed';
+  detail: string;
+};
+
 function id() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
+const LONG_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = LONG_REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: init.signal || controller.signal });
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new Error('请求耗时过长，请稍后查看结果或重试。文档解析、深度检索和嵌入任务可能需要更长时间。');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function formatFileSize(size: number) {
+  if (!Number.isFinite(size) || size <= 0) return '';
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.ceil(size / 1024)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
 
 function modeLabel(mode: any) {
   if (mode === 'academic') return '学术检索';
@@ -149,6 +181,7 @@ export default function AgentPage() {
     thinkingEnabled: true,
   });
   const [pendingEmbed, setPendingEmbed] = useState<PendingEmbedAction | null>(null);
+  const [uploadPreviews, setUploadPreviews] = useState<UploadPreview[]>([]);
   const [loading, setLoading] = useState(false);
   const [activityText, setActivityText] = useState('');
   const [error, setError] = useState('');
@@ -277,19 +310,28 @@ export default function AgentPage() {
   };
 
   const uploadFile = async (file: File) => {
+    const previewId = id();
     setError('');
     setActivityText(`正在上传并解析 ${file.name}...`);
+    setUploadPreviews(prev => [{
+      id: previewId,
+      fileName: file.name,
+      fileType: file.name.split('.').pop()?.toUpperCase() || 'FILE',
+      fileSize: file.size,
+      status: 'uploading',
+      detail: '正在上传并解析',
+    }, ...prev.slice(0, 4)]);
     setLoading(true);
     try {
       const headers = await authHeaders();
       const form = new FormData();
       form.append('file', file);
       if (selectedConversationId) form.append('conversation_id', selectedConversationId);
-      const res = await fetch('/api/agent/files', {
+      const res = await fetchWithTimeout('/api/agent/files', {
         method: 'POST',
         headers,
         body: form,
-      });
+      }, LONG_REQUEST_TIMEOUT_MS);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed');
       if (data.conversationId) {
@@ -305,6 +347,13 @@ export default function AgentPage() {
           logs: ['文件已解析为 Markdown，等待你确认是否写入知识库。'],
         });
       }
+      setUploadPreviews(prev => prev.map(item => item.id === previewId
+        ? {
+            ...item,
+            status: data.file?.content_text ? 'ready' : 'failed',
+            detail: data.file?.content_text ? `${data.file.content_text.length} 字符已解析` : '未解析出文本',
+          }
+        : item));
       pushMessage({
         role: 'assistant',
         content: data.file?.content_text
@@ -314,6 +363,9 @@ export default function AgentPage() {
       setRightTab('files');
       setRightOpen(true);
     } catch (err: any) {
+      setUploadPreviews(prev => prev.map(item => item.id === previewId
+        ? { ...item, status: 'failed', detail: err.message || '上传失败' }
+        : item));
       setError(err.message || 'Upload failed');
     } finally {
       setActivityText('');
@@ -335,10 +387,10 @@ export default function AgentPage() {
     setLoading(true);
     try {
       const headers = await authHeaders();
-      const res = await fetch(`/api/agent/files/${file.id}/convert`, {
+      const res = await fetchWithTimeout(`/api/agent/files/${file.id}/convert`, {
         method: 'POST',
         headers,
-      });
+      }, LONG_REQUEST_TIMEOUT_MS);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '转换失败');
       setFiles(prev => [data.file, ...prev]);
@@ -377,14 +429,14 @@ export default function AgentPage() {
 
     try {
       const headers = await authHeaders();
-      const res = await fetch(`/api/agent/files/${action.file.id}/embed`, {
+      const res = await fetchWithTimeout(`/api/agent/files/${action.file.id}/embed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify({
           kbName: action.kbName,
           indexNow: action.indexNow,
         }),
-      });
+      }, LONG_REQUEST_TIMEOUT_MS);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '知识库导入失败');
 
@@ -429,11 +481,11 @@ export default function AgentPage() {
 
     try {
       const headers = await authHeaders();
-      const res = await fetch('/api/agent/chat', {
+      const res = await fetchWithTimeout('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify({ message: next, conversationId: selectedConversationId || undefined, agentSettings }),
-      });
+      }, LONG_REQUEST_TIMEOUT_MS);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Agent planning failed');
       if (data.conversation?.id) setSelectedConversationId(data.conversation.id);
@@ -479,11 +531,11 @@ export default function AgentPage() {
 
     try {
       const headers = await authHeaders();
-      const res = await fetch('/api/agent/chat', {
+      const res = await fetchWithTimeout('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify({ message: pendingMessage, conversationId: selectedConversationId || undefined, confirmedPlan: pendingPlan, agentSettings }),
-      });
+      }, LONG_REQUEST_TIMEOUT_MS);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Agent execution failed');
       setPendingPlan(null);
@@ -807,26 +859,56 @@ export default function AgentPage() {
         </div>
 
         <div className="border-t border-gray-100 bg-white px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4 lg:pb-3">
-          <div className="mx-auto flex max-w-4xl gap-2">
-            <textarea
-              value={input}
-              onChange={event => setInput(event.target.value)}
-              onKeyDown={event => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  askAgent();
-                }
-              }}
-              placeholder="例如：总结我刚上传的文档，必要时联网补充资料"
-              className="min-h-12 flex-1 resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-base outline-none focus:border-blue-300 sm:text-sm"
-            />
-            <button
-              onClick={askAgent}
-              disabled={loading || !input.trim()}
-              className="self-end rounded-lg bg-gray-900 px-4 py-3 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-            >
-              发送
-            </button>
+          <div className="mx-auto max-w-4xl">
+            {uploadPreviews.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {uploadPreviews.map(file => (
+                  <div
+                    key={file.id}
+                    className={`flex max-w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-xs shadow-sm ${
+                      file.status === 'failed'
+                        ? 'border-red-100 bg-red-50 text-red-700'
+                        : file.status === 'ready'
+                          ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                          : 'border-gray-200 bg-gray-50 text-gray-600'
+                    }`}
+                  >
+                    <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-500">{file.fileType}</span>
+                    <span className="max-w-[220px] truncate font-medium">{file.fileName}</span>
+                    <span className="text-[10px] opacity-70">{formatFileSize(file.fileSize)}</span>
+                    <span className="text-[10px] opacity-80">{file.detail}</span>
+                    <button
+                      onClick={() => setUploadPreviews(prev => prev.filter(item => item.id !== file.id))}
+                      className="rounded px-1 text-[11px] opacity-70 hover:bg-white hover:opacity-100"
+                      aria-label="移除文件预览"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <textarea
+                value={input}
+                onChange={event => setInput(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    askAgent();
+                  }
+                }}
+                placeholder="例如：总结我刚上传的文档，必要时联网补充资料"
+                className="min-h-12 flex-1 resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-base outline-none focus:border-blue-300 sm:text-sm"
+              />
+              <button
+                onClick={askAgent}
+                disabled={loading || !input.trim()}
+                className="self-end rounded-lg bg-gray-900 px-4 py-3 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+              >
+                发送
+              </button>
+            </div>
           </div>
         </div>
       </main>

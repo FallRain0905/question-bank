@@ -6,6 +6,7 @@ import type { ResearchSource } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 function sseEvent(event: string, data: object): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;

@@ -30,6 +30,7 @@ import type {
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 const FORBIDDEN_QUERY_TERMS = [
   '代表论文不足',
