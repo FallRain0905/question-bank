@@ -99,6 +99,25 @@ type SynapseConversationContext = {
 
 const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 
+const SYNAPSE_AGENT_OPERATING_GUIDE = `
+Synapse operating guide:
+- Your primary mode is conversational. Answer normal questions directly; only use tools when they are actually needed.
+- Side-effect actions must be confirmed before execution: createDocument, downloadFile, runTerminal. Before confirmation, do not say the action is complete.
+- The server workspace is persistent per user. Uploaded files, downloaded files, extracted archives, converted Markdown, generated documents, and sandbox command outputs may persist across conversations.
+- Terminal commands run in a restricted sandbox at /workspace. Use them for explicit file inspection, code/repo operations, archive extraction, or user-requested shell work.
+- Do not use terminal scripts to fake platform tools. In particular, never create random embeddings with numpy/random and never write embeddings.json as a substitute for the real knowledge-base embedding pipeline.
+- Document embedding/indexing is handled by Synap's knowledge-base import and HyperRAG pipeline, not by ad-hoc terminal vectors. If no direct embed tool is available in this chat turn, explain the correct UI/tool flow instead of inventing one.
+- For Python commands that need files, loops, with-statements, try/except, functions, or imports plus compound statements, prefer a heredoc:
+  python3 <<'PY'
+  from pathlib import Path
+  text = Path("file.md").read_text()
+  print(len(text))
+  PY
+  Do not write invalid one-liners such as: python3 -c 'import json; with open(...) as f: ...'
+- For retrieval, use researchSearch. Choose academic for papers/literature/reviews, general for web/docs/news, and both for broad technical research.
+- For uploaded or generated files, use readDocument/listSandboxFiles before answering about their content.
+`.trim();
+
 function id(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -725,6 +744,8 @@ Runtime facts:
 - Terminal commands, when confirmed by the user, run in a restricted Docker sandbox mounted at /workspace. The sandbox is not arbitrary host access.
 - When the user asks what workspace you have, choose no tools so the answer generator can explain these facts. Only call listSandboxFiles if they ask to inspect actual files.
 
+${SYNAPSE_AGENT_OPERATING_GUIDE}
+
 Available tools:
 - researchSearch: Synap unified retrieval pipeline. Args: query, mode academic|general|both, depth fast|medium|deep.
 - readDocument: read the user's Synapse workspace files, including uploaded files, converted Markdown, and generated documents. Args: query, fileIds optional.
@@ -740,6 +761,7 @@ Routing rules:
 - Use readDocument when the user refers to uploaded files, converted files, generated documents, "this document", "the PDF", attachments, or asks to summarize/analyze workspace content.
 - Use createDocument only when the user explicitly wants to create/save/export/generate a document/report/markdown/docx. Mark needsConfirmation true.
 - If createDocument depends on external facts, include researchSearch before createDocument.
+- If the user asks to embed/index/import a document into a knowledge base, do not use runTerminal to generate fake embeddings. If this turn has no direct embed tool, answer with the proper file-library/import flow or use readDocument if analysis is requested.
 - Use listSandboxFiles when the user asks what files are in the sandbox/workspace.
 - Use downloadFile when the user asks to download/save/fetch a URL into the sandbox. Mark needsConfirmation true.
 - Use runTerminal when the user explicitly asks to run a command or use terminal/shell. Mark needsConfirmation true.
@@ -1130,7 +1152,22 @@ async function generateAnswer(
     .slice(-10)
     .map((row: any) => `${row.role}: ${sanitizeTextForPostgres(String(row.content || ''), 900)}`)
     .join('\n');
-  const pendingWrite = decision.tools.find(tool => tool.tool === 'createDocument');
+  const pendingSideEffects = decision.tools.filter(isSideEffectTool);
+
+  if (pendingSideEffects.length) {
+    const preface = toolCalls.length
+      ? `我已经完成了无需确认的前置步骤，例如检索或读取上下文；但下面这些会改变工作区的操作还没有执行。`
+      : `我已经准备好下一步，但下面这些会改变工作区的操作还没有执行。`;
+    const actionLines = pendingSideEffects
+      .map((tool, index) => `${index + 1}. ${tool.title || tool.tool}: ${tool.reason || '需要你确认后再执行。'}`)
+      .join('\n');
+    return {
+      content: `${preface}\n\n请确认后我再执行：\n${actionLines}`,
+      reasoning: '',
+      model: preferredModel(options.llmConfig, options.agentSettings?.model),
+      usedThinking: false,
+    };
+  }
 
   const system = `You are Synapse, the main conversational research agent for Synap.
 Answer in the user's language. Be direct, useful, and grounded in the provided context.
@@ -1142,7 +1179,9 @@ If uploaded files are used, cite them as [F1], [F2].
 Use structured long-term memories only as user/task context. They are not external factual citations.
 If tools were called, briefly mention the tool result only after answering the user; do not stop at "I searched".
 If evidence is thin or sources are noisy, say so plainly and suggest the next best action.
-If a createDocument action is pending, do not claim it has been created; explain that it needs user confirmation.`;
+If a side-effect action is pending, do not claim it has been completed; explain that it needs user confirmation.
+
+${SYNAPSE_AGENT_OPERATING_GUIDE}`;
 
   const prompt = `Conversation:
 ${history || 'None'}
@@ -1166,7 +1205,7 @@ Uploaded file excerpts:
 ${fileBlock || 'None'}
 
 Pending side-effect:
-${pendingWrite ? `${pendingWrite.title}: ${pendingWrite.reason}` : 'None'}
+None
 
 Write the final assistant response now.`;
 
