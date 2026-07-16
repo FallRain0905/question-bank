@@ -63,6 +63,20 @@ function formatFileSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function hasDownloadableAgentFile(file: AgentFile) {
+  const workspace = file.metadata?.workspace || {};
+  return Boolean(
+    file.file_url ||
+    file.storage_path ||
+    workspace.originalFile?.relativePath ||
+    workspace.markdownFile?.relativePath ||
+    workspace.zip?.relativePath ||
+    workspace.mineruZip?.markdownFile?.relativePath ||
+    workspace.mineruZip?.zip?.relativePath ||
+    workspace.archive?.markdownFile?.relativePath
+  );
+}
+
 function conversionStatusLabel(file: AgentFile) {
   const status = String(file.metadata?.conversionStatus || '');
   if (status === 'processing') return 'MinerU 转换中';
@@ -100,6 +114,7 @@ function toolLabel(tool: any) {
 
 function optimisticToolCalls(message: string): AgentToolCallLog[] {
   const lower = message.toLowerCase();
+  const wantsConvert = /转换|转成|转为|解析.*pdf|pdf.*解析|pdf.*markdown|mineru|convert|parse pdf|pdf to markdown/i.test(message);
   const calls: AgentToolCallLog[] = [{
     id: id(),
     tool: 'synapse',
@@ -118,7 +133,7 @@ function optimisticToolCalls(message: string): AgentToolCallLog[] {
       result: '等待 Synapse 选择检索模式和深度。',
     });
   }
-  if (/文档|文件|附件|上传|pdf|docx|阅读|总结这份|read|file|document/.test(lower)) {
+  if (/文档|文件|附件|上传|pdf|docx|阅读|总结这份|read|file|document/.test(lower) && !wantsConvert) {
     calls.push({
       id: id(),
       tool: 'readDocument',
@@ -128,7 +143,7 @@ function optimisticToolCalls(message: string): AgentToolCallLog[] {
       result: '如果本会话有可读文件，Synapse 会读取它们作为上下文。',
     });
   }
-  if (/转换|convert|zip|mineru/.test(lower)) {
+  if (wantsConvert || /转换|convert|zip|mineru/.test(lower)) {
     calls.push({
       id: id(),
       tool: 'convertDocument',
@@ -1021,6 +1036,24 @@ export default function AgentPage() {
     a.remove();
   };
 
+  const downloadAgentFile = async (file: AgentFile) => {
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`/api/agent/files/${file.id}`, { headers });
+      if (res.redirected) {
+        downloadUrl(res.url, file.file_name);
+        return;
+      }
+      const blob = await res.blob();
+      if (!res.ok) throw new Error(await blob.text().catch(() => '下载失败'));
+      const url = URL.createObjectURL(blob);
+      downloadUrl(url, file.file_name);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message || '下载失败');
+    }
+  };
+
   const downloadDocument = async (document: AgentDocument, format: 'markdown' | 'docx') => {
     const headers = await authHeaders();
     const res = await fetch(`/api/agent/documents/${document.id}/artifact?format=${format}`, { headers });
@@ -1513,9 +1546,9 @@ export default function AgentPage() {
                           )}
                           {file.content_text && <p className="mt-2 line-clamp-4 text-xs leading-5 text-gray-500">{file.content_text}</p>}
                           <div className="mt-2 flex flex-wrap gap-2">
-                            {file.file_url && (
+                            {hasDownloadableAgentFile(file) && (
                               <button
-                                onClick={() => downloadUrl(file.file_url!, file.file_name)}
+                                onClick={() => downloadAgentFile(file)}
                                 className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600 hover:border-gray-300"
                               >
                                 下载

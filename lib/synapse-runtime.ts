@@ -12,6 +12,7 @@ import {
 import { MemoryManager, MemoryWriter, type RankedMemory } from '@/lib/memory-service';
 import { appendAgentRunEvent, updateAgentRun } from '@/lib/agent-run-service';
 import { normalizeResearchOptions, planResearchQueries, retrieveResearchSources } from '@/lib/research-retrieval';
+import { getUserMineruConfigByUserId } from '@/lib/user-settings';
 import type { AgentPlan, AgentToolCallLog, ResearchSource } from '@/types';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 
@@ -33,7 +34,7 @@ type SupabaseLike = {
 };
 
 type SynapseToolDecision = {
-  tool: 'researchSearch' | 'readDocument' | 'createDocument' | 'downloadFile' | 'downloadPaper' | 'runTerminal' | 'listSandboxFiles';
+  tool: 'researchSearch' | 'readDocument' | 'convertDocument' | 'createDocument' | 'downloadFile' | 'downloadPaper' | 'runTerminal' | 'listSandboxFiles';
   title: string;
   reason: string;
   args: Record<string, any>;
@@ -102,7 +103,7 @@ const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 const SYNAPSE_AGENT_OPERATING_GUIDE = `
 Synapse operating guide:
 - Your primary mode is conversational. Answer normal questions directly; only use tools when they are actually needed.
-- Side-effect actions must be confirmed before execution: createDocument, downloadFile, downloadPaper, runTerminal. Before confirmation, do not say the action is complete.
+- Side-effect actions must be confirmed before execution: createDocument, convertDocument, downloadFile, downloadPaper, runTerminal. Before confirmation, do not say the action is complete.
 - The server workspace is persistent per user. Uploaded files, downloaded files, extracted archives, converted Markdown, generated documents, and sandbox command outputs may persist across conversations.
 - Terminal commands run in a restricted sandbox at /workspace. Use them for explicit file inspection, code/repo operations, archive extraction, or user-requested shell work.
 - Do not use terminal scripts to fake platform tools. In particular, never create random embeddings with numpy/random and never write embeddings.json as a substitute for the real knowledge-base embedding pipeline.
@@ -117,6 +118,7 @@ Synapse operating guide:
 - For retrieval, use researchSearch. Choose academic for papers/literature/reviews, general for web/docs/news, and both for broad technical research.
 - For paper download, use researchSearch first, then downloadPaper after user confirmation. Do not guess PDF URLs in terminal unless the user explicitly asks for terminal work.
 - For uploaded or generated files, use readDocument/listSandboxFiles before answering about their content.
+- For PDF-to-Markdown, PDF parsing, or MinerU conversion, use convertDocument after user confirmation. Do not use readDocument for an unconverted PDF and do not tell the user to manually use the UI when the conversion tool is available.
 `.trim();
 
 function id(prefix: string) {
@@ -576,6 +578,7 @@ async function insertToolTrace(
 
 function cleanHeuristicDecision(message: string, files: any[]): SynapseDecision {
   const lower = message.toLowerCase();
+  const wantsConvert = /转换|转成|转为|解析.*pdf|pdf.*解析|pdf.*markdown|mineru|convert|parse pdf|pdf to markdown/i.test(message);
   const wantsSearch = /检索|搜索|联网|查找|查一下|搜一下|资料|论文|文献|综述|最新|趋势|进展|research|search|paper|literature|source|web/.test(lower);
   const wantsRead = /文件|文档|附件|上传|pdf|docx|阅读|总结这份|分析这份|file|document|attachment|read|summarize/.test(lower) && files.length > 0;
   const wantsWrite = /创建|生成|写.*文档|写.*报告|写.*简报|整理成.*文档|保存.*文档|导出|markdown|docx|create|generate|write|document|report|export/.test(lower);
@@ -654,11 +657,22 @@ function cleanHeuristicDecision(message: string, files: any[]): SynapseDecision 
     });
   }
 
+  if (wantsConvert) {
+    const remainingTools = tools.filter(tool => tool.tool !== 'readDocument' && tool.tool !== 'createDocument' && tool.tool !== 'convertDocument');
+    tools.length = 0;
+    tools.push({
+      tool: 'convertDocument',
+      title: '转换 PDF 为 Markdown',
+      reason: '用户要求解析或转换 PDF，应该使用 MinerU 转换工具，而不是直接读取未转换 PDF。',
+      args: { query: message },
+    }, ...remainingTools);
+  }
+
   return {
-    intent: (wantsWrite || wantsDownload || wantsPaperDownload || wantsTerminal) ? 'write' : wantsSearch ? 'research' : wantsRead ? 'read' : 'answer',
+    intent: (wantsWrite || wantsConvert || wantsDownload || wantsPaperDownload || wantsTerminal) ? 'write' : wantsSearch ? 'research' : wantsRead ? 'read' : 'answer',
     responseStyle: /简短|简洁|brief|short/.test(lower) ? 'concise' : /详细|全面|deep|detailed/.test(lower) ? 'detailed' : 'normal',
     tools,
-    needsConfirmation: wantsWrite || wantsDownload || wantsPaperDownload || wantsTerminal,
+    needsConfirmation: wantsWrite || wantsConvert || wantsDownload || wantsPaperDownload || wantsTerminal,
   };
 }
 
@@ -761,6 +775,7 @@ ${SYNAPSE_AGENT_OPERATING_GUIDE}
 Available tools:
 - researchSearch: Synap unified retrieval pipeline. Args: query, mode academic|general|both, depth fast|medium|deep.
 - readDocument: read the user's Synapse workspace files, including uploaded files, converted Markdown, and generated documents. Args: query, fileIds optional.
+- convertDocument: submit an uploaded or downloaded PDF to MinerU for Markdown/ZIP conversion. Args: fileId optional, fileName optional, query optional. This is a side-effect and needs user confirmation.
 - createDocument: create a saved Markdown document. This is a side-effect and needs user confirmation.
 - listSandboxFiles: list files in the user's server sandbox workspace. Args: maxFiles optional.
 - downloadFile: download a public http/https URL into the user's server sandbox workspace. Args: url, fileName optional. This is a side-effect and needs user confirmation.
@@ -772,6 +787,7 @@ Routing rules:
 - Use researchSearch only when the user needs external facts, latest information, papers, web evidence, project docs, or citations.
 - Choose academic for papers/literature/reviews/arXiv/Semantic Scholar/OpenAlex; general for web/news/docs/products/tutorials; both for broad research briefs or technical landscape questions.
 - Use readDocument when the user refers to uploaded files, converted files, generated documents, "this document", "the PDF", attachments, or asks to summarize/analyze workspace content.
+- Use convertDocument when the user asks to convert, parse, or extract a PDF with MinerU or asks for PDF to Markdown. Mark needsConfirmation true. Do not use readDocument for an unconverted PDF.
 - Use createDocument only when the user explicitly wants to create/save/export/generate a document/report/markdown/docx. Mark needsConfirmation true.
 - If createDocument depends on external facts, include researchSearch before createDocument.
 - If the user asks to embed/index/import a document into a knowledge base, do not use runTerminal to generate fake embeddings. If this turn has no direct embed tool, answer with the proper file-library/import flow or use readDocument if analysis is requested.
@@ -782,7 +798,7 @@ Routing rules:
 - Do not call tools just to say what tools are available.
 
 JSON shape:
-{"intent":"answer|research|read|write","responseStyle":"concise|normal|detailed","needsConfirmation":false,"tools":[{"tool":"researchSearch|readDocument|createDocument|listSandboxFiles|downloadFile|downloadPaper|runTerminal","title":"...","reason":"...","args":{}}]}`;
+{"intent":"answer|research|read|write","responseStyle":"concise|normal|detailed","needsConfirmation":false,"tools":[{"tool":"researchSearch|readDocument|convertDocument|createDocument|listSandboxFiles|downloadFile|downloadPaper|runTerminal","title":"...","reason":"...","args":{}}]}`;
 
   const history = context.messages
     .slice(-8)
@@ -798,7 +814,7 @@ JSON shape:
   if (!parsed || !Array.isArray(parsed.tools)) return heuristicDecision(message, context.files);
 
   const validTools = parsed.tools
-    .filter((tool: any) => tool?.tool === 'researchSearch' || tool?.tool === 'readDocument' || tool?.tool === 'createDocument' || tool?.tool === 'listSandboxFiles' || tool?.tool === 'downloadFile' || tool?.tool === 'downloadPaper' || tool?.tool === 'runTerminal')
+    .filter((tool: any) => tool?.tool === 'researchSearch' || tool?.tool === 'readDocument' || tool?.tool === 'convertDocument' || tool?.tool === 'createDocument' || tool?.tool === 'listSandboxFiles' || tool?.tool === 'downloadFile' || tool?.tool === 'downloadPaper' || tool?.tool === 'runTerminal')
     .slice(0, 4)
     .map((tool: any) => ({
       tool: tool.tool,
@@ -810,7 +826,7 @@ JSON shape:
   return {
     intent: parsed.intent === 'research' || parsed.intent === 'read' || parsed.intent === 'write' ? parsed.intent : 'answer',
     responseStyle: parsed.responseStyle === 'concise' || parsed.responseStyle === 'detailed' ? parsed.responseStyle : 'normal',
-    needsConfirmation: Boolean(parsed.needsConfirmation || validTools.some(tool => tool.tool === 'createDocument' || tool.tool === 'downloadFile' || tool.tool === 'downloadPaper' || tool.tool === 'runTerminal')),
+    needsConfirmation: Boolean(parsed.needsConfirmation || validTools.some(tool => tool.tool === 'createDocument' || tool.tool === 'convertDocument' || tool.tool === 'downloadFile' || tool.tool === 'downloadPaper' || tool.tool === 'runTerminal')),
     tools: validTools,
   } satisfies SynapseDecision;
 }
@@ -836,7 +852,7 @@ Excerpt: ${sanitizeTextForPostgres(String(file.content_text || ''), 1800)}`;
 }
 
 function isSideEffectTool(tool: SynapseToolDecision | { tool: string }) {
-  return tool.tool === 'createDocument' || tool.tool === 'downloadFile' || tool.tool === 'downloadPaper' || tool.tool === 'runTerminal';
+  return tool.tool === 'createDocument' || tool.tool === 'convertDocument' || tool.tool === 'downloadFile' || tool.tool === 'downloadPaper' || tool.tool === 'runTerminal';
 }
 
 async function runResearchTool(decision: SynapseToolDecision, options: SynapseRunOptions, conversationId: string) {
@@ -965,6 +981,202 @@ async function runReadDocumentTool(decision: SynapseToolDecision, options: Synap
       result: summary,
     } as AgentToolCallLog,
     files: readable,
+  };
+}
+
+async function createMineruTaskForSynapse(fileUrl: string, mineruToken: string) {
+  const res = await fetch('https://mineru.net/api/v4/extract/task', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${mineruToken}`,
+    },
+    body: JSON.stringify({
+      url: fileUrl,
+      model_version: 'vlm',
+      enable_formula: true,
+      enable_table: true,
+      language: 'ch',
+      extra_formats: ['docx', 'html'],
+    }),
+  });
+  const text = await res.text();
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (!res.ok || data?.code !== 0) {
+    throw new Error(data?.msg || text || `MinerU task failed (${res.status})`);
+  }
+  const taskId = data?.data?.task_id || data?.task_id;
+  if (!taskId) throw new Error('MinerU did not return task_id');
+  return taskId;
+}
+
+async function findConvertiblePdfFile(decision: SynapseToolDecision, options: SynapseRunOptions) {
+  const explicitIds = [
+    decision.args.fileId,
+    decision.args.id,
+    ...(Array.isArray(decision.args.fileIds) ? decision.args.fileIds : []),
+  ].map((item: any) => String(item || '').trim()).filter(Boolean);
+
+  let query = options.supabase
+    .from('agent_files')
+    .select('*')
+    .eq('user_id', options.userId)
+    .order('created_at', { ascending: false })
+    .limit(explicitIds.length ? 20 : 60);
+
+  if (explicitIds.length) query = query.in('id', explicitIds);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  const files = data || [];
+  const pdfs = files.filter((file: any) => {
+    const type = String(file.file_type || '').toLowerCase();
+    const name = String(file.file_name || '').toLowerCase();
+    return type === 'pdf' || name.endsWith('.pdf');
+  });
+  if (!pdfs.length) return null;
+
+  const request = [
+    decision.args.fileName,
+    decision.args.title,
+    decision.args.query,
+    options.message,
+  ].map(item => String(item || '').toLowerCase()).join('\n');
+  const byName = pdfs.find((file: any) => {
+    const name = String(file.file_name || '').toLowerCase();
+    const base = name.replace(/\.pdf$/i, '');
+    return request.includes(name) || (base.length > 4 && request.includes(base));
+  });
+  return byName || pdfs[0];
+}
+
+async function runConvertDocumentTool(decision: SynapseToolDecision, options: SynapseRunOptions, conversationId: string) {
+  await emitSynapseEvent(options, {
+    type: 'tool_start',
+    tool: 'convertDocument',
+    title: decision.title || '转换 PDF 为 Markdown',
+    status: 'running',
+    message: '正在查找 PDF 并提交 MinerU 转换任务...',
+    data: { fileId: decision.args.fileId || '', query: decision.args.query || options.message },
+  });
+
+  const file = await findConvertiblePdfFile(decision, options);
+  if (!file) {
+    throw new Error('没有在文件库中找到可转换的 PDF。请先上传或下载 PDF。');
+  }
+
+  const existingStatus = String(file.metadata?.conversionStatus || '');
+  if (existingStatus === 'processing' && file.metadata?.conversionTaskId) {
+    const summary = `MinerU 转换任务已在后台运行：${file.metadata.conversionTaskId}`;
+    await emitSynapseEvent(options, {
+      type: 'tool_done',
+      tool: 'convertDocument',
+      title: decision.title || '转换 PDF 为 Markdown',
+      status: 'running',
+      message: summary,
+      data: { fileId: file.id, taskId: file.metadata.conversionTaskId },
+    });
+    return {
+      call: {
+        id: id('tool'),
+        tool: 'convertDocument',
+        title: decision.title || '转换 PDF 为 Markdown',
+        status: 'running',
+        args: { fileId: file.id, fileName: file.file_name },
+        result: summary,
+      } as AgentToolCallLog,
+      file,
+    };
+  }
+
+  if (existingStatus === 'completed') {
+    const summary = file.metadata?.convertedMarkdownFileId
+      ? `该 PDF 已完成 MinerU 转换，Markdown 文件已在文件库中：${file.metadata.convertedMarkdownFileId}`
+      : `该 PDF 已完成 MinerU 转换，ZIP 文件已在文件库中：${file.metadata?.convertedZipFileId || 'converted zip'}`;
+    await insertToolTrace(options.supabase, options.userId, conversationId, 'convertDocument', { fileId: file.id, fileName: file.file_name }, { file }, summary);
+    await emitSynapseEvent(options, {
+      type: 'tool_done',
+      tool: 'convertDocument',
+      title: decision.title || '转换 PDF 为 Markdown',
+      status: 'completed',
+      message: summary,
+      data: { fileId: file.id },
+    });
+    return {
+      call: {
+        id: id('tool'),
+        tool: 'convertDocument',
+        title: decision.title || '转换 PDF 为 Markdown',
+        status: 'completed',
+        args: { fileId: file.id, fileName: file.file_name },
+        result: summary,
+      } as AgentToolCallLog,
+      file,
+    };
+  }
+
+  if (!file.file_url) {
+    throw new Error('该 PDF 没有可访问 URL，无法提交 MinerU 转换。请重新上传，或检查 Supabase Storage/public URL 配置。');
+  }
+
+  const { token: mineruToken } = await getUserMineruConfigByUserId(options.userId);
+  if (!mineruToken) {
+    throw new Error('MinerU API Token 未配置，请先在设置或后台 API 管理中填写。');
+  }
+
+  const taskId = await createMineruTaskForSynapse(file.file_url, mineruToken);
+  const runningMetadata = sanitizeForPostgres({
+    ...(file.metadata || {}),
+    conversionStatus: 'processing',
+    conversionTaskId: taskId,
+    conversionStartedAt: new Date().toISOString(),
+    conversionRequestedBy: 'synapse',
+    conversionError: '',
+  });
+  const { data: updatedSource, error: updateError } = await options.supabase
+    .from('agent_files')
+    .update({ metadata: runningMetadata })
+    .eq('id', file.id)
+    .eq('user_id', options.userId)
+    .select()
+    .single();
+  if (updateError) throw updateError;
+
+  await options.supabase.from('agent_tool_traces').insert({
+    user_id: options.userId,
+    conversation_id: conversationId,
+    tool_name: 'convertDocument',
+    status: 'running',
+    input: sanitizeForPostgres({ fileId: file.id, fileName: file.file_name, query: decision.args.query || options.message }),
+    output: sanitizeForPostgres({ taskId }),
+    summary: sanitizeTextForPostgres(`MinerU 转换任务已提交：${taskId}`),
+  });
+
+  const summary = `已提交 MinerU 转换任务：${taskId}。转换会在后台继续，完成后 Markdown/ZIP 会出现在右侧文件库。`;
+  await emitSynapseEvent(options, {
+    type: 'tool_done',
+    tool: 'convertDocument',
+    title: decision.title || '转换 PDF 为 Markdown',
+    status: 'completed',
+    message: summary,
+    data: { fileId: file.id, taskId },
+  });
+
+  return {
+    call: {
+      id: id('tool'),
+      tool: 'convertDocument',
+      title: decision.title || '转换 PDF 为 Markdown',
+      status: 'completed',
+      args: { fileId: file.id, fileName: file.file_name },
+      result: summary,
+    } as AgentToolCallLog,
+    file: updatedSource || { ...file, metadata: runningMetadata },
   };
 }
 
@@ -1421,6 +1633,7 @@ function confirmationPlan(message: string, decision: SynapseDecision): AgentPlan
       tool: tool.tool,
       title: tool.title || (
         tool.tool === 'createDocument' ? '创建 Markdown 文档' :
+        tool.tool === 'convertDocument' ? '转换 PDF 为 Markdown' :
         tool.tool === 'downloadFile' ? '下载文件到沙箱' :
         tool.tool === 'downloadPaper' ? '下载论文 PDF' :
         '运行沙箱终端命令'
@@ -2049,6 +2262,10 @@ async function executeConfirmedActions(state: typeof SynapseConfirmedDocumentSta
       const result = await runTerminalTool(decision, state.options, state.options.conversationId);
       toolCalls.push({ ...result.call, id: step.id || result.call.id });
       answerParts.push(result.call.result || '终端命令已执行。');
+    } else if (step.tool === 'convertDocument') {
+      const result = await runConvertDocumentTool(decision, state.options, state.options.conversationId);
+      toolCalls.push({ ...result.call, id: step.id || result.call.id });
+      answerParts.push(result.call.result || 'PDF 转换任务已提交。');
     } else if (step.tool === 'createDocument') {
       const effectiveLLMConfig = {
         ...state.options.llmConfig,

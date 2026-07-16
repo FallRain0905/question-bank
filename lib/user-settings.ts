@@ -222,6 +222,25 @@ export async function getUserMineruConfig(token: string) {
   }
 }
 
+export async function getUserMineruConfigByUserId(userId: string) {
+  const systemSettings = await getSystemSettingsMap();
+  const envToken = systemSettings.mineru_api_key || process.env.MINERU_API_TOKEN || '';
+  if (!userId) return { token: envToken };
+
+  try {
+    const { data: settings, error } = await serviceClient()
+      .from('user_settings')
+      .select('mineru_api_key')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) throw error;
+    return { token: settings?.mineru_api_key || envToken };
+  } catch (error) {
+    console.error('Error getting MinerU config by user id:', error);
+    return { token: envToken };
+  }
+}
+
 // Default embedding config. API keys must come from user settings or environment variables.
 const DEFAULT_EMBEDDING_URL = 'https://api.siliconflow.cn/v1/embeddings';
 const DEFAULT_EMBEDDING_MODEL = 'Qwen/Qwen3-Embedding-4B';

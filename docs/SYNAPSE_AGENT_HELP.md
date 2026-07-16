@@ -28,6 +28,7 @@ Normal conversation should be answered directly. Tools are used only when the us
 Side-effect tools require user confirmation before execution:
 
 - `createDocument`
+- `convertDocument`
 - `downloadFile`
 - `downloadPaper`
 - `runTerminal`
@@ -67,6 +68,14 @@ Use `readDocument` when the user refers to:
 - previously downloaded or extracted files
 
 If the user asks what files exist, use `listSandboxFiles`.
+
+## PDF Conversion
+
+Use `convertDocument` when the user asks to convert, parse, or extract a PDF with MinerU, or asks for PDF to Markdown.
+
+Do not use `readDocument` for an unconverted PDF. `readDocument` can only read text that already exists in the file library, such as Markdown, DOCX text, plain text, generated documents, or a PDF after MinerU has produced Markdown.
+
+`convertDocument` submits a MinerU task and writes the task state back to the file library. The generated Markdown/ZIP artifacts appear in the file library after polling/finalization.
 
 ## Terminal
 
