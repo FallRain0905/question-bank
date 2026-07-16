@@ -84,6 +84,40 @@ async function getSystemLLMConfig(provider = 'deepseek') {
   };
 }
 
+function serviceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+}
+
+function buildLLMConfigFromSettings(settings: any, systemSettings: SystemSettingsMap) {
+  const provider = settings?.llm_provider || systemSettings.llm_provider || 'deepseek';
+  return {
+    apiKey: settings?.llm_api_key || getSystemLLMKey(provider, systemSettings),
+    endpoint: settings?.llm_api_url || systemSettings.llm_api_url || PROVIDER_ENDPOINTS[provider] || DEFAULT_ENDPOINT,
+    provider,
+    defaultModel: settings?.llm_model || systemSettings.llm_model || PROVIDER_MODELS[provider] || DEFAULT_MODEL,
+  };
+}
+
+export async function getUserLLMConfigByUserId(userId: string) {
+  if (!userId) return getSystemLLMConfig();
+  try {
+    const systemSettings = await getSystemSettingsMap();
+    const { data: settings, error } = await serviceClient()
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) throw error;
+    return buildLLMConfigFromSettings(settings, systemSettings);
+  } catch (error) {
+    console.error('Error getting LLM config by user id:', error);
+    return getSystemLLMConfig();
+  }
+}
+
 export async function getUserLLMConfig(token: string) {
   console.log('Getting LLM config, has token:', !!token);
 
@@ -116,16 +150,9 @@ export async function getUserLLMConfig(token: string) {
     console.log('User settings:', settings ? 'found' : 'not found');
 
     const systemSettings = await getSystemSettingsMap();
-    const provider = settings?.llm_provider || systemSettings.llm_provider || 'deepseek';
+    const config = buildLLMConfigFromSettings(settings, systemSettings);
 
-    const config = {
-      apiKey: settings?.llm_api_key || getSystemLLMKey(provider, systemSettings),
-      endpoint: settings?.llm_api_url || systemSettings.llm_api_url || PROVIDER_ENDPOINTS[provider] || DEFAULT_ENDPOINT,
-      provider,
-      defaultModel: settings?.llm_model || systemSettings.llm_model || PROVIDER_MODELS[provider] || DEFAULT_MODEL,
-    };
-
-    console.log('Using user config:', { provider, endpoint: config.endpoint, hasKey: !!config.apiKey });
+    console.log('Using user config:', { provider: config.provider, endpoint: config.endpoint, hasKey: !!config.apiKey });
     return config;
   } catch (error) {
     console.error('Error getting LLM config:', error);
@@ -296,6 +323,42 @@ export async function getUserResearchToolConfig(token: string) {
     };
   } catch (error) {
     console.error('Error getting research tool config:', error);
+    return {
+      semanticScholarApiKey: envSemanticScholarKey,
+      tavilyApiKey: envTavilyKey,
+      githubToken: envGithubToken,
+    };
+  }
+}
+
+export async function getUserResearchToolConfigByUserId(userId: string) {
+  const systemSettings = await getSystemSettingsMap();
+  const envSemanticScholarKey = systemSettings.semantic_scholar_api_key || process.env.SEMANTIC_SCHOLAR_API_KEY || '';
+  const envTavilyKey = systemSettings.tavily_api_key || process.env.TAVILY_API_KEY || '';
+  const envGithubToken = systemSettings.github_token || process.env.GITHUB_TOKEN || '';
+
+  if (!userId) {
+    return {
+      semanticScholarApiKey: envSemanticScholarKey,
+      tavilyApiKey: envTavilyKey,
+      githubToken: envGithubToken,
+    };
+  }
+
+  try {
+    const { data: settings, error } = await serviceClient()
+      .from('user_settings')
+      .select('semantic_scholar_api_key')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) throw error;
+    return {
+      semanticScholarApiKey: settings?.semantic_scholar_api_key || envSemanticScholarKey,
+      tavilyApiKey: envTavilyKey,
+      githubToken: envGithubToken,
+    };
+  } catch (error) {
+    console.error('Error getting research tool config by user id:', error);
     return {
       semanticScholarApiKey: envSemanticScholarKey,
       tavilyApiKey: envTavilyKey,

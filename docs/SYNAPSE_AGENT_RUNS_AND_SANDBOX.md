@@ -48,12 +48,21 @@ agent_runs.status = 'queued'
 ```
 
 and executes the run with the same LangGraph runtime used by `/api/agent/chat`.
+The worker uses `run.user_id` to load the user's LLM and research-tool settings through the service role client, so queued jobs do not fall back to system defaults unless the user has no override.
 
 This is intentionally not enabled by default in `ecosystem.config.js` yet. The current UI still runs chat requests through HTTP/SSE, while the worker provides the execution boundary needed for the next step:
 
 ```text
 UI creates queued run -> worker claims run -> worker writes agent_run_events -> UI subscribes/polls events
 ```
+
+The agent page can replay persisted events from:
+
+```bash
+GET /api/agent/runs/:id/events?after=<sequence>
+```
+
+and then reload the conversation when the run is completed. This is the recovery path for broken SSE connections.
 
 To enable it with PM2 later, add an app similar to:
 

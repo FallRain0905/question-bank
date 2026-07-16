@@ -281,6 +281,7 @@ export default function AgentPage() {
   const activeStreamConversationRef = useRef('');
   const streamingAssistantIdRef = useRef('');
   const currentRunIdRef = useRef('');
+  const lastRunEventSequenceRef = useRef(0);
 
   useEffect(() => {
     try {
@@ -727,6 +728,41 @@ export default function AgentPage() {
     }
   };
 
+  const replayRunEvents = async (runId: string) => {
+    if (!runId) return false;
+    const headers = await authHeaders();
+    if (!headers.Authorization) return false;
+
+    const after = lastRunEventSequenceRef.current;
+    const eventsRes = await fetch(`/api/agent/runs/${runId}/events?after=${after}`, { headers });
+    if (eventsRes.ok) {
+      const rows = await eventsRes.json();
+      for (const row of rows || []) {
+        const sequence = Number(row.sequence || 0);
+        if (sequence > lastRunEventSequenceRef.current) lastRunEventSequenceRef.current = sequence;
+        if (row.event_type === 'token') continue;
+        await handleStreamEvent(row.event_type, row.payload || {});
+      }
+    }
+
+    const runRes = await fetch(`/api/agent/runs/${runId}`, { headers });
+    if (!runRes.ok) return false;
+    const run = await runRes.json();
+    if (run.conversation_id) {
+      activeStreamConversationRef.current = run.conversation_id;
+      setSelectedConversationId(run.conversation_id);
+    }
+    if (run.status === 'completed' && run.conversation_id) {
+      await loadConversation(run.conversation_id);
+      return true;
+    }
+    if (run.status === 'failed') {
+      throw new Error(run.error || 'Agent run failed');
+    }
+    setActivityText(`Synapse run ${String(runId).slice(0, 8)} is still ${run.status || 'running'}...`);
+    return false;
+  };
+
   const applyAgentResult = (data: any, options: { pushFallback?: boolean } = {}) => {
     streamingAssistantIdRef.current = '';
     if (data.conversation?.id) setSelectedConversationId(data.conversation.id);
@@ -767,6 +803,7 @@ export default function AgentPage() {
     streamProgressRef.current.clear();
     streamingAssistantIdRef.current = '';
     currentRunIdRef.current = '';
+    lastRunEventSequenceRef.current = 0;
     activeStreamConversationRef.current = selectedConversationId || '';
     setToolCalls(optimisticToolCalls(next));
     setActivityText('Synapse 正在判断意图...');
@@ -823,6 +860,7 @@ export default function AgentPage() {
     streamProgressRef.current.clear();
     streamingAssistantIdRef.current = '';
     currentRunIdRef.current = '';
+    lastRunEventSequenceRef.current = 0;
     activeStreamConversationRef.current = selectedConversationId || '';
     setToolCalls(optimisticToolCalls(next));
     setActivityText('Synapse 正在判断意图...');
@@ -853,6 +891,9 @@ export default function AgentPage() {
       if (recoverId) {
         await loadConversation(recoverId).catch(() => {});
       }
+      if (currentRunIdRef.current) {
+        await replayRunEvents(currentRunIdRef.current).catch(() => {});
+      }
       setError(err.message || 'Agent planning failed');
     } finally {
       setActivityText('');
@@ -867,6 +908,7 @@ export default function AgentPage() {
     streamProgressRef.current.clear();
     streamingAssistantIdRef.current = '';
     currentRunIdRef.current = '';
+    lastRunEventSequenceRef.current = 0;
     activeStreamConversationRef.current = selectedConversationId || '';
     setActivityText('正在执行已确认的文档生成...');
     pushMessage({ role: 'user', content: '确认执行这个计划。' });
@@ -904,6 +946,9 @@ export default function AgentPage() {
       const recoverId = activeStreamConversationRef.current || selectedConversationId;
       if (recoverId) {
         await loadConversation(recoverId).catch(() => {});
+      }
+      if (currentRunIdRef.current) {
+        await replayRunEvents(currentRunIdRef.current).catch(() => {});
       }
       setError(err.message || 'Agent execution failed');
     } finally {

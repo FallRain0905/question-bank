@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { getUserLLMConfig, getUserResearchToolConfig } from '../lib/user-settings';
+import { getUserLLMConfigByUserId, getUserResearchToolConfigByUserId } from '../lib/user-settings';
 import { updateAgentRun } from '../lib/agent-run-service';
 import { runConfirmedDocumentLangGraphTurn, runSynapseLangGraphTurn } from '../lib/synapse-runtime';
 
@@ -47,8 +47,8 @@ async function executeRun(run: any) {
   if (!message) throw new Error('Queued agent run is missing input.message');
 
   const [llmConfig, toolConfig] = await Promise.all([
-    getUserLLMConfig(''),
-    getUserResearchToolConfig(''),
+    getUserLLMConfigByUserId(run.user_id),
+    getUserResearchToolConfigByUserId(run.user_id),
   ]);
 
   const base = {
