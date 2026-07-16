@@ -108,6 +108,7 @@ export async function POST(req: NextRequest) {
     ]);
 
     const shouldStream = body.stream === true || req.headers.get('accept')?.includes('text/event-stream');
+    const shouldQueue = body.background === true;
     if (body.confirmedPlan && !conversationId) {
       return NextResponse.json({ error: 'Missing conversationId for confirmed action' }, { status: 400 });
     }
@@ -115,19 +116,31 @@ export async function POST(req: NextRequest) {
       conversationId,
       input: {
         message,
-        confirmedPlan: Boolean(body.confirmedPlan),
+        confirmedPlan: body.confirmedPlan || null,
         stream: shouldStream,
+        background: shouldQueue,
+        conversationId: conversationId || null,
+        agentSettings,
       },
       metadata: {
         runtime: 'langgraph',
         agentSettings,
       },
+      status: shouldQueue ? 'queued' : 'running',
     });
     const markRunFailed = (error: any) => updateAgentRun(auth.supabase, auth.user.id, agentRun.id, {
       status: 'failed',
       error: schemaHint(error),
       finishedAt: new Date().toISOString(),
     }).catch(updateError => console.warn('Synapse run failure update failed:', updateError));
+    if (shouldQueue) {
+      return NextResponse.json({
+        type: 'queued',
+        runId: agentRun.id,
+        conversationId: conversationId || null,
+        message: 'Synapse run queued. A background worker can execute it and write events to agent_run_events.',
+      });
+    }
 
     if (body.confirmedPlan) {
       const input = {

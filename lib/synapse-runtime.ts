@@ -33,7 +33,7 @@ type SupabaseLike = {
 };
 
 type SynapseToolDecision = {
-  tool: 'researchSearch' | 'readDocument' | 'createDocument' | 'downloadFile' | 'runTerminal' | 'listSandboxFiles';
+  tool: 'researchSearch' | 'readDocument' | 'createDocument' | 'downloadFile' | 'downloadPaper' | 'runTerminal' | 'listSandboxFiles';
   title: string;
   reason: string;
   args: Record<string, any>;
@@ -102,7 +102,7 @@ const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 const SYNAPSE_AGENT_OPERATING_GUIDE = `
 Synapse operating guide:
 - Your primary mode is conversational. Answer normal questions directly; only use tools when they are actually needed.
-- Side-effect actions must be confirmed before execution: createDocument, downloadFile, runTerminal. Before confirmation, do not say the action is complete.
+- Side-effect actions must be confirmed before execution: createDocument, downloadFile, downloadPaper, runTerminal. Before confirmation, do not say the action is complete.
 - The server workspace is persistent per user. Uploaded files, downloaded files, extracted archives, converted Markdown, generated documents, and sandbox command outputs may persist across conversations.
 - Terminal commands run in a restricted sandbox at /workspace. Use them for explicit file inspection, code/repo operations, archive extraction, or user-requested shell work.
 - Do not use terminal scripts to fake platform tools. In particular, never create random embeddings with numpy/random and never write embeddings.json as a substitute for the real knowledge-base embedding pipeline.
@@ -115,6 +115,7 @@ Synapse operating guide:
   PY
   Do not write invalid one-liners such as: python3 -c 'import json; with open(...) as f: ...'
 - For retrieval, use researchSearch. Choose academic for papers/literature/reviews, general for web/docs/news, and both for broad technical research.
+- For paper download, use researchSearch first, then downloadPaper after user confirmation. Do not guess PDF URLs in terminal unless the user explicitly asks for terminal work.
 - For uploaded or generated files, use readDocument/listSandboxFiles before answering about their content.
 `.trim();
 
@@ -168,6 +169,7 @@ function compactSource(source: ResearchSource) {
     snippet: source.snippet?.slice(0, 1200),
     abstract: source.abstract?.slice(0, 1200),
     fullTextExcerpt: source.fullTextExcerpt?.slice(0, 1200),
+    pdfUrl: source.pdfUrl,
     score: source.score,
   });
 }
@@ -578,6 +580,7 @@ function cleanHeuristicDecision(message: string, files: any[]): SynapseDecision 
   const wantsRead = /文件|文档|附件|上传|pdf|docx|阅读|总结这份|分析这份|file|document|attachment|read|summarize/.test(lower) && files.length > 0;
   const wantsWrite = /创建|生成|写.*文档|写.*报告|写.*简报|整理成.*文档|保存.*文档|导出|markdown|docx|create|generate|write|document|report|export/.test(lower);
   const wantsDownload = /(下载|抓取|保存).*(https?:\/\/\S+)|download\s+https?:\/\/\S+/i.test(message);
+  const wantsPaperDownload = /(下载|保存|获取|抓取).*(论文|文献|paper|pdf)|(paper|pdf).*(download|save)/i.test(message);
   const wantsTerminal = /运行命令|执行命令|终端|命令行|shell|terminal|run command|execute command/.test(lower);
   const wantsListSandbox = /沙箱.*文件|工作区.*文件|列出.*文件|list.*files|ls workspace/.test(lower);
   const tools: SynapseToolDecision[] = [];
@@ -591,7 +594,7 @@ function cleanHeuristicDecision(message: string, files: any[]): SynapseDecision 
     });
   }
 
-  if (wantsSearch) {
+  if (wantsSearch || wantsPaperDownload) {
     const mode = /论文|文献|综述|学术|paper|literature|semantic scholar|openalex|arxiv/.test(lower)
       ? 'academic'
       : /网页|官网|新闻|博客|产业|项目|github|web|news|blog|official|docs/.test(lower)
@@ -633,6 +636,15 @@ function cleanHeuristicDecision(message: string, files: any[]): SynapseDecision 
     });
   }
 
+  if (wantsPaperDownload) {
+    tools.push({
+      tool: 'downloadPaper',
+      title: '下载论文 PDF',
+      reason: '用户希望下载检索到的论文 PDF，需要先解析可访问 PDF 链接并在确认后保存到工作区。',
+      args: { title: message, rank: 1 },
+    });
+  }
+
   if (wantsTerminal) {
     tools.push({
       tool: 'runTerminal',
@@ -643,10 +655,10 @@ function cleanHeuristicDecision(message: string, files: any[]): SynapseDecision 
   }
 
   return {
-    intent: (wantsWrite || wantsDownload || wantsTerminal) ? 'write' : wantsSearch ? 'research' : wantsRead ? 'read' : 'answer',
+    intent: (wantsWrite || wantsDownload || wantsPaperDownload || wantsTerminal) ? 'write' : wantsSearch ? 'research' : wantsRead ? 'read' : 'answer',
     responseStyle: /简短|简洁|brief|short/.test(lower) ? 'concise' : /详细|全面|deep|detailed/.test(lower) ? 'detailed' : 'normal',
     tools,
-    needsConfirmation: wantsWrite || wantsDownload || wantsTerminal,
+    needsConfirmation: wantsWrite || wantsDownload || wantsPaperDownload || wantsTerminal,
   };
 }
 
@@ -752,6 +764,7 @@ Available tools:
 - createDocument: create a saved Markdown document. This is a side-effect and needs user confirmation.
 - listSandboxFiles: list files in the user's server sandbox workspace. Args: maxFiles optional.
 - downloadFile: download a public http/https URL into the user's server sandbox workspace. Args: url, fileName optional. This is a side-effect and needs user confirmation.
+- downloadPaper: resolve and download a PDF for a paper from recent search results. Args: title optional, sourceId optional, rank optional. This is a side-effect and needs user confirmation. Use it after researchSearch when the user asks to download papers found by search.
 - runTerminal: run a restricted terminal command inside the user's server sandbox workspace. Args: command, cwd optional. This is a side-effect and needs user confirmation.
 
 Routing rules:
@@ -764,11 +777,12 @@ Routing rules:
 - If the user asks to embed/index/import a document into a knowledge base, do not use runTerminal to generate fake embeddings. If this turn has no direct embed tool, answer with the proper file-library/import flow or use readDocument if analysis is requested.
 - Use listSandboxFiles when the user asks what files are in the sandbox/workspace.
 - Use downloadFile when the user asks to download/save/fetch a URL into the sandbox. Mark needsConfirmation true.
+- Use downloadPaper when the user asks to download a paper/PDF from search results or asks to find and download a paper. Usually include researchSearch before downloadPaper so the paper source exists.
 - Use runTerminal when the user explicitly asks to run a command or use terminal/shell. Mark needsConfirmation true.
 - Do not call tools just to say what tools are available.
 
 JSON shape:
-{"intent":"answer|research|read|write","responseStyle":"concise|normal|detailed","needsConfirmation":false,"tools":[{"tool":"researchSearch|readDocument|createDocument|listSandboxFiles|downloadFile|runTerminal","title":"...","reason":"...","args":{}}]}`;
+{"intent":"answer|research|read|write","responseStyle":"concise|normal|detailed","needsConfirmation":false,"tools":[{"tool":"researchSearch|readDocument|createDocument|listSandboxFiles|downloadFile|downloadPaper|runTerminal","title":"...","reason":"...","args":{}}]}`;
 
   const history = context.messages
     .slice(-8)
@@ -784,7 +798,7 @@ JSON shape:
   if (!parsed || !Array.isArray(parsed.tools)) return heuristicDecision(message, context.files);
 
   const validTools = parsed.tools
-    .filter((tool: any) => tool?.tool === 'researchSearch' || tool?.tool === 'readDocument' || tool?.tool === 'createDocument' || tool?.tool === 'listSandboxFiles' || tool?.tool === 'downloadFile' || tool?.tool === 'runTerminal')
+    .filter((tool: any) => tool?.tool === 'researchSearch' || tool?.tool === 'readDocument' || tool?.tool === 'createDocument' || tool?.tool === 'listSandboxFiles' || tool?.tool === 'downloadFile' || tool?.tool === 'downloadPaper' || tool?.tool === 'runTerminal')
     .slice(0, 4)
     .map((tool: any) => ({
       tool: tool.tool,
@@ -796,7 +810,7 @@ JSON shape:
   return {
     intent: parsed.intent === 'research' || parsed.intent === 'read' || parsed.intent === 'write' ? parsed.intent : 'answer',
     responseStyle: parsed.responseStyle === 'concise' || parsed.responseStyle === 'detailed' ? parsed.responseStyle : 'normal',
-    needsConfirmation: Boolean(parsed.needsConfirmation || validTools.some(tool => tool.tool === 'createDocument' || tool.tool === 'downloadFile' || tool.tool === 'runTerminal')),
+    needsConfirmation: Boolean(parsed.needsConfirmation || validTools.some(tool => tool.tool === 'createDocument' || tool.tool === 'downloadFile' || tool.tool === 'downloadPaper' || tool.tool === 'runTerminal')),
     tools: validTools,
   } satisfies SynapseDecision;
 }
@@ -808,6 +822,7 @@ function sourcesContext(sources: ResearchSource[]) {
 Provider: ${source.sourceProvider || source.type}
 Year: ${source.year || ''}
 URL: ${source.url || ''}
+PDF: ${source.pdfUrl || ''}
 Excerpt: ${text}`;
   }).join('\n\n');
 }
@@ -821,7 +836,7 @@ Excerpt: ${sanitizeTextForPostgres(String(file.content_text || ''), 1800)}`;
 }
 
 function isSideEffectTool(tool: SynapseToolDecision | { tool: string }) {
-  return tool.tool === 'createDocument' || tool.tool === 'downloadFile' || tool.tool === 'runTerminal';
+  return tool.tool === 'createDocument' || tool.tool === 'downloadFile' || tool.tool === 'downloadPaper' || tool.tool === 'runTerminal';
 }
 
 async function runResearchTool(decision: SynapseToolDecision, options: SynapseRunOptions, conversationId: string) {
@@ -985,6 +1000,163 @@ async function runListSandboxFilesTool(decision: SynapseToolDecision, options: S
       result: summary,
     } as AgentToolCallLog,
     files,
+  };
+}
+
+function normalizeArxivPdfUrl(value: string) {
+  const url = String(value || '').trim();
+  if (!url) return '';
+  if (/arxiv\.org\/pdf\//i.test(url)) return url.endsWith('.pdf') ? url : `${url}.pdf`;
+  if (/arxiv\.org\/abs\//i.test(url)) return url.replace('/abs/', '/pdf/') + '.pdf';
+  const idMatch = url.match(/(?:arxiv:)?(\d{4}\.\d{4,5}(?:v\d+)?)/i);
+  if (idMatch) return `https://arxiv.org/pdf/${idMatch[1]}.pdf`;
+  return '';
+}
+
+function safePaperFileName(title: string) {
+  return `${sanitizeTextForPostgres(title || 'paper', 120)
+    .replace(/[\\/:*?"<>|#%&{}$!'@+=`\u0000-\u001f]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 120) || 'paper'}.pdf`;
+}
+
+function paperIdFromSource(source: ResearchSource) {
+  return source.externalIds?.semanticScholarPaperId
+    || source.id.replace(/^semantic_scholar_recommendation-/, '').replace(/^semantic_scholar-/, '');
+}
+
+async function resolveSemanticScholarPdf(source: ResearchSource, apiKey?: string) {
+  const paperId = paperIdFromSource(source);
+  if (!paperId || !source.sourceProvider?.startsWith('semantic_scholar')) return '';
+  try {
+    const headers: Record<string, string> = {};
+    if (apiKey) headers['x-api-key'] = apiKey;
+    const res = await fetch(`https://api.semanticscholar.org/graph/v1/paper/${encodeURIComponent(paperId)}?fields=openAccessPdf,title,url,externalIds`, { headers });
+    if (!res.ok) return '';
+    const data = await res.json();
+    return data?.openAccessPdf?.url || '';
+  } catch {
+    return '';
+  }
+}
+
+async function resolveOpenAlexPdf(source: ResearchSource) {
+  const doi = source.doi || source.externalIds?.doi || '';
+  const openAlex = source.externalIds?.openAlex || '';
+  const target = openAlex || (doi ? `https://doi.org/${doi.replace(/^https?:\/\/doi\.org\//i, '')}` : '');
+  if (!target) return '';
+  try {
+    const res = await fetch(`https://api.openalex.org/works/${encodeURIComponent(target)}?select=primary_location,best_oa_location,open_access`);
+    if (!res.ok) return '';
+    const data = await res.json();
+    return data?.primary_location?.pdf_url || data?.best_oa_location?.pdf_url || data?.open_access?.oa_url || '';
+  } catch {
+    return '';
+  }
+}
+
+async function resolvePaperPdfUrl(source: ResearchSource, options: SynapseRunOptions) {
+  const direct = source.pdfUrl || (/\.pdf(?:$|\?)/i.test(source.url || '') ? source.url : '');
+  if (direct) return direct;
+  const arxiv = normalizeArxivPdfUrl(source.externalIds?.arxiv || source.url || '');
+  if (arxiv) return arxiv;
+  const semantic = await resolveSemanticScholarPdf(source, options.toolConfig?.semanticScholarApiKey);
+  if (semantic) return semantic;
+  const openAlex = await resolveOpenAlexPdf(source);
+  if (openAlex) return openAlex;
+  return '';
+}
+
+function sourceMatchesDownloadRequest(source: ResearchSource, decision: SynapseToolDecision, index: number) {
+  const sourceId = String(decision.args.sourceId || '').trim();
+  if (sourceId && source.id === sourceId) return 1000 - index;
+  const rank = Number(decision.args.rank || 0);
+  if (rank > 0 && index === rank - 1) return 900 - index;
+  const needle = String(decision.args.title || decision.args.query || '').toLowerCase();
+  if (!needle) return 100 - index;
+  const title = String(source.title || '').toLowerCase();
+  const terms = needle.match(/[\p{L}\p{N}_-]{3,}/gu) || [];
+  const hits = terms.filter(term => title.includes(term)).length;
+  return hits * 20 + (source.pdfUrl ? 10 : 0) + Math.max(0, 20 - index);
+}
+
+async function runDownloadPaperTool(decision: SynapseToolDecision, options: SynapseRunOptions, conversationId: string) {
+  await emitSynapseEvent(options, {
+    type: 'tool_start',
+    tool: 'downloadPaper',
+    title: decision.title || '下载论文 PDF',
+    status: 'running',
+    message: '正在从最近的论文检索结果中解析 PDF 链接...',
+    data: { title: decision.args.title || '', sourceId: decision.args.sourceId || '', rank: decision.args.rank || 1 },
+  });
+
+  const recentSources = await loadRecentResearchSources(options.supabase, options.userId, conversationId);
+  const paperSources = recentSources
+    .filter(source => source.type === 'paper')
+    .map((source, index) => ({ source, score: sourceMatchesDownloadRequest(source, decision, index) }))
+    .sort((a, b) => b.score - a.score)
+    .map(item => item.source);
+
+  if (!paperSources.length) {
+    throw new Error('No recent paper sources found. Run an academic search first, then confirm paper download.');
+  }
+
+  let selected: ResearchSource | null = null;
+  let pdfUrl = '';
+  for (const source of paperSources.slice(0, 8)) {
+    const resolved = await resolvePaperPdfUrl(source, options);
+    if (resolved) {
+      selected = source;
+      pdfUrl = resolved;
+      break;
+    }
+  }
+  if (!selected || !pdfUrl) {
+    throw new Error('Could not resolve an open PDF URL from recent paper sources. The paper may not be open access.');
+  }
+
+  const fileName = safePaperFileName(String(decision.args.fileName || selected.title || 'paper'));
+  const result = await runDownloadFileTool({
+    tool: 'downloadFile',
+    title: decision.title || '下载论文 PDF',
+    reason: decision.reason || 'Resolved an open paper PDF URL from recent search results.',
+    args: { url: pdfUrl, fileName },
+  }, options, conversationId);
+
+  const summary = [
+    `已解析论文：${selected.title}`,
+    `PDF：${pdfUrl}`,
+    result.call.result || '',
+  ].filter(Boolean).join('\n');
+
+  await insertToolTrace(options.supabase, options.userId, conversationId, 'downloadPaper', {
+    decision: decision.args,
+    selectedSource: compactSource(selected),
+  }, {
+    pdfUrl,
+    file: result.file,
+  }, summary);
+
+  await emitSynapseEvent(options, {
+    type: 'tool_done',
+    tool: 'downloadPaper',
+    title: decision.title || '下载论文 PDF',
+    status: 'completed',
+    message: `论文 PDF 已保存：${fileName}`,
+    data: { fileId: result.file.id, pdfUrl, sourceId: selected.id },
+  });
+
+  return {
+    call: {
+      ...result.call,
+      id: id('tool'),
+      tool: 'downloadPaper',
+      title: decision.title || '下载论文 PDF',
+      args: { ...decision.args, resolvedUrl: pdfUrl, sourceId: selected.id },
+      result: summary,
+    } as AgentToolCallLog,
+    file: result.file,
   };
 }
 
@@ -1250,6 +1422,7 @@ function confirmationPlan(message: string, decision: SynapseDecision): AgentPlan
       title: tool.title || (
         tool.tool === 'createDocument' ? '创建 Markdown 文档' :
         tool.tool === 'downloadFile' ? '下载文件到沙箱' :
+        tool.tool === 'downloadPaper' ? '下载论文 PDF' :
         '运行沙箱终端命令'
       ),
       description: tool.reason || '该操作会改变服务器工作区状态。',
@@ -1868,6 +2041,10 @@ async function executeConfirmedActions(state: typeof SynapseConfirmedDocumentSta
       const result = await runDownloadFileTool(decision, state.options, state.options.conversationId);
       toolCalls.push({ ...result.call, id: step.id || result.call.id });
       answerParts.push(result.call.result || '下载完成。');
+    } else if (step.tool === 'downloadPaper') {
+      const result = await runDownloadPaperTool(decision, state.options, state.options.conversationId);
+      toolCalls.push({ ...result.call, id: step.id || result.call.id });
+      answerParts.push(result.call.result || '论文 PDF 下载完成。');
     } else if (step.tool === 'runTerminal') {
       const result = await runTerminalTool(decision, state.options, state.options.conversationId);
       toolCalls.push({ ...result.call, id: step.id || result.call.id });

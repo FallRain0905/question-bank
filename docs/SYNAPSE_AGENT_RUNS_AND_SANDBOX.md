@@ -22,6 +22,53 @@ Useful APIs:
 
 This lets the UI recover a run after a broken HTTP/SSE connection.
 
+`POST /api/agent/chat` also accepts:
+
+```json
+{
+  "message": "task",
+  "background": true
+}
+```
+
+When `background` is true, the API creates an `agent_runs` row with `status='queued'` and returns immediately. A worker can then claim and execute it.
+
+## Optional Run Worker
+
+The first worker entry point is:
+
+```bash
+npm run synapse:worker
+```
+
+It polls:
+
+```sql
+agent_runs.status = 'queued'
+```
+
+and executes the run with the same LangGraph runtime used by `/api/agent/chat`.
+
+This is intentionally not enabled by default in `ecosystem.config.js` yet. The current UI still runs chat requests through HTTP/SSE, while the worker provides the execution boundary needed for the next step:
+
+```text
+UI creates queued run -> worker claims run -> worker writes agent_run_events -> UI subscribes/polls events
+```
+
+To enable it with PM2 later, add an app similar to:
+
+```js
+{
+  name: 'synapse-run-worker',
+  script: './node_modules/.bin/tsx',
+  args: 'scripts/synapse-run-worker.ts',
+  cwd: rootDir,
+  autorestart: true,
+  watch: false,
+  max_memory_restart: '700M'
+}
+```
+
 ## Docker Permission Fix
 
 If sandbox commands fail with:
@@ -75,7 +122,7 @@ Payload:
   "command": "ls -la",
   "cwd": ".",
   "timeoutMs": 20000,
-  "workspaceRoot": "/home/deploy/synap/.synapse-workspaces/<user>"
+  "workspaceRoot": "/srv/synap-agent/workspaces/u_<user-hash>"
 }
 ```
 

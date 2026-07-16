@@ -503,6 +503,7 @@ function mapScholarPaper(p: any, provider: ResearchSource['sourceProvider']): Re
     sourceProvider: provider,
     sourceKind: 'paper_metadata',
     abstract,
+    pdfUrl: p.openAccessPdf?.url || '',
     externalIds: p.externalIds || (p.paperId ? { semanticScholarPaperId: p.paperId } : undefined),
     authors: p.authors?.map((a: any) => a.name).filter(Boolean),
     year: p.year,
@@ -519,7 +520,7 @@ async function searchSemanticScholar(query: string, apiKey: string, limit: numbe
     const url = `https://api.semanticscholar.org/graph/v1/paper/search?${new URLSearchParams({
       query,
       limit: String(limit),
-      fields: 'title,abstract,url,year,authors,citationCount,venue,externalIds',
+      fields: 'title,abstract,url,year,authors,citationCount,venue,externalIds,openAccessPdf',
     })}`;
     const res = await fetch(url, { headers });
     if (!res.ok) return [];
@@ -545,7 +546,7 @@ async function recommendSemanticScholar(seedIds: string[], apiKey: string, limit
     if (apiKey) headers['x-api-key'] = apiKey;
     const url = `https://api.semanticscholar.org/recommendations/v1/papers?${new URLSearchParams({
       limit: String(limit),
-      fields: 'title,abstract,url,year,authors,citationCount,venue,externalIds',
+      fields: 'title,abstract,url,year,authors,citationCount,venue,externalIds,openAccessPdf',
     })}`;
     const res = await fetch(url, {
       method: 'POST',
@@ -588,6 +589,7 @@ async function searchOpenAlex(query: string, limit: number): Promise<ResearchSou
       sourceProvider: 'openalex' as const,
       sourceKind: 'paper_metadata' as const,
       abstract: openAlexAbstract(w.abstract_inverted_index).slice(0, 1800),
+      pdfUrl: w.primary_location?.pdf_url || w.best_oa_location?.pdf_url || '',
       externalIds: {
         openAlex: w.id,
         doi: w.doi,
@@ -644,6 +646,7 @@ async function searchArxiv(query: string, limit: number): Promise<ResearchSource
         sourceProvider: 'arxiv' as const,
         sourceKind: 'paper_metadata' as const,
         abstract: summary.slice(0, 1800),
+        pdfUrl: id ? id.replace('/abs/', '/pdf/') + '.pdf' : '',
         externalIds: id ? { arxiv: id } : undefined,
         year,
         score: year ? Math.max(0, year - 2015) / 20 : 0,
@@ -674,6 +677,7 @@ async function searchLocalPapers(query: string, supabase: SupabaseLike | undefin
       sourceProvider: 'local_papers' as const,
       sourceKind: 'paper_metadata' as const,
       abstract: (p.abstract_en || p.summary_zh || '').slice(0, 1800),
+      pdfUrl: p.pdf_url || (p.arxiv_url ? String(p.arxiv_url).replace('/abs/', '/pdf/') + '.pdf' : ''),
       year: p.published_at ? Number(String(p.published_at).slice(0, 4)) : undefined,
       score: 1,
     }));

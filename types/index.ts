@@ -292,6 +292,7 @@ export interface ResearchSource {
   query?: string;
   fullTextExcerpt?: string;
   abstract?: string;
+  pdfUrl?: string;
   score?: number;
   doi?: string;
   externalIds?: Record<string, string>;
@@ -535,6 +536,7 @@ export type AgentToolName =
   | 'convertDocument'
   | 'createDocument'
   | 'downloadFile'
+  | 'downloadPaper'
   | 'runTerminal'
   | 'listSandboxFiles';
 

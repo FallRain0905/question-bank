@@ -91,6 +91,7 @@ function toolLabel(tool: any) {
   if (tool === 'convertDocument') return '文档转换';
   if (tool === 'createDocument') return '文档生成';
   if (tool === 'downloadFile') return '沙箱下载';
+  if (tool === 'downloadPaper') return '论文下载';
   if (tool === 'runTerminal') return '沙箱终端';
   if (tool === 'listSandboxFiles') return '沙箱文件';
   if (tool === 'synapse') return '意图判断';
