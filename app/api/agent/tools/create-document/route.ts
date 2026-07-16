@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { recordAgentDocumentArtifact } from '@/lib/agent-artifacts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,5 +43,13 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  try {
+    await recordAgentDocumentArtifact(auth.supabase, data, {
+      sourceTool: 'createDocument',
+      conversationId: data.metadata?.conversationId || null,
+    });
+  } catch (artifactError) {
+    console.warn('Synapse artifact write failed after create-document API:', artifactError);
+  }
   return NextResponse.json({ document: data });
 }

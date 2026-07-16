@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import { renderMarkdown } from '@/lib/render-markdown';
-import type { AgentConversation, AgentDocument, AgentFile, AgentPlan, AgentStoredMessage, AgentToolCallLog, ResearchSource } from '@/types';
+import type { AgentArtifact, AgentConversation, AgentDocument, AgentFile, AgentPlan, AgentStoredMessage, AgentToolCallLog, ResearchSource } from '@/types';
 
 type ChatMessage = {
   id: string;
@@ -275,6 +275,7 @@ export default function AgentPage() {
   const [toolCalls, setToolCalls] = useState<AgentToolCallLog[]>([]);
   const [sources, setSources] = useState<ResearchSource[]>([]);
   const [files, setFiles] = useState<AgentFile[]>([]);
+  const [artifacts, setArtifacts] = useState<AgentArtifact[]>([]);
   const [documents, setDocuments] = useState<AgentDocument[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<AgentDocument | null>(null);
   const [rightTab, setRightTab] = useState<RightTab>('tools');
@@ -314,6 +315,7 @@ export default function AgentPage() {
     loadConversations();
     loadDocuments();
     loadFiles();
+    loadArtifacts();
   }, []);
 
   useEffect(() => {
@@ -415,6 +417,7 @@ export default function AgentPage() {
       setMessages(messagesFromStored(data.messages || []));
       setFiles(data.files || []);
       loadFiles();
+      loadArtifacts();
       const traceToolCalls = (data.traces || []).map((trace: any) => ({
         id: trace.id,
         tool: trace.tool_name,
@@ -501,6 +504,7 @@ export default function AgentPage() {
         await loadConversation(data.conversationId);
       }
       await loadFiles();
+      await loadArtifacts();
       await loadConversations();
       if (data.file?.content_text) {
         setPendingEmbed({
@@ -569,6 +573,7 @@ export default function AgentPage() {
         pollConversion(file.id, data.taskId, callId);
       } else if (data.status === 'completed') {
         await loadFiles();
+        await loadArtifacts();
       }
     } catch (err: any) {
       setToolCalls(prev => prev.map(call => call.id === callId
@@ -619,6 +624,7 @@ export default function AgentPage() {
               }
             : call));
           await loadFiles();
+          await loadArtifacts();
           await loadConversations();
           return;
         }
@@ -684,6 +690,7 @@ export default function AgentPage() {
       setRightTab('files');
       setRightOpen(true);
       await loadConversations();
+      await loadArtifacts();
     } catch (err: any) {
       setToolCalls(prev => prev.map(call => call.title === '正在建立知识库并嵌入文档' && call.status === 'running'
         ? { ...call, status: 'failed', error: err.message || '知识库导入失败' }
@@ -957,6 +964,8 @@ export default function AgentPage() {
       loadConversations();
       loadDocuments();
       loadFiles();
+      loadArtifacts();
+      loadArtifacts();
     } catch (err: any) {
       const recoverId = activeStreamConversationRef.current || selectedConversationId;
       if (recoverId) {
@@ -1034,6 +1043,19 @@ export default function AgentPage() {
     window.document.body.appendChild(a);
     a.click();
     a.remove();
+  };
+
+  const loadArtifacts = async () => {
+    try {
+      const headers = await authHeaders();
+      if (!headers.Authorization) return;
+      const res = await fetch('/api/agent/artifacts?limit=120', { headers });
+      if (!res.ok) return;
+      const data = await res.json();
+      setArtifacts(data || []);
+    } catch {
+      // Artifact registry is additive; keep the chat usable if it is not migrated yet.
+    }
   };
 
   const downloadAgentFile = async (file: AgentFile) => {
@@ -1585,6 +1607,47 @@ export default function AgentPage() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </section>
+
+                <section>
+                  <div className="mb-2 text-[11px] font-medium uppercase text-gray-400">Artifacts</div>
+                  {artifacts.length === 0 ? (
+                    <div className="rounded-lg bg-gray-50 p-4 text-xs leading-5 text-gray-400">
+                      上传、下载、转换、解压或生成文档后，Artifact Registry 会在这里显示统一产物索引。
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {artifacts.slice(0, 40).map(artifact => {
+                        const linkedFile = artifact.source_table === 'agent_files'
+                          ? files.find(file => file.id === artifact.source_id)
+                          : null;
+                        return (
+                          <div key={artifact.id} className="rounded-lg border border-gray-100 bg-white p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0 truncate text-xs font-medium text-gray-700">{artifact.name}</div>
+                              <span className="rounded bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-500">{artifact.kind}</span>
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-gray-400">
+                              <span>{artifact.status}</span>
+                              {artifact.source_tool && <span>{artifact.source_tool}</span>}
+                              {artifact.size_bytes > 0 && <span>{formatFileSize(artifact.size_bytes)}</span>}
+                            </div>
+                            {artifact.content_preview && (
+                              <p className="mt-2 line-clamp-3 text-xs leading-5 text-gray-500">{artifact.content_preview}</p>
+                            )}
+                            {linkedFile && hasDownloadableAgentFile(linkedFile) && (
+                              <button
+                                onClick={() => downloadAgentFile(linkedFile)}
+                                className="mt-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600 hover:border-gray-300"
+                              >
+                                下载关联文件
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </section>

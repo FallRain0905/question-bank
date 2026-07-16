@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { materializeMineruZip } from '@/lib/agent-workspace';
+import { recordAgentFileArtifact, recordExtractedDirArtifact } from '@/lib/agent-artifacts';
 import { getUserMineruConfig } from '@/lib/user-settings';
 import { sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-runtime';
 
@@ -333,6 +334,43 @@ async function finalizeConversion(auth: Awaited<ReturnType<typeof getAuthedClien
     summary: `MinerU 转换完成：${zipFile?.file_name || file.file_name}`,
   });
 
+  try {
+    const sourceArtifact = await recordAgentFileArtifact(auth.supabase, updatedSource || file, {
+      sourceTool: 'convertDocument',
+      status: 'ready',
+      metadata: {
+        conversionTaskId: taskId,
+        convertedZipFileId: zipFile?.id || '',
+        convertedMarkdownFileId: markdownFile?.id || '',
+      },
+    });
+    if (zipFile) {
+      await recordAgentFileArtifact(auth.supabase, zipFile, {
+        parentArtifactId: sourceArtifact?.id || null,
+        sourceTool: 'convertDocument',
+      });
+    }
+    if (markdownFile) {
+      await recordAgentFileArtifact(auth.supabase, markdownFile, {
+        parentArtifactId: sourceArtifact?.id || null,
+        sourceTool: 'convertDocument',
+      });
+    }
+    if (workspaceResult) {
+      await recordExtractedDirArtifact(auth.supabase, updatedSource || file, {
+        extractRelativeDir: workspaceResult.extractRelativeDir,
+        files: workspaceResult.files,
+        markdownFile: workspaceResult.markdownFile,
+        markdown: workspaceResult.markdown,
+      }, {
+        parentArtifactId: sourceArtifact?.id || null,
+        sourceTool: 'convertDocument',
+      });
+    }
+  } catch (artifactError) {
+    console.warn('Synapse artifact write failed after conversion:', artifactError);
+  }
+
   return { updatedSource, zipFile, markdownFile };
 }
 
@@ -373,6 +411,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .eq('user_id', auth.user.id)
       .select()
       .single();
+
+    try {
+      await recordAgentFileArtifact(auth.supabase, updatedSource || { ...file, metadata: runningMetadata }, {
+        sourceTool: 'convertDocument',
+        status: 'processing',
+        metadata: { conversionTaskId: taskId },
+      });
+    } catch (artifactError) {
+      console.warn('Synapse artifact write failed after conversion submit:', artifactError);
+    }
 
     await auth.supabase.from('agent_tool_traces').insert({
       user_id: auth.user.id,

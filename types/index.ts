@@ -612,6 +612,45 @@ export interface AgentFile {
   created_at: string;
 }
 
+export type AgentArtifactKind =
+  | 'file'
+  | 'document'
+  | 'archive'
+  | 'extracted_dir'
+  | 'markdown'
+  | 'image'
+  | 'command_output'
+  | 'web_page'
+  | 'report'
+  | 'dataset'
+  | 'other';
+
+export type AgentArtifactStatus = 'pending' | 'processing' | 'ready' | 'failed' | 'deleted';
+
+export interface AgentArtifact {
+  id: string;
+  user_id: string;
+  conversation_id: string | null;
+  run_id: string | null;
+  step_id: string | null;
+  parent_artifact_id: string | null;
+  kind: AgentArtifactKind;
+  status: AgentArtifactStatus;
+  name: string;
+  mime_type: string | null;
+  size_bytes: number;
+  uri: string | null;
+  storage_path: string | null;
+  workspace_ref: Record<string, any>;
+  source_tool: string | null;
+  source_table: string | null;
+  source_id: string | null;
+  content_preview: string;
+  metadata: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
 // AI 阅读器相关类型
 export interface DocumentHighlight {
   id: string;

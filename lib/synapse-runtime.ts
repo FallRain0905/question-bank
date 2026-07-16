@@ -9,6 +9,7 @@ import {
   runWorkspaceCommand,
   textPreviewFromWorkspaceFile,
 } from '@/lib/agent-workspace';
+import { recordAgentDocumentArtifact, recordAgentFileArtifact, recordExtractedDirArtifact } from '@/lib/agent-artifacts';
 import { MemoryManager, MemoryWriter, type RankedMemory } from '@/lib/memory-service';
 import { appendAgentRunEvent, updateAgentRun } from '@/lib/agent-run-service';
 import { normalizeResearchOptions, planResearchQueries, retrieveResearchSources } from '@/lib/research-retrieval';
@@ -1147,6 +1148,16 @@ async function runConvertDocumentTool(decision: SynapseToolDecision, options: Sy
     .single();
   if (updateError) throw updateError;
 
+  try {
+    await recordAgentFileArtifact(options.supabase, updatedSource || { ...file, metadata: runningMetadata }, {
+      sourceTool: 'convertDocument',
+      status: 'processing',
+      metadata: { conversionTaskId: taskId },
+    });
+  } catch (artifactError) {
+    console.warn('Synapse artifact write failed after conversion submit:', artifactError);
+  }
+
   await options.supabase.from('agent_tool_traces').insert({
     user_id: options.userId,
     conversation_id: conversationId,
@@ -1417,6 +1428,7 @@ async function runDownloadFileTool(decision: SynapseToolDecision, options: Synap
   if (error) throw error;
 
   let extraction: any = null;
+  let artifactFile: any = file;
   if (isSupportedArchive(downloaded.fileName)) {
     try {
       extraction = await extractWorkspaceZipForFile(options.userId, file.id, downloaded.ref, 'downloaded');
@@ -1443,12 +1455,32 @@ async function runDownloadFileTool(decision: SynapseToolDecision, options: Synap
         })
         .eq('id', file.id)
         .eq('user_id', options.userId);
+      artifactFile = {
+        ...file,
+        metadata,
+        content_text: sanitizeTextForPostgres(extraction.markdown || contentText || ''),
+      };
     } catch {
       // Keep the downloaded file even if archive extraction fails.
     }
   }
 
   const summary = `已下载到沙箱：${downloaded.ref.relativePath}${extraction ? `，并解压 ${extraction.files.length} 个文件。` : ''}`;
+  try {
+    const fileArtifact = await recordAgentFileArtifact(options.supabase, artifactFile, {
+      sourceTool: 'downloadFile',
+      metadata: { downloadUrl: downloaded.url },
+    });
+    if (extraction) {
+      await recordExtractedDirArtifact(options.supabase, artifactFile, extraction, {
+        parentArtifactId: fileArtifact?.id || null,
+        sourceTool: 'extractArchive',
+      });
+    }
+  } catch (artifactError) {
+    console.warn('Synapse artifact write failed after download:', artifactError);
+  }
+
   await insertToolTrace(options.supabase, options.userId, conversationId, 'downloadFile', { url, fileName }, { file, workspace: downloaded.ref, extraction }, summary);
   await emitSynapseEvent(options, {
     type: 'tool_done',
@@ -2300,6 +2332,21 @@ async function executeConfirmedActions(state: typeof SynapseConfirmedDocumentSta
         .single();
       if (error) throw error;
       document = data;
+
+      try {
+        await recordAgentDocumentArtifact(state.options.supabase, document, {
+          conversationId: state.options.conversationId,
+          runId: state.options.runId || null,
+          stepId: step.id || null,
+          sourceTool: 'createDocument',
+          metadata: {
+            stepTitle: step.title,
+            sourceCount: state.sources.length,
+          },
+        });
+      } catch (artifactError) {
+        console.warn('Synapse artifact write failed after document creation:', artifactError);
+      }
 
       const call: AgentToolCallLog = {
         id: step.id || id('tool'),

@@ -11,6 +11,7 @@ import {
   textPreviewFromBuffer,
   writeUploadedFileToWorkspace,
 } from '@/lib/agent-workspace';
+import { recordAgentFileArtifact, recordExtractedDirArtifact } from '@/lib/agent-artifacts';
 import { sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-runtime';
 
 export const runtime = 'nodejs';
@@ -211,6 +212,25 @@ export async function POST(req: NextRequest) {
       .update({ updated_at: new Date().toISOString() })
       .eq('id', id)
       .eq('user_id', auth.user.id);
+
+    try {
+      const fileArtifact = await recordAgentFileArtifact(auth.supabase, savedRow, {
+        sourceTool: 'uploadFile',
+        status: uploadError ? 'failed' : 'ready',
+        metadata: {
+          uploadError,
+          parseStatus: savedRow.metadata?.parseStatus || '',
+        },
+      });
+      if (extraction) {
+        await recordExtractedDirArtifact(auth.supabase, savedRow, extraction, {
+          parentArtifactId: fileArtifact?.id || null,
+          sourceTool: 'extractArchive',
+        });
+      }
+    } catch (artifactError) {
+      console.warn('Synapse artifact write failed after upload:', artifactError);
+    }
 
     return NextResponse.json({ conversationId: id, file: savedRow });
   } catch (error: any) {

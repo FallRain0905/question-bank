@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { recordAgentFileArtifact, upsertAgentArtifact } from '@/lib/agent-artifacts';
 import { getUserEmbeddingConfig, getUserLLMConfig } from '@/lib/user-settings';
 import { sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-runtime';
 
@@ -205,6 +206,43 @@ export async function POST(req: NextRequest, { params }: any) {
       .eq('user_id', auth.user.id)
       .select()
       .single();
+
+    try {
+      const sourceArtifact = await recordAgentFileArtifact(auth.supabase, updatedFile || { ...file, metadata: nextMetadata }, {
+        sourceTool: 'embedDocument',
+        status: sync.ok ? 'ready' : 'failed',
+        metadata: {
+          kbId: kb.id,
+          kbName: kb.name,
+          kbDocumentId: doc.id,
+          embeddingStatus: nextMetadata.embeddingStatus,
+        },
+      });
+      await upsertAgentArtifact(auth.supabase, {
+        userId: auth.user.id,
+        conversationId: file.conversation_id,
+        parentArtifactId: sourceArtifact?.id || null,
+        kind: 'document',
+        status: sync.ok ? 'ready' : 'failed',
+        name: doc.title,
+        mimeType: 'text/markdown',
+        sizeBytes: Buffer.byteLength(String(doc.content_md || ''), 'utf8'),
+        uri: `kb-document://${doc.id}`,
+        sourceTool: 'embedDocument',
+        sourceTable: 'kb_documents',
+        sourceId: doc.id,
+        contentPreview: String(doc.content_md || '').slice(0, 4000),
+        metadata: {
+          kbId: kb.id,
+          kbName: kb.name,
+          sourceFileId: file.id,
+          indexNow,
+          sync,
+        },
+      });
+    } catch (artifactError) {
+      console.warn('Synapse artifact write failed after embedding:', artifactError);
+    }
 
     await auth.supabase.from('agent_tool_traces').insert({
       user_id: auth.user.id,
