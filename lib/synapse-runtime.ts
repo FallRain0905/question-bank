@@ -773,6 +773,18 @@ Runtime facts:
 
 ${SYNAPSE_AGENT_OPERATING_GUIDE}
 
+Think step by step before returning JSON:
+
+1. Task analysis: classify the intent (answer / research / read / write) and complexity (simple question vs multi-step task). Note which resources matter: workspace files, long-term memory, or external sources.
+
+2. Goal decomposition: for a multi-step request (e.g. "retrieve X then write a report"), break it into ordered sub-goals and express them as an ordered tools array. For a simple question, keep the array empty and use no tools.
+
+3. Tool selection: for each sub-goal pick the single most fitting tool from the list below. Prefer fewer, higher-leverage tools over calling many.
+
+4. Execution order: place non side-effect tools (researchSearch, readDocument, listSandboxFiles) before side-effect tools (createDocument, convertDocument, downloadFile, downloadPaper, runTerminal). Express dependencies as array order; keep researchSearch before downloadPaper or createDocument when they depend on search results.
+
+5. Output JSON: emit only the JSON object with intent, responseStyle, needsConfirmation, and an ordered tools array. Give every tool a short title, a one-line reason, and concrete args (specific query, explicit mode/depth, real fileIds/urls when known).
+
 Available tools:
 - researchSearch: Synap unified retrieval pipeline. Args: query, mode academic|general|both, depth fast|medium|deep.
 - readDocument: read the user's Synapse workspace files, including uploaded files, converted Markdown, and generated documents. Args: query, fileIds optional.
@@ -1596,6 +1608,8 @@ Use structured long-term memories only as user/task context. They are not extern
 If tools were called, briefly mention the tool result only after answering the user; do not stop at "I searched".
 If evidence is thin or sources are noisy, say so plainly and suggest the next best action.
 If a side-effect action is pending, do not claim it has been completed; explain that it needs user confirmation.
+Before writing, assess task completion: fully achieved / partially achieved / failed. If partial or failed, name what is missing and give the single most useful next step instead of hiding gaps.
+If tools were called, end with a compact execution summary (in the user's language): which tools ran, how many sources/files were used, and the completion status. Skip this summary when no tools were called.
 
 ${SYNAPSE_AGENT_OPERATING_GUIDE}`;
 
@@ -1765,6 +1779,40 @@ export async function runSynapseTurn(options: SynapseRunOptions) {
   };
 }
 
+type MultiStepSubGoal = {
+  id: string;
+  title: string;
+  description: string;
+  tools: SynapseToolDecision[];
+  critical: boolean;
+};
+
+type MultiStepPlan = {
+  id: string;
+  title: string;
+  summary: string;
+  subGoals: MultiStepSubGoal[];
+  createdAt: string;
+};
+
+type SynapseGraphTask = {
+  currentStep: number;
+  totalSteps: number;
+  status: 'planning' | 'executing' | 'completed' | 'failed' | 'needs_confirmation';
+  observation: string;
+  executed: Array<{ stepId: string; toolCalls: AgentToolCallLog[]; ok: boolean }>;
+  replans: number;
+};
+
+type SynapseEval = {
+  done: boolean;
+  replan: boolean;
+  reason: string;
+};
+
+const MAX_ITERATIONS = 6;
+const MAX_REPLANS = 2;
+
 const SynapseGraphState = Annotation.Root({
   options: Annotation<SynapseRunOptions>,
   conversation: Annotation<any>,
@@ -1781,6 +1829,30 @@ const SynapseGraphState = Annotation.Root({
   }),
   readFiles: Annotation<any[]>({
     reducer: (_left, right) => right,
+    default: () => [],
+  }),
+  plan: Annotation<MultiStepPlan | null>({
+    reducer: (_left, right) => right,
+    default: () => null,
+  }),
+  task: Annotation<SynapseGraphTask | null>({
+    reducer: (_left, right) => right,
+    default: () => null,
+  }),
+  eval: Annotation<SynapseEval | null>({
+    reducer: (_left, right) => right,
+    default: () => null,
+  }),
+  iteration: Annotation<number>({
+    reducer: (_left, right) => right,
+    default: () => 0,
+  }),
+  accumulatedSources: Annotation<ResearchSource[]>({
+    reducer: (left, right) => left.concat(right),
+    default: () => [],
+  }),
+  accumulatedFiles: Annotation<any[]>({
+    reducer: (left, right) => left.concat(right),
     default: () => [],
   }),
   answer: Annotation<{ content: string; reasoning: string; model: string; usedThinking: boolean }>,
@@ -1835,7 +1907,25 @@ async function emitSynapseEvent(
   }
 }
 
+function shouldPlanMultiStep(decision: SynapseDecision) {
+  if (decision.intent !== 'research' && decision.intent !== 'write') return false;
+  const tools = decision.tools;
+  if (tools.length < 2) return false;
+  const firstSideEffect = tools.findIndex(isSideEffectTool);
+  if (firstSideEffect <= 0) return false;
+  return tools.slice(0, firstSideEffect).some(tool => !isSideEffectTool(tool));
+}
+
+function effectiveSources(state: typeof SynapseGraphState.State): ResearchSource[] {
+  return state.accumulatedSources.length ? state.accumulatedSources : state.sources;
+}
+
+function effectiveFiles(state: typeof SynapseGraphState.State): any[] {
+  return state.accumulatedFiles.length ? state.accumulatedFiles : state.readFiles;
+}
+
 function graphRouteAfterDecision(state: typeof SynapseGraphState.State) {
+  if (shouldPlanMultiStep(state.decision)) return 'plan_tasks';
   return state.decision.tools.some(tool => !isSideEffectTool(tool))
     ? 'execute_tools'
     : 'generate_answer';
@@ -2016,6 +2106,217 @@ async function executeSynapseGraphTools(state: typeof SynapseGraphState.State) {
   };
 }
 
+async function planSynapseGraphTasks(state: typeof SynapseGraphState.State) {
+  const startedAt = Date.now();
+  await emitSynapseEvent(state.options, {
+    type: 'node_start',
+    node: 'plan_tasks',
+    tool: 'synapse',
+    title: '规划多步任务',
+    message: '正在把复杂任务拆解为有序子目标...',
+  });
+
+  // Deterministic decomposition from the already-LLM-generated decision.tools.
+  // decideTools already ordered tools with non side-effect steps first; here each
+  // executable (non side-effect) tool becomes one sub-goal. Side-effect tools
+  // (createDocument / convertDocument / downloadFile / downloadPaper / runTerminal)
+  // are intentionally left out of the loop — generate_answer still collects them
+  // into a confirmation plan as before.
+  const executableTools = state.decision.tools.filter(tool => !isSideEffectTool(tool));
+  const subGoals: MultiStepSubGoal[] = executableTools.map(tool => ({
+    id: id('goal'),
+    title: tool.title || (
+      tool.tool === 'researchSearch' ? '检索资料' :
+      tool.tool === 'readDocument' ? '读取文档' :
+      '检查沙箱文件'
+    ),
+    description: tool.reason || '',
+    tools: [tool],
+    critical: tool.tool === 'researchSearch' || tool.tool === 'readDocument',
+  }));
+
+  const plan: MultiStepPlan = {
+    id: id('plan'),
+    title: state.decision.intent === 'write' ? '检索并创建文档' : '多步检索任务',
+    summary: subGoals.map((goal, index) => `${index + 1}. ${goal.title}`).join('；'),
+    subGoals,
+    createdAt: new Date().toISOString(),
+  };
+
+  const task: SynapseGraphTask = {
+    currentStep: 0,
+    totalSteps: subGoals.length,
+    status: subGoals.length ? 'executing' : 'completed',
+    observation: '',
+    executed: [],
+    replans: 0,
+  };
+
+  await emitSynapseEvent(state.options, {
+    type: 'node_done',
+    node: 'plan_tasks',
+    tool: 'synapse',
+    title: '任务规划完成',
+    message: `已拆解为 ${subGoals.length} 个子目标。`,
+    data: { plan, totalSteps: subGoals.length },
+  });
+
+  return {
+    plan,
+    task,
+    iteration: 0,
+    graphTrace: [graphTraceEvent('plan_tasks', startedAt, `${subGoals.length} sub-goals`)],
+  };
+}
+
+async function executeSynapseGraphStep(state: typeof SynapseGraphState.State) {
+  const startedAt = Date.now();
+  const plan = state.plan;
+  const task = state.task;
+  if (!plan || !task || task.currentStep >= task.totalSteps) {
+    return { graphTrace: [graphTraceEvent('execute_step', startedAt, 'no-op')] };
+  }
+  const goal = plan.subGoals[task.currentStep];
+  await emitSynapseEvent(state.options, {
+    type: 'node_start',
+    node: 'execute_step',
+    tool: 'synapse',
+    title: `执行第 ${task.currentStep + 1}/${task.totalSteps} 步`,
+    message: `正在执行：${goal.title}...`,
+    data: { currentStep: task.currentStep, totalSteps: task.totalSteps, goal },
+  });
+
+  const stepCalls: AgentToolCallLog[] = [];
+  const stepSources: ResearchSource[] = [];
+  const stepFiles: any[] = [];
+
+  for (const tool of goal.tools) {
+    try {
+      if (tool.tool === 'researchSearch') {
+        const result = await runResearchTool(tool, state.options, state.conversation.id);
+        stepCalls.push(result.call);
+        stepSources.push(...result.sources);
+      }
+      if (tool.tool === 'readDocument') {
+        const result = await runReadDocumentTool(tool, state.options, state.conversation.id);
+        stepCalls.push(result.call);
+        stepFiles.push(...result.files);
+      }
+      if (tool.tool === 'listSandboxFiles') {
+        const result = await runListSandboxFilesTool(tool, state.options, state.conversation.id);
+        stepCalls.push(result.call);
+      }
+    } catch (error: any) {
+      stepCalls.push({
+        id: id('tool'),
+        tool: tool.tool,
+        title: tool.title,
+        status: 'failed',
+        args: tool.args || {},
+        error: error.message || 'Tool failed',
+      } as AgentToolCallLog);
+    }
+  }
+
+  const ok = stepCalls.every(call => call.status !== 'failed') &&
+    (goal.tools.some(tool => tool.tool === 'researchSearch') ? stepSources.length > 0 : true);
+  const observation = stepCalls
+    .map(call => `${call.title}: ${call.status === 'failed' ? (call.error || 'failed') : (call.result || 'ok')}`)
+    .join('；');
+
+  await emitSynapseEvent(state.options, {
+    type: 'node_done',
+    node: 'execute_step',
+    tool: 'synapse',
+    title: `第 ${task.currentStep + 1}/${task.totalSteps} 步完成`,
+    message: observation || '无输出',
+    data: { ok, sourceCount: stepSources.length, fileCount: stepFiles.length },
+  });
+
+  return {
+    toolCalls: [...state.toolCalls, ...stepCalls],
+    accumulatedSources: stepSources,
+    accumulatedFiles: stepFiles,
+    task: {
+      ...task,
+      observation,
+      executed: [...task.executed, { stepId: goal.id, toolCalls: stepCalls, ok }],
+    },
+    graphTrace: [graphTraceEvent('execute_step', startedAt, `${stepCalls.length} calls, ${stepSources.length} sources`)],
+  };
+}
+
+function broadenPlanStep(plan: MultiStepPlan, stepIndex: number): MultiStepPlan {
+  const subGoals = plan.subGoals.map((goal, index) => {
+    if (index !== stepIndex) return goal;
+    return {
+      ...goal,
+      tools: goal.tools.map(tool => tool.tool === 'researchSearch'
+        ? { ...tool, title: `${tool.title}（放宽重试）`, args: { ...tool.args, mode: 'both', depth: 'fast' } }
+        : tool),
+    };
+  });
+  return { ...plan, subGoals };
+}
+
+async function evaluateSynapseGraphProgress(state: typeof SynapseGraphState.State) {
+  const startedAt = Date.now();
+  const plan = state.plan;
+  const task = state.task;
+  if (!plan || !task) {
+    return {
+      eval: { done: true, replan: false, reason: 'no active plan' },
+      graphTrace: [graphTraceEvent('evaluate_progress', startedAt, 'no plan')],
+    };
+  }
+
+  const lastOk = task.executed[task.executed.length - 1]?.ok ?? true;
+
+  let evalResult: SynapseEval;
+  let nextTask: SynapseGraphTask = task;
+  let nextPlan: MultiStepPlan = plan;
+
+  if (!lastOk) {
+    if (task.replans < MAX_REPLANS) {
+      nextPlan = broadenPlanStep(plan, task.currentStep);
+      nextTask = { ...task, replans: task.replans + 1 };
+      evalResult = { done: false, replan: true, reason: '检索结果为空或步骤失败，放宽条件重试。' };
+    } else {
+      nextTask = { ...task, status: 'failed' };
+      evalResult = { done: true, replan: false, reason: '多次重试仍无有效结果，转入回答阶段并说明缺口。' };
+    }
+  } else if (task.currentStep + 1 < task.totalSteps) {
+    nextTask = { ...task, currentStep: task.currentStep + 1 };
+    evalResult = { done: false, replan: false, reason: `继续第 ${task.currentStep + 2} 步。` };
+  } else {
+    nextTask = { ...task, status: 'completed' };
+    evalResult = { done: true, replan: false, reason: '全部子目标执行完成。' };
+  }
+
+  await emitSynapseEvent(state.options, {
+    type: 'node_done',
+    node: 'evaluate_progress',
+    tool: 'synapse',
+    title: '校验进度',
+    message: evalResult.reason,
+    data: { ...evalResult, currentStep: nextTask.currentStep, totalSteps: nextTask.totalSteps, replans: nextTask.replans },
+  });
+
+  return {
+    eval: evalResult,
+    task: nextTask,
+    plan: nextPlan,
+    iteration: (state.iteration || 0) + 1,
+    graphTrace: [graphTraceEvent('evaluate_progress', startedAt, evalResult.reason)],
+  };
+}
+
+function routeAfterEvaluate(state: typeof SynapseGraphState.State) {
+  if ((state.iteration || 0) >= MAX_ITERATIONS) return 'generate_answer';
+  if (!state.eval?.done && (state.task?.currentStep ?? 0) < (state.task?.totalSteps ?? 0)) return 'execute_step';
+  return 'generate_answer';
+}
+
 async function generateSynapseGraphAnswer(state: typeof SynapseGraphState.State) {
   const startedAt = Date.now();
   await emitSynapseEvent(state.options, {
@@ -2031,8 +2332,8 @@ async function generateSynapseGraphAnswer(state: typeof SynapseGraphState.State)
     state.beforeContext,
     state.decision,
     state.toolCalls,
-    state.sources,
-    state.readFiles
+    effectiveSources(state),
+    effectiveFiles(state)
   );
   await emitSynapseEvent(state.options, {
     type: 'node_done',
@@ -2093,8 +2394,8 @@ async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
     graphTrace: state.graphTrace,
     decision: state.decision,
     toolCalls: responseToolCalls,
-    sources: state.sources.slice(0, 12).map(compactSource),
-    readFiles: state.readFiles.map(file => ({ id: file.id, file_name: file.file_name })),
+    sources: effectiveSources(state).slice(0, 12).map(compactSource),
+    readFiles: effectiveFiles(state).map(file => ({ id: file.id, file_name: file.file_name })),
     usedMemories: (state.beforeContext.memoryContext?.memories || []).map(compactMemory),
     memoryWrite: {
       written: memoryWrite.written.map(compactMemory),
@@ -2105,6 +2406,9 @@ async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
     usedThinking: state.answer.usedThinking,
     agentSettings: state.options.agentSettings || {},
     pendingPlan: state.pendingPlan,
+    multiStep: state.plan
+      ? { plan: sanitizeForPostgres(state.plan), task: sanitizeForPostgres(state.task) }
+      : null,
   });
 
   const refreshed = await loadConversationContext(state.options.supabase, state.options.userId, state.conversation.id);
@@ -2116,8 +2420,8 @@ async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
     message: state.answer.content,
     plan: state.pendingPlan,
     toolCalls: responseToolCalls,
-    sources: state.sources,
-    files: state.readFiles,
+    sources: effectiveSources(state),
+    files: effectiveFiles(state),
     usedMemories: state.beforeContext.memoryContext?.memories || [],
     writtenMemories: memoryWrite.written,
     memoryWriteSkipped: memoryWrite.skipped,
@@ -2163,13 +2467,23 @@ async function persistSynapseGraphTurn(state: typeof SynapseGraphState.State) {
 const synapseGraph = new StateGraph(SynapseGraphState)
   .addNode('load_context', loadSynapseGraphContext)
   .addNode('decide_tools', decideSynapseGraphTools)
+  .addNode('plan_tasks', planSynapseGraphTasks)
   .addNode('execute_tools', executeSynapseGraphTools)
+  .addNode('execute_step', executeSynapseGraphStep)
+  .addNode('evaluate_progress', evaluateSynapseGraphProgress)
   .addNode('generate_answer', generateSynapseGraphAnswer)
   .addNode('persist_turn', persistSynapseGraphTurn)
   .addEdge(START, 'load_context')
   .addEdge('load_context', 'decide_tools')
   .addConditionalEdges('decide_tools', graphRouteAfterDecision, {
+    plan_tasks: 'plan_tasks',
     execute_tools: 'execute_tools',
+    generate_answer: 'generate_answer',
+  })
+  .addEdge('plan_tasks', 'execute_step')
+  .addEdge('execute_step', 'evaluate_progress')
+  .addConditionalEdges('evaluate_progress', routeAfterEvaluate, {
+    execute_step: 'execute_step',
     generate_answer: 'generate_answer',
   })
   .addEdge('execute_tools', 'generate_answer')
