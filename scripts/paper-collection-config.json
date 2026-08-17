@@ -1,0 +1,103 @@
+{
+  "collection_mode": "multi_source",
+  "comment": "多渠道论文收集配置 - 每个渠道可独立开关",
+
+  "arxiv": {
+    "enabled": true,
+    "categories": ["cs.CL", "cs.AI", "cs.LG", "cs.CV", "cs.IR", "cs.NE"],
+    "max_results": 200
+  },
+
+  "semantic_scholar": {
+    "enabled": true,
+    "queries": [
+      "RAG OR \"Retrieval-Augmented Generation\" OR \"Knowledge Graph\"",
+      "LLM OR \"Large Language Model\" OR \"Transformer\"",
+      "Agent OR \"Multi-Agent\" OR \"Autonomous Agent\""
+    ],
+    "limit_per_query": 50,
+    "api_key_env": "SEMANTIC_SCHOLAR_API_KEY"
+  },
+
+  "pubmed": {
+    "enabled": false,
+    "comment": "生物医学领域，AI 项目通常不需要",
+    "queries": [
+      "artificial intelligence[Title/Abstract] AND (machine learning[Title/Abstract] OR deep learning[Title/Abstract])",
+      "natural language processing[Title/Abstract] AND medical[Title/Abstract]"
+    ],
+    "max_results_per_query": 50
+  },
+
+  "biorxiv": {
+    "enabled": false,
+    "comment": "生物学预印本，AI 项目通常不需要",
+    "server": "biorxiv",
+    "days_back": 7
+  },
+
+  "openreview": {
+    "enabled": true,
+    "venues": [
+      "ICLR.cc/2024/Conference",
+      "NeurIPS.cc/2024/Conference",
+      "ICML.cc/2024/Conference"
+    ],
+    "limit_per_venue": 30
+  },
+
+  "filtering": {
+    "max_papers": 30,
+    "keywords": [
+      "RAG", "Retrieval-Augmented", "Graph-based Retrieval", "Hybrid Retrieval",
+      "Knowledge Graph", "Graph RAG", "Hypergraph",
+      "LLM", "Large Language Model", "Transformer",
+      "Agent", "Multi-Agent", "Reasoning", "Chain-of-Thought",
+      "Embedding", "Vector Search", "Semantic Search",
+      "Document Understanding", "Document AI", "Layout Analysis",
+      "VLM", "Vision-Language Model",
+      "Fine-tuning", "PEFT", "LoRA", "Quantization"
+    ],
+    "exclude_keywords": [
+      "Hardware", "Robotics", "FPGA", "IoT", "Blockchain", "Cryptocurrency"
+    ],
+    "min_score": 1,
+    "prefer_recent_days": 30
+  },
+
+  "llm": {
+    "providers": [
+      {
+        "name": "DeepSeek",
+        "enabled": true,
+        "endpoint": "https://api.deepseek.com/v1/chat/completions",
+        "model": "deepseek-v4-flash",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "max_retries": 3
+      },
+      {
+        "name": "OpenAI",
+        "enabled": true,
+        "endpoint": "https://api.openai.com/v1/chat/completions",
+        "model": "gpt-4o-mini",
+        "api_key_env": "OPENAI_API_KEY",
+        "max_retries": 3
+      },
+      {
+        "name": "Kimi",
+        "enabled": false,
+        "endpoint": "https://api.moonshot.cn/v1/chat/completions",
+        "model": "moonshot-v1-8k",
+        "api_key_env": "KIMI_API_KEY",
+        "max_retries": 2
+      }
+    ],
+    "fallback_behavior": "use_english_title",
+    "rate_limit_delay_ms": 1500
+  },
+
+  "schedule": {
+    "cron": "0 9 * * *",
+    "timezone": "Asia/Shanghai"
+  }
+}
