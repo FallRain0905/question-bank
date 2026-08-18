@@ -97,6 +97,30 @@ export async function updateAgentRun(
   return data;
 }
 
+// Reclaim `running` runs whose worker/process died before finishing.
+// A run that is still `running` past `olderThanMs` (default 30 min) is treated as
+// stuck and failed. Uses the service-role client, so it sweeps across all users.
+// Heartbeats (updating `updated_at` mid-run) are a later P1; until then `started_at`
+// is the best "last known alive" signal available.
+export async function reclaimStuckRuns(
+  supabase: SupabaseLike,
+  { olderThanMs = 30 * 60 * 1000 }: { olderThanMs?: number } = {}
+) {
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  const { data, error } = await supabase
+    .from('agent_runs')
+    .update({
+      status: 'failed',
+      error: 'Reclaimed by worker: run exceeded the stuck threshold without finishing.',
+      finished_at: new Date().toISOString(),
+    })
+    .eq('status', 'running')
+    .lt('started_at', cutoff)
+    .select();
+  if (error) throw error;
+  return (data || []) as any[];
+}
+
 export async function appendAgentRunEvent(
   supabase: SupabaseLike,
   userId: string,

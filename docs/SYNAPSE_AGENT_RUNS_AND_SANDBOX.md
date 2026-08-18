@@ -50,7 +50,7 @@ agent_runs.status = 'queued'
 and executes the run with the same LangGraph runtime used by `/api/agent/chat`.
 The worker uses `run.user_id` to load the user's LLM and research-tool settings through the service role client, so queued jobs do not fall back to system defaults unless the user has no override.
 
-This is intentionally not enabled by default in `ecosystem.config.js` yet. The current UI still runs chat requests through HTTP/SSE, while the worker provides the execution boundary needed for the next step:
+This is now enabled by default in `ecosystem.config.js` as the `synapse-run-worker` PM2 app. The current UI still runs chat requests through HTTP/SSE, while the worker provides the execution boundary needed for the next step:
 
 ```text
 UI creates queued run -> worker claims run -> worker writes agent_run_events -> UI subscribes/polls events
@@ -64,7 +64,7 @@ GET /api/agent/runs/:id/events?after=<sequence>
 
 and then reload the conversation when the run is completed. This is the recovery path for broken SSE connections.
 
-To enable it with PM2 later, add an app similar to:
+The worker is registered in `ecosystem.config.js` as:
 
 ```js
 {
@@ -72,11 +72,28 @@ To enable it with PM2 later, add an app similar to:
   script: './node_modules/.bin/tsx',
   args: 'scripts/synapse-run-worker.ts',
   cwd: rootDir,
+  env: {
+    NODE_ENV: 'production',
+    SYNAPSE_RUN_WORKER_POLL_MS: '3000',
+    SYNAPSE_RUN_WORKER_BATCH_SIZE: '1',
+    SYNAPSE_RUN_WORKER_REAP_INTERVAL_MS: '60000',
+    SYNAPSE_RUN_WORKER_REAP_AFTER_MS: '1800000'
+  },
+  instances: 1,
   autorestart: true,
   watch: false,
   max_memory_restart: '700M'
 }
 ```
+
+### Stuck-run reaper
+
+The worker periodically reclaims `running` runs that outlived their threshold. If a worker (or the Next.js process handling a synchronous run) crashes mid-execution, the run is left `status='running'` forever; the reaper sweeps for `status='running'` rows whose `started_at` is older than `SYNAPSE_RUN_WORKER_REAP_AFTER_MS` (default 30 min) and marks them `failed` with a clear error.
+
+- `SYNAPSE_RUN_WORKER_REAP_INTERVAL_MS` — how often to sweep (default 60s).
+- `SYNAPSE_RUN_WORKER_REAP_AFTER_MS` — a `running` run is failed once it is older than this (default 30 min).
+
+Heartbeats (updating `updated_at` mid-run) are a later improvement; until then `started_at` is the "last known alive" signal, so very long-running-but-alive tasks should keep the default threshold in mind.
 
 ## Docker Permission Fix
 

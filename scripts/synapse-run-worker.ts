@@ -1,12 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 import { getUserLLMConfigByUserId, getUserResearchToolConfigByUserId } from '../lib/user-settings';
-import { updateAgentRun } from '../lib/agent-run-service';
+import { reclaimStuckRuns, updateAgentRun } from '../lib/agent-run-service';
 import { runConfirmedDocumentLangGraphTurn, runSynapseLangGraphTurn } from '../lib/synapse-runtime';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const POLL_INTERVAL_MS = Number(process.env.SYNAPSE_RUN_WORKER_POLL_MS || 3000);
 const BATCH_SIZE = Math.max(1, Math.min(Number(process.env.SYNAPSE_RUN_WORKER_BATCH_SIZE || 1), 5));
+// Stuck-run reaper: how often to sweep, and how long a `running` run may sit before
+// it is reclaimed as failed.
+const REAP_INTERVAL_MS = Number(process.env.SYNAPSE_RUN_WORKER_REAP_INTERVAL_MS || 60000);
+const REAP_AFTER_MS = Number(process.env.SYNAPSE_RUN_WORKER_REAP_AFTER_MS || 30 * 60 * 1000);
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for Synapse run worker');
@@ -102,13 +106,30 @@ async function tick() {
   }
 }
 
+async function reapStuckRunsOnce() {
+  const reclaimed = await reclaimStuckRuns(supabase, { olderThanMs: REAP_AFTER_MS });
+  if (reclaimed.length) {
+    console.log(`[synapse-run-worker] reclaimed ${reclaimed.length} stuck run(s): ${reclaimed.map((run: any) => run.id).join(', ')}`);
+  }
+}
+
 async function main() {
   console.log('[synapse-run-worker] started');
+  let lastReapAt = 0;
   while (true) {
     try {
       await tick();
     } catch (error) {
       console.error('[synapse-run-worker] tick failed:', error);
+    }
+    const now = Date.now();
+    if (now - lastReapAt >= REAP_INTERVAL_MS) {
+      try {
+        await reapStuckRunsOnce();
+      } catch (error) {
+        console.error('[synapse-run-worker] reap failed:', error);
+      }
+      lastReapAt = now;
     }
     await sleep(POLL_INTERVAL_MS);
   }

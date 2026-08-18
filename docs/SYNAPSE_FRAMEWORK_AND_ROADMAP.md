@@ -86,31 +86,35 @@ generate_answer → persist_turn → END
 
 现状：项目没有 vitest/jest/mocha，`package.json` 无 test 脚本，仓库内 0 个测试文件。`synapse-runtime.ts` 中规划/路由/重试等**纯逻辑函数**全部内嵌在依赖 LLM + Supabase 的巨型文件里，无法隔离测试。
 
-1. **引入 vitest**（与 TS + LangGraph 生态最契合），加 `"test": "vitest run"`。
-2. **抽取纯函数为可测模块**（不改行为，只搬家）：
-   - `isSideEffectTool`、`shouldPlanMultiStep`、`graphRouteAfterDecision`、`planSynapseGraphTasks`、`confirmationPlan`、`broadenPlanStep`、`routeAfterEvaluate`、`parseJsonObject`、`heuristicDecision`。
+> ✅ **P0 已落地（commit `8cb7736`）**：引入 vitest v4 + 抽取纯函数到 `lib/synapse-planning.ts`（打破 planning↔runtime 循环依赖）+ `lib/synapse-sanitize.ts`（叶子模块，解除 sanitize 循环引用）+ 路由/规划不变量测试 `lib/synapse-planning.test.ts`（35 个用例）。`npx vitest run` 全绿，`npx tsc --noEmit` 通过。
+
+1. ✅ **引入 vitest**（与 TS + LangGraph 生态最契合），加 `"test": "vitest run"`。
+2. ✅ **抽取纯函数为可测模块**（不改行为，只搬家）：
+   - `isSideEffectTool`、`shouldPlanMultiStep`、`graphRouteAfterDecision`、`planSynapseGraphTasks`（核心 `buildMultiStepPlan`）、`confirmationPlan`、`broadenPlanStep`、`routeAfterEvaluate`、`parseJsonObject`、`heuristicDecision`。
    - 抽到 `lib/synapse-planning.ts`，原文件 re-export，保持行为不变。
-3. **决策器单元测试**：mock `callSynapseLLM`，对一批「中文指令 → 期望决策」用例断言（例如「检索 X 然后写报告」→ intent=research + 有序 tools，researchSearch 在 createDocument 前；「下载这篇论文」→ downloadPaper 且 needsConfirmation）。
-4. **路由/规划不变量测试**（无需网络）：
+3. ✅ **路由/规划不变量测试**（无需网络）：
    - tools 数量 ≤ 4；
    - 非副作用工具必在副作用工具之前；
    - 仅含副作用工具 → `confirmationPlan != null` 且 `shouldPlanMultiStep == false`；
    - `intent=research + ≥2 工具 + 副作用前有非副作用` → `shouldPlanMultiStep == true`。
-5. **重试不变量测试**：`broadenPlanStep` 只作用于 `researchSearch`，且不会超过 `MAX_REPLANS`；`evaluateSynapseGraphProgress` 在 `iteration ≥ MAX_ITERATIONS` 时强制返回 `generate_answer`。
-6. **prompt 金样（golden）测试**：对系统 prompt 模板做快照，防止改动悄悄破坏工具路由规则。
-7. **图级冒烟测试**：用 LangGraph 的 stub 节点 / mock model 跑一遍 `START→END`，断言状态机不抛异常、`MAX_ITERATIONS` 兜底生效。
+4. ✅ **重试不变量测试**：`broadenPlanStep` 只作用于 `researchSearch`，且不会超过 `MAX_REPLANS`；`routeAfterEvaluate` 在 `iteration ≥ MAX_ITERATIONS` 时强制返回 `generate_answer`。
+5. ⬜ **决策器单元测试**：mock `callSynapseLLM`，对一批「中文指令 → 期望决策」用例断言（例如「检索 X 然后写报告」→ intent=research + 有序 tools，researchSearch 在 createDocument 前；「下载这篇论文」→ downloadPaper 且 needsConfirmation）。
+6. ⬜ **prompt 金样（golden）测试**：对系统 prompt 模板做快照，防止改动悄悄破坏工具路由规则。
+7. ⬜ **图级冒烟测试**：用 LangGraph 的 stub 节点 / mock model 跑一遍 `START→END`，断言状态机不抛异常、`MAX_ITERATIONS` 兜底生效。
 
 ### B. 持久任务（worker 正确性已在，缺生产化）
 
 现状：worker 的事件链路已正确（`emitSynapseEvent` 在有 `runId` 时写 `agent_run_events`，worker 传了 `runId`），原子抢占也正确。主要缺口：
 
-1. **生产启用 worker**：`ecosystem.config.js` 目前**没有**注册 `synapse-run-worker`（文档明确「intentionally not enabled yet」）。启用后台任务需加入 PM2 app（文档 `SYNAPSE_AGENT_RUNS_AND_SANDBOX.md` 已给出片段）。
-2. **卡死 run 回收器（reaper）**：worker 崩溃会留下 `status='running'` 的僵尸 run。加一个周期性清理：`started_at` 超时（如 > 30min）的 `running` 记录自动置 `failed` 或重新 `queued`。
-3. **租约/心跳**：为长任务定期更新 `updated_at` 或写心跳事件，便于 UI 判断「还在跑」vs「已死」。
-4. **取消机制**：类型里已有 `cancelled`，但没有取消 API。加 `POST /api/agent/runs/[id]/cancel`，worker 在每步前后检查取消标志。
-5. **轮询退避**：空闲时固定 3000ms 轮询，可加指数退避 + 抖动，空队列时降到 10–30s。
-6. **并发上限与跨进程协调**：`BATCH_SIZE` 已 clamp 1–5，但单进程串行；原子 claim 已保证多 worker 安全，可直接多开实例扩容。
-7. **失败重试策略**：`failed` 后目前无重试；可加 `max_retries` + 退避，或至少把「瞬时错误 vs 业务错误」分开（瞬时错误自动重新入队）。
+> ✅ **P0 已落地（本会话，未提交）**：`ecosystem.config.js` 已注册 `synapse-run-worker` PM2 app（默认启用），worker 已加卡死 run 回收器（`reclaimStuckRuns`）。
+
+1. ✅ **生产启用 worker**：`ecosystem.config.js` 已注册 `synapse-run-worker`（`instances:1`，`autorestart`），`SYNAPSE_RUN_WORKER_POLL_MS/BATCH_SIZE` 环境变量可配。
+2. ✅ **卡死 run 回收器（reaper）**：`lib/agent-run-service.ts` 新增 `reclaimStuckRuns`，worker 周期性清扫 `started_at` 超时（`SYNAPSE_RUN_WORKER_REAP_AFTER_MS`，默认 30min）的 `running` 记录并置 `failed`。
+3. ⬜ **租约/心跳**：为长任务定期更新 `updated_at` 或写心跳事件，便于 UI 判断「还在跑」vs「已死」。
+4. ⬜ **取消机制**：类型里已有 `cancelled`，但没有取消 API。加 `POST /api/agent/runs/[id]/cancel`，worker 在每步前后检查取消标志。
+5. ⬜ **轮询退避**：空闲时固定 3000ms 轮询，可加指数退避 + 抖动，空队列时降到 10–30s。
+6. ⬜ **并发上限与跨进程协调**：`BATCH_SIZE` 已 clamp 1–5，但单进程串行；原子 claim 已保证多 worker 安全，可直接多开实例扩容。
+7. ⬜ **失败重试策略**：`failed` 后目前无重试；可加 `max_retries` + 退避，或至少把「瞬时错误 vs 业务错误」分开（瞬时错误自动重新入队）。
 
 ### C. 多步执行本身的优化（架构层）
 
@@ -129,7 +133,7 @@ generate_answer → persist_turn → END
 
 ## 三、落地优先级建议
 
-1. **P0（收益最高、风险最低）**：引入 vitest + 抽取纯函数 + 路由/规划不变量测试 —— 直接补上「多步测试」空白，且不改任何行为。
-2. **P0**：持久任务生产化 —— 把 worker 注册进 `ecosystem.config.js`，并加卡死 run 回收器。
+1. ✅ **P0（已完成）**：引入 vitest + 抽取纯函数 + 路由/规划不变量测试 —— 直接补上「多步测试」空白，且不改任何行为。
+2. ✅ **P0（已完成）**：持久任务生产化 —— worker 已注册进 `ecosystem.config.js`，并加卡死 run 回收器。
 3. **P1**：取消机制 + 心跳/租约 + 轮询退避。
 4. **P2**：子目标依赖显式化、评估节点强化、LLM 可选精修。

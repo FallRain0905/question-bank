@@ -25,6 +25,23 @@ module.exports = {
       max_memory_restart: '1G'
     },
     {
+      name: 'synapse-run-worker',
+      script: './node_modules/.bin/tsx',
+      args: 'scripts/synapse-run-worker.ts',
+      cwd: rootDir,
+      env: {
+        NODE_ENV: 'production',
+        SYNAPSE_RUN_WORKER_POLL_MS: '3000',
+        SYNAPSE_RUN_WORKER_BATCH_SIZE: '1',
+        SYNAPSE_RUN_WORKER_REAP_INTERVAL_MS: '60000',
+        SYNAPSE_RUN_WORKER_REAP_AFTER_MS: '1800000'
+      },
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '700M'
+    },
+    {
       name: 'arxiv-cron',
       script: './node_modules/.bin/tsx',
       args: 'scripts/arxiv-cron.ts',
