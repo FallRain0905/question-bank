@@ -8,6 +8,7 @@ node_modules
 out
 dist
 build
+*.tsbuildinfo
 
 # 环境变量
 .env
