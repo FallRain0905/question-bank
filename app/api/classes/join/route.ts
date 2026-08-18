@@ -67,7 +67,6 @@ export async function POST(request: NextRequest) {
     // 插入加入申请（状态为 pending）
     const { error: insertError } = await supabase
       .from('class_members')
-      // @ts-ignore - Supabase types not inferring correctly
       .insert({
         class_id: classInfo.id,
         user_id: user.id,

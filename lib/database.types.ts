@@ -67,6 +67,7 @@ export interface Database {
           answer_file_type?: string | null
           answer_file_size?: number | null
         }
+        Relationships: []
       }
       tags: {
         Row: {
@@ -84,6 +85,7 @@ export interface Database {
           name?: string
           created_at?: string
         }
+        Relationships: []
       }
       question_tags: {
         Row: {
@@ -98,6 +100,7 @@ export interface Database {
           question_id?: string
           tag_id?: number
         }
+        Relationships: []
       }
       classes: {
         Row: {
@@ -127,6 +130,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       class_members: {
         Row: {
@@ -134,6 +138,8 @@ export interface Database {
           class_id: string
           user_id: string
           role: string
+          status: string
+          message: string | null
           joined_at: string
         }
         Insert: {
@@ -141,6 +147,8 @@ export interface Database {
           class_id: string
           user_id: string
           role?: string
+          status?: string
+          message?: string | null
           joined_at?: string
         }
         Update: {
@@ -148,8 +156,11 @@ export interface Database {
           class_id?: string
           user_id?: string
           role?: string
+          status?: string
+          message?: string | null
           joined_at?: string
         }
+        Relationships: []
       }
       notes: {
         Row: {
@@ -185,6 +196,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       knowledge_bases: {
         Row: {
@@ -211,6 +223,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       kb_documents: {
         Row: {
@@ -255,6 +268,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       user_settings: {
         Row: {
@@ -305,6 +319,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       research_sessions: {
         Row: {
@@ -340,6 +355,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       research_evidence: {
         Row: {
@@ -381,6 +397,7 @@ export interface Database {
           metadata?: Json | null
           created_at?: string
         }
+        Relationships: []
       }
       generated_questions: {
         Row: {
@@ -416,7 +433,20 @@ export interface Database {
           synced_question_id?: string | null
           created_at?: string
         }
+        Relationships: []
       }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
     }
   }
 }

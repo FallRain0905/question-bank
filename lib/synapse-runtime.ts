@@ -16,6 +16,25 @@ import { normalizeResearchOptions, planResearchQueries, retrieveResearchSources 
 import { getUserMineruConfigByUserId } from '@/lib/user-settings';
 import type { AgentPlan, AgentToolCallLog, ResearchSource } from '@/types';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
+import {
+  broadenPlanStep,
+  buildMultiStepPlan,
+  confirmationPlan,
+  graphRouteAfterDecision,
+  heuristicDecision,
+  isSideEffectTool,
+  MAX_REPLANS,
+  parseJsonObject,
+  routeAfterEvaluate,
+  titleFromMessage,
+  type MultiStepPlan,
+  type SynapseDecision,
+  type SynapseEval,
+  type SynapseGraphTask,
+  type SynapseToolDecision,
+} from '@/lib/synapse-planning';
+import { sanitizeForPostgres, sanitizeTextForPostgres } from '@/lib/synapse-sanitize';
+export { sanitizeForPostgres, sanitizeTextForPostgres };
 
 type LLMConfig = {
   apiKey?: string;
@@ -32,20 +51,6 @@ type ToolConfig = {
 
 type SupabaseLike = {
   from: (table: string) => any;
-};
-
-type SynapseToolDecision = {
-  tool: 'researchSearch' | 'readDocument' | 'convertDocument' | 'createDocument' | 'downloadFile' | 'downloadPaper' | 'runTerminal' | 'listSandboxFiles';
-  title: string;
-  reason: string;
-  args: Record<string, any>;
-};
-
-type SynapseDecision = {
-  intent: 'answer' | 'research' | 'read' | 'write';
-  responseStyle: 'concise' | 'normal' | 'detailed';
-  tools: SynapseToolDecision[];
-  needsConfirmation?: boolean;
 };
 
 type SynapseRunOptions = {
@@ -126,39 +131,6 @@ function id(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function sanitizeTextForPostgres(value: string, maxLength = 120000) {
-  let output = '';
-  for (let index = 0; index < value.length && output.length < maxLength; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code === 0) continue;
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        output += value[index] + value[index + 1];
-        index += 1;
-      }
-      continue;
-    }
-    if (code >= 0xdc00 && code <= 0xdfff) continue;
-    output += value[index];
-  }
-  return output;
-}
-
-export function sanitizeForPostgres<T>(value: T, depth = 0): T {
-  if (depth > 8) return null as T;
-  if (typeof value === 'string') return sanitizeTextForPostgres(value) as T;
-  if (Array.isArray(value)) return value.map(item => sanitizeForPostgres(item, depth + 1)) as T;
-  if (value && typeof value === 'object') {
-    const next: Record<string, any> = {};
-    for (const [key, item] of Object.entries(value as Record<string, any>)) {
-      next[sanitizeTextForPostgres(key, 200)] = sanitizeForPostgres(item, depth + 1);
-    }
-    return next as T;
-  }
-  return value;
-}
-
 function compactSource(source: ResearchSource) {
   return sanitizeForPostgres({
     id: source.id,
@@ -175,20 +147,6 @@ function compactSource(source: ResearchSource) {
     pdfUrl: source.pdfUrl,
     score: source.score,
   });
-}
-
-function titleFromMessage(message: string) {
-  return sanitizeTextForPostgres(message).replace(/\s+/g, ' ').trim().slice(0, 42) || 'Synapse Conversation';
-}
-
-function parseJsonObject(text: string) {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try {
-    return JSON.parse(match[0]);
-  } catch {
-    return null;
-  }
 }
 
 function preferredModel(config: LLMConfig | null, override?: string) {
@@ -577,185 +535,6 @@ async function insertToolTrace(
   });
 }
 
-function cleanHeuristicDecision(message: string, files: any[]): SynapseDecision {
-  const lower = message.toLowerCase();
-  const wantsConvert = /转换|转成|转为|解析.*pdf|pdf.*解析|pdf.*markdown|mineru|convert|parse pdf|pdf to markdown/i.test(message);
-  const wantsSearch = /检索|搜索|联网|查找|查一下|搜一下|资料|论文|文献|综述|最新|趋势|进展|research|search|paper|literature|source|web/.test(lower);
-  const wantsRead = /文件|文档|附件|上传|pdf|docx|阅读|总结这份|分析这份|file|document|attachment|read|summarize/.test(lower) && files.length > 0;
-  const wantsWrite = /创建|生成|写.*文档|写.*报告|写.*简报|整理成.*文档|保存.*文档|导出|markdown|docx|create|generate|write|document|report|export/.test(lower);
-  const wantsDownload = /(下载|抓取|保存).*(https?:\/\/\S+)|download\s+https?:\/\/\S+/i.test(message);
-  const wantsPaperDownload = /(下载|保存|获取|抓取).*(论文|文献|paper|pdf)|(paper|pdf).*(download|save)/i.test(message);
-  const wantsTerminal = /运行命令|执行命令|终端|命令行|shell|terminal|run command|execute command/.test(lower);
-  const wantsListSandbox = /沙箱.*文件|工作区.*文件|列出.*文件|list.*files|ls workspace/.test(lower);
-  const tools: SynapseToolDecision[] = [];
-
-  if (wantsRead) {
-    tools.push({
-      tool: 'readDocument',
-      title: '读取会话文档',
-      reason: '用户提到了已上传文件或文档，需要先读取文档内容。',
-      args: { query: message },
-    });
-  }
-
-  if (wantsSearch || wantsPaperDownload) {
-    const mode = /论文|文献|综述|学术|paper|literature|semantic scholar|openalex|arxiv/.test(lower)
-      ? 'academic'
-      : /网页|官网|新闻|博客|产业|项目|github|web|news|blog|official|docs/.test(lower)
-        ? 'general'
-        : 'both';
-    tools.push({
-      tool: 'researchSearch',
-      title: mode === 'academic' ? '学术检索' : mode === 'general' ? 'Web 检索' : '综合检索',
-      reason: '用户需要外部资料支撑回答。',
-      args: { query: message, mode, depth: /深度|全面|详细|deep/.test(lower) ? 'deep' : 'medium' },
-    });
-  }
-
-  if (wantsWrite) {
-    tools.push({
-      tool: 'createDocument',
-      title: '创建文档',
-      reason: '创建或导出文档属于副作用动作，需要用户确认。',
-      args: { title: titleFromMessage(message), documentType: 'synapse_document' },
-    });
-  }
-
-  if (wantsListSandbox) {
-    tools.push({
-      tool: 'listSandboxFiles',
-      title: '列出沙箱文件',
-      reason: '用户想查看服务器沙箱/工作区内的文件。',
-      args: { maxFiles: 80 },
-    });
-  }
-
-  if (wantsDownload) {
-    const url = message.match(/https?:\/\/[^\s"'<>]+/)?.[0] || '';
-    tools.push({
-      tool: 'downloadFile',
-      title: '下载文件到沙箱',
-      reason: '从外部链接下载文件会改变服务器工作区，需要用户确认。',
-      args: { url },
-    });
-  }
-
-  if (wantsPaperDownload) {
-    tools.push({
-      tool: 'downloadPaper',
-      title: '下载论文 PDF',
-      reason: '用户希望下载检索到的论文 PDF，需要先解析可访问 PDF 链接并在确认后保存到工作区。',
-      args: { title: message, rank: 1 },
-    });
-  }
-
-  if (wantsTerminal) {
-    tools.push({
-      tool: 'runTerminal',
-      title: '运行沙箱终端命令',
-      reason: '终端命令会在服务器 Docker 沙箱中执行，需要用户确认。',
-      args: { command: message.replace(/^(运行命令|执行命令|终端|命令行)[:：]?\s*/i, '').trim() },
-    });
-  }
-
-  if (wantsConvert) {
-    const remainingTools = tools.filter(tool => tool.tool !== 'readDocument' && tool.tool !== 'createDocument' && tool.tool !== 'convertDocument');
-    tools.length = 0;
-    tools.push({
-      tool: 'convertDocument',
-      title: '转换 PDF 为 Markdown',
-      reason: '用户要求解析或转换 PDF，应该使用 MinerU 转换工具，而不是直接读取未转换 PDF。',
-      args: { query: message },
-    }, ...remainingTools);
-  }
-
-  return {
-    intent: (wantsWrite || wantsConvert || wantsDownload || wantsPaperDownload || wantsTerminal) ? 'write' : wantsSearch ? 'research' : wantsRead ? 'read' : 'answer',
-    responseStyle: /简短|简洁|brief|short/.test(lower) ? 'concise' : /详细|全面|deep|detailed/.test(lower) ? 'detailed' : 'normal',
-    tools,
-    needsConfirmation: wantsWrite || wantsConvert || wantsDownload || wantsPaperDownload || wantsTerminal,
-  };
-}
-
-function heuristicDecision(message: string, files: any[]): SynapseDecision {
-  return cleanHeuristicDecision(message, files);
-  const lower = message.toLowerCase();
-  const wantsSearch = /检索|搜索|联网|查找|查一下|搜一下|资料|论文|文献|综述|最新|趋势|进展|research|search|paper|literature|source|web/.test(lower);
-  const wantsRead = /文件|文档|附件|上传|pdf|docx|阅读|总结这份|分析这份|file|document|attachment|read|summarize/.test(lower) && files.length > 0;
-  const wantsWrite = /创建|生成|写.*文档|写.*报告|写.*简报|整理成.*文档|保存.*文档|导出|markdown|docx|create|generate|write|document|report|export/.test(lower);
-  const wantsDownload = /(下载|抓取|保存).*(https?:\/\/\S+)|download\s+https?:\/\/\S+/i.test(message);
-  const wantsTerminal = /运行命令|执行命令|终端|命令行|shell|terminal|run command|execute command/.test(lower);
-  const wantsListSandbox = /沙箱.*文件|工作区.*文件|列出.*文件|list.*files|ls workspace/.test(lower);
-  const tools: SynapseToolDecision[] = [];
-
-  if (wantsRead) {
-    tools.push({
-      tool: 'readDocument',
-      title: '读取会话文档',
-      reason: '用户提到了已上传文件或文档，需要先读取文档内容。',
-      args: { query: message },
-    });
-  }
-
-  if (wantsSearch) {
-    const mode = /论文|文献|综述|学术|paper|literature|semantic scholar|openalex|arxiv/.test(lower)
-      ? 'academic'
-      : /网页|官网|新闻|博客|产业|项目|github|web|news|blog|official|docs/.test(lower)
-        ? 'general'
-        : 'both';
-    tools.push({
-      tool: 'researchSearch',
-      title: mode === 'academic' ? '学术检索' : mode === 'general' ? 'Web 检索' : '综合检索',
-      reason: '用户需要外部资料支持回答。',
-      args: { query: message, mode, depth: /深度|全面|详细|deep/.test(lower) ? 'deep' : 'medium' },
-    });
-  }
-
-  if (wantsWrite) {
-    tools.push({
-      tool: 'createDocument',
-      title: '创建文档',
-      reason: '创建或导出文档属于副作用动作，需要用户确认。',
-      args: { title: titleFromMessage(message), documentType: 'synapse_document' },
-    });
-  }
-
-  if (wantsListSandbox) {
-    tools.push({
-      tool: 'listSandboxFiles',
-      title: '列出沙箱文件',
-      reason: '用户想查看服务器沙箱/工作区内的文件。',
-      args: { maxFiles: 80 },
-    });
-  }
-
-  if (wantsDownload) {
-    const url = message.match(/https?:\/\/[^\s"'<>]+/)?.[0] || '';
-    tools.push({
-      tool: 'downloadFile',
-      title: '下载文件到沙箱',
-      reason: '从外部链接下载文件会改变服务器工作区，需要用户确认。',
-      args: { url },
-    });
-  }
-
-  if (wantsTerminal) {
-    tools.push({
-      tool: 'runTerminal',
-      title: '运行沙箱终端命令',
-      reason: '终端命令会在服务器沙箱中执行，需要用户确认。',
-      args: { command: message.replace(/^(运行命令|执行命令|终端|命令行)[:：]?\s*/i, '').trim() },
-    });
-  }
-
-  return {
-    intent: (wantsWrite || wantsDownload || wantsTerminal) ? 'write' : wantsSearch ? 'research' : wantsRead ? 'read' : 'answer',
-    responseStyle: /简短|简单|brief|short/.test(lower) ? 'concise' : /详细|全面|deep|detailed/.test(lower) ? 'detailed' : 'normal',
-    tools,
-    needsConfirmation: wantsWrite || wantsDownload || wantsTerminal,
-  };
-}
-
 async function decideTools(
   message: string,
   context: SynapseConversationContext,
@@ -862,10 +641,6 @@ function filesContext(files: any[]) {
 Type: ${file.file_type}
 Excerpt: ${sanitizeTextForPostgres(String(file.content_text || ''), 1800)}`;
   }).join('\n\n');
-}
-
-function isSideEffectTool(tool: SynapseToolDecision | { tool: string }) {
-  return tool.tool === 'createDocument' || tool.tool === 'convertDocument' || tool.tool === 'downloadFile' || tool.tool === 'downloadPaper' || tool.tool === 'runTerminal';
 }
 
 async function runResearchTool(decision: SynapseToolDecision, options: SynapseRunOptions, conversationId: string) {
@@ -1667,36 +1442,6 @@ Write the final assistant response now.`;
   return { content: fallback, reasoning: '', model: preferredModel(options.llmConfig, options.agentSettings?.model), usedThinking: false };
 }
 
-function confirmationPlan(message: string, decision: SynapseDecision): AgentPlan | null {
-  const sideEffectTools = decision.tools.filter(isSideEffectTool);
-  if (!sideEffectTools.length) return null;
-  return {
-    id: id('plan'),
-    title: sideEffectTools.length === 1 ? sideEffectTools[0].title : '确认沙箱操作',
-    summary: '这些操作会修改服务器沙箱、运行命令或创建文档，需要你确认后再执行。',
-    steps: sideEffectTools.map(tool => ({
-      id: id('step'),
-      tool: tool.tool,
-      title: tool.title || (
-        tool.tool === 'createDocument' ? '创建 Markdown 文档' :
-        tool.tool === 'convertDocument' ? '转换 PDF 为 Markdown' :
-        tool.tool === 'downloadFile' ? '下载文件到沙箱' :
-        tool.tool === 'downloadPaper' ? '下载论文 PDF' :
-        '运行沙箱终端命令'
-      ),
-      description: tool.reason || '该操作会改变服务器工作区状态。',
-      args: tool.tool === 'createDocument'
-        ? {
-            title: tool.args.title || titleFromMessage(message),
-            documentType: tool.args.documentType || 'synapse_document',
-          }
-        : tool.args,
-    })),
-    requiresConfirmation: true,
-    createdAt: new Date().toISOString(),
-  };
-}
-
 export async function runSynapseTurn(options: SynapseRunOptions) {
   const conversation = await ensureConversation(options.supabase, options.userId, options.conversationId, options.message);
   const beforeContext = await loadConversationContext(options.supabase, options.userId, conversation.id);
@@ -1778,40 +1523,6 @@ export async function runSynapseTurn(options: SynapseRunOptions) {
     usedThinking: answer.usedThinking,
   };
 }
-
-type MultiStepSubGoal = {
-  id: string;
-  title: string;
-  description: string;
-  tools: SynapseToolDecision[];
-  critical: boolean;
-};
-
-type MultiStepPlan = {
-  id: string;
-  title: string;
-  summary: string;
-  subGoals: MultiStepSubGoal[];
-  createdAt: string;
-};
-
-type SynapseGraphTask = {
-  currentStep: number;
-  totalSteps: number;
-  status: 'planning' | 'executing' | 'completed' | 'failed' | 'needs_confirmation';
-  observation: string;
-  executed: Array<{ stepId: string; toolCalls: AgentToolCallLog[]; ok: boolean }>;
-  replans: number;
-};
-
-type SynapseEval = {
-  done: boolean;
-  replan: boolean;
-  reason: string;
-};
-
-const MAX_ITERATIONS = 6;
-const MAX_REPLANS = 2;
 
 const SynapseGraphState = Annotation.Root({
   options: Annotation<SynapseRunOptions>,
@@ -1907,28 +1618,12 @@ async function emitSynapseEvent(
   }
 }
 
-function shouldPlanMultiStep(decision: SynapseDecision) {
-  if (decision.intent !== 'research' && decision.intent !== 'write') return false;
-  const tools = decision.tools;
-  if (tools.length < 2) return false;
-  const firstSideEffect = tools.findIndex(isSideEffectTool);
-  if (firstSideEffect <= 0) return false;
-  return tools.slice(0, firstSideEffect).some(tool => !isSideEffectTool(tool));
-}
-
 function effectiveSources(state: typeof SynapseGraphState.State): ResearchSource[] {
   return state.accumulatedSources.length ? state.accumulatedSources : state.sources;
 }
 
 function effectiveFiles(state: typeof SynapseGraphState.State): any[] {
   return state.accumulatedFiles.length ? state.accumulatedFiles : state.readFiles;
-}
-
-function graphRouteAfterDecision(state: typeof SynapseGraphState.State) {
-  if (shouldPlanMultiStep(state.decision)) return 'plan_tasks';
-  return state.decision.tools.some(tool => !isSideEffectTool(tool))
-    ? 'execute_tools'
-    : 'generate_answer';
 }
 
 function synapseControllerCall(state: typeof SynapseGraphState.State): AgentToolCallLog {
@@ -2122,50 +1817,22 @@ async function planSynapseGraphTasks(state: typeof SynapseGraphState.State) {
   // (createDocument / convertDocument / downloadFile / downloadPaper / runTerminal)
   // are intentionally left out of the loop — generate_answer still collects them
   // into a confirmation plan as before.
-  const executableTools = state.decision.tools.filter(tool => !isSideEffectTool(tool));
-  const subGoals: MultiStepSubGoal[] = executableTools.map(tool => ({
-    id: id('goal'),
-    title: tool.title || (
-      tool.tool === 'researchSearch' ? '检索资料' :
-      tool.tool === 'readDocument' ? '读取文档' :
-      '检查沙箱文件'
-    ),
-    description: tool.reason || '',
-    tools: [tool],
-    critical: tool.tool === 'researchSearch' || tool.tool === 'readDocument',
-  }));
-
-  const plan: MultiStepPlan = {
-    id: id('plan'),
-    title: state.decision.intent === 'write' ? '检索并创建文档' : '多步检索任务',
-    summary: subGoals.map((goal, index) => `${index + 1}. ${goal.title}`).join('；'),
-    subGoals,
-    createdAt: new Date().toISOString(),
-  };
-
-  const task: SynapseGraphTask = {
-    currentStep: 0,
-    totalSteps: subGoals.length,
-    status: subGoals.length ? 'executing' : 'completed',
-    observation: '',
-    executed: [],
-    replans: 0,
-  };
+  const { plan, task } = buildMultiStepPlan(state.decision);
 
   await emitSynapseEvent(state.options, {
     type: 'node_done',
     node: 'plan_tasks',
     tool: 'synapse',
     title: '任务规划完成',
-    message: `已拆解为 ${subGoals.length} 个子目标。`,
-    data: { plan, totalSteps: subGoals.length },
+    message: `已拆解为 ${task.totalSteps} 个子目标。`,
+    data: { plan, totalSteps: task.totalSteps },
   });
 
   return {
     plan,
     task,
     iteration: 0,
-    graphTrace: [graphTraceEvent('plan_tasks', startedAt, `${subGoals.length} sub-goals`)],
+    graphTrace: [graphTraceEvent('plan_tasks', startedAt, `${task.totalSteps} sub-goals`)],
   };
 }
 
@@ -2246,19 +1913,6 @@ async function executeSynapseGraphStep(state: typeof SynapseGraphState.State) {
   };
 }
 
-function broadenPlanStep(plan: MultiStepPlan, stepIndex: number): MultiStepPlan {
-  const subGoals = plan.subGoals.map((goal, index) => {
-    if (index !== stepIndex) return goal;
-    return {
-      ...goal,
-      tools: goal.tools.map(tool => tool.tool === 'researchSearch'
-        ? { ...tool, title: `${tool.title}（放宽重试）`, args: { ...tool.args, mode: 'both', depth: 'fast' } }
-        : tool),
-    };
-  });
-  return { ...plan, subGoals };
-}
-
 async function evaluateSynapseGraphProgress(state: typeof SynapseGraphState.State) {
   const startedAt = Date.now();
   const plan = state.plan;
@@ -2309,12 +1963,6 @@ async function evaluateSynapseGraphProgress(state: typeof SynapseGraphState.Stat
     iteration: (state.iteration || 0) + 1,
     graphTrace: [graphTraceEvent('evaluate_progress', startedAt, evalResult.reason)],
   };
-}
-
-function routeAfterEvaluate(state: typeof SynapseGraphState.State) {
-  if ((state.iteration || 0) >= MAX_ITERATIONS) return 'generate_answer';
-  if (!state.eval?.done && (state.task?.currentStep ?? 0) < (state.task?.totalSteps ?? 0)) return 'execute_step';
-  return 'generate_answer';
 }
 
 async function generateSynapseGraphAnswer(state: typeof SynapseGraphState.State) {
