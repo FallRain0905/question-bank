@@ -33,7 +33,6 @@ async function getSystemSettingsMap(): Promise<SystemSettingsMap> {
       .select('key,value')
       .in('key', [
         'llm_provider',
-        'llm_api_key',
         'llm_api_url',
         'llm_model',
         'mineru_api_key',
@@ -58,28 +57,22 @@ async function getSystemSettingsMap(): Promise<SystemSettingsMap> {
   }
 }
 
-function getSystemLLMKey(provider: string, settings: SystemSettingsMap = {}) {
-  if (settings.llm_api_key) return settings.llm_api_key;
-  switch (provider) {
-    case 'qwen':
-      return process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || '';
-    case 'kimi':
-      return process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY || '';
-    case 'custom':
-      return process.env.OPENAI_API_KEY || '';
-    case 'deepseek':
-    default:
-      // The deepseek provider is hosted on SiliconFlow (DEFAULT_ENDPOINT), so a
-      // SiliconFlow key is a valid fallback when DEEPSEEK_API_KEY is not set.
-      return process.env.DEEPSEEK_API_KEY || process.env.SILICONFLOW_API_KEY || '';
-  }
+// The chat LLM API key is sourced ONLY from environment variables (see .env.local).
+// Model name / endpoint / provider are configured in the website settings pages instead.
+// Set LLM_API_KEY in .env.local; the legacy names below remain as fallbacks.
+function getSystemLLMKey() {
+  return process.env.LLM_API_KEY
+    || process.env.DEEPSEEK_API_KEY
+    || process.env.SILICONFLOW_API_KEY
+    || process.env.OPENAI_API_KEY
+    || '';
 }
 
 async function getSystemLLMConfig(provider = 'deepseek') {
   const settings = await getSystemSettingsMap();
   const normalizedProvider = provider || settings.llm_provider || 'deepseek';
   return {
-    apiKey: getSystemLLMKey(normalizedProvider, settings),
+    apiKey: getSystemLLMKey(),
     endpoint: settings.llm_api_url || PROVIDER_ENDPOINTS[normalizedProvider] || DEFAULT_ENDPOINT,
     provider: normalizedProvider,
     defaultModel: settings.llm_model || PROVIDER_MODELS[normalizedProvider] || DEFAULT_MODEL,
@@ -96,7 +89,7 @@ function serviceClient() {
 function buildLLMConfigFromSettings(settings: any, systemSettings: SystemSettingsMap) {
   const provider = settings?.llm_provider || systemSettings.llm_provider || 'deepseek';
   return {
-    apiKey: settings?.llm_api_key || getSystemLLMKey(provider, systemSettings),
+    apiKey: getSystemLLMKey(),
     endpoint: settings?.llm_api_url || systemSettings.llm_api_url || PROVIDER_ENDPOINTS[provider] || DEFAULT_ENDPOINT,
     provider,
     defaultModel: settings?.llm_model || systemSettings.llm_model || PROVIDER_MODELS[provider] || DEFAULT_MODEL,

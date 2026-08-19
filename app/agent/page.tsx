@@ -15,7 +15,8 @@ type ChatMessage = {
 type RightTab = 'tools' | 'sources' | 'files' | 'documents';
 
 type AgentSettings = {
-  model: 'deepseek-ai/DeepSeek-V4-Flash';
+  // Empty model means "use the server default from the settings page".
+  model: string;
   thinkingEnabled: boolean;
 };
 
@@ -39,7 +40,6 @@ function id() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 const LONG_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = LONG_REQUEST_TIMEOUT_MS) {
@@ -284,7 +284,7 @@ export default function AgentPage() {
   const [rightOpen, setRightOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentSettings, setAgentSettings] = useState<AgentSettings>({
-    model: FLASH_MODEL,
+    model: '',
     thinkingEnabled: true,
   });
   const [pendingEmbed, setPendingEmbed] = useState<PendingEmbedAction | null>(null);
@@ -306,7 +306,7 @@ export default function AgentPage() {
       if (saved) {
         const parsed = JSON.parse(saved);
         setAgentSettings({
-          model: FLASH_MODEL,
+          model: typeof parsed.model === 'string' ? parsed.model : '',
           thinkingEnabled: parsed.thinkingEnabled !== false,
         });
       }

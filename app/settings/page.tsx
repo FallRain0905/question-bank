@@ -9,7 +9,6 @@ export default function SettingsPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<UserSettings>({
     llm_provider: 'deepseek',
-    llm_api_key: '',
     llm_api_url: '',
     llm_model: '',
     mineru_api_key: '',
@@ -23,7 +22,6 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [showLlmKey, setShowLlmKey] = useState(false);
   const [showMineruKey, setShowMineruKey] = useState(false);
   const [showEmbeddingKey, setShowEmbeddingKey] = useState(false);
   const [showScholarKey, setShowScholarKey] = useState(false);
@@ -120,18 +118,9 @@ export default function SettingsPage() {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-gray-400" />
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">API Key</label>
-              <div className="relative">
-                <input type={showLlmKey ? 'text' : 'password'} value={settings.llm_api_key} onChange={(e) => update('llm_api_key', e.target.value)}
-                  placeholder="留空使用系统默认" className="w-full px-3 py-2 pr-10 border border-gray-200 rounded-lg text-sm outline-none focus:border-gray-400" />
-                <button type="button" onClick={() => setShowLlmKey(!showLlmKey)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d={showLlmKey ? 'M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M15 12a3 3 0 00-3-3m0 0a9.97 9.97 0 00-3.029 1.563M4.222 4.222l15.556 15.556' : 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.733 7.943 7.522 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.478 0-8.268-2.943-9.542-7z'} />
-                  </svg>
-                </button>
-              </div>
-            </div>
+            <p className="text-xs text-gray-400">
+              API Key 统一在服务器 <code className="text-gray-600">.env.local</code> 的 <code className="text-gray-600">LLM_API_KEY</code> 中配置，此处无需填写。
+            </p>
           </div>
         </div>
 

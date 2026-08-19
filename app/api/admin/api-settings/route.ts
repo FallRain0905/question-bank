@@ -5,13 +5,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const SUPER_ADMIN_EMAIL = '3283254551@qq.com';
-const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 
 const SETTING_DEFINITIONS = [
   { key: 'llm_provider', category: 'ai_runtime', description: '默认对话模型供应商', is_encrypted: false, defaultValue: 'deepseek' },
   { key: 'llm_api_url', category: 'ai_runtime', description: '默认对话模型 API 地址', is_encrypted: false, defaultValue: 'https://api.siliconflow.cn/v1/chat/completions' },
-  { key: 'llm_api_key', category: 'ai_runtime', description: '默认对话模型 API Key', is_encrypted: true, defaultValue: '' },
-  { key: 'llm_model', category: 'ai_runtime', description: '默认对话模型名称', is_encrypted: false, defaultValue: FLASH_MODEL },
+  { key: 'llm_model', category: 'ai_runtime', description: '默认对话模型名称', is_encrypted: false, defaultValue: 'deepseek-ai/DeepSeek-V4-Flash' },
   { key: 'embedding_api_url', category: 'ai_runtime', description: '默认嵌入模型 API 地址', is_encrypted: false, defaultValue: 'https://api.siliconflow.cn/v1/embeddings' },
   { key: 'embedding_api_key', category: 'ai_runtime', description: '默认嵌入模型 API Key', is_encrypted: true, defaultValue: '' },
   { key: 'embedding_model', category: 'ai_runtime', description: '默认嵌入模型名称', is_encrypted: false, defaultValue: 'Qwen/Qwen3-Embedding-4B' },
@@ -59,7 +57,6 @@ async function requireAdmin(req: NextRequest) {
 
 function sanitizeValue(key: SettingKey, value: unknown) {
   const text = String(value ?? '').trim();
-  if (key === 'llm_model') return FLASH_MODEL;
   if (key === 'llm_provider') return text || 'deepseek';
   if (key === 'embedding_dimensions') {
     const parsed = Number(text);

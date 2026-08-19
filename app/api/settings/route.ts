@@ -12,7 +12,6 @@ function getClient(req: NextRequest) {
 
 const defaultSettings = {
   llm_provider: 'deepseek',
-  llm_api_key: '',
   llm_api_url: '',
   llm_model: 'deepseek-ai/DeepSeek-V4-Flash',
   mineru_api_key: '',
@@ -54,7 +53,7 @@ export async function PUT(req: NextRequest) {
 
   const body = await req.json();
   const {
-    llm_provider, llm_api_key, llm_api_url, llm_model, mineru_api_key,
+    llm_provider, llm_api_url, llm_model, mineru_api_key,
     embedding_api_key, embedding_api_url, embedding_model, embedding_dimensions, hyperrag_service_url,
     semantic_scholar_api_key,
   } = body;
@@ -66,7 +65,6 @@ export async function PUT(req: NextRequest) {
     .upsert({
       user_id: user.id,
       llm_provider: llm_provider || 'deepseek',
-      llm_api_key: llm_api_key || '',
       llm_api_url: llm_api_url || '',
       llm_model: llm_model || '',
       mineru_api_key: mineru_api_key || '',

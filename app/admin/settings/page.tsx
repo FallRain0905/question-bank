@@ -7,7 +7,6 @@ import { getSupabase } from '@/lib/supabase';
 type ApiSettings = {
   llm_provider: string;
   llm_api_url: string;
-  llm_api_key: string;
   llm_model: string;
   embedding_api_url: string;
   embedding_api_key: string;
@@ -24,13 +23,10 @@ type ApiSettings = {
   nextcloud_public_url: string;
 };
 
-const FLASH_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
-
 const defaultApiSettings: ApiSettings = {
   llm_provider: 'deepseek',
   llm_api_url: 'https://api.siliconflow.cn/v1/chat/completions',
-  llm_api_key: '',
-  llm_model: FLASH_MODEL,
+  llm_model: 'deepseek-ai/DeepSeek-V4-Flash',
   embedding_api_url: 'https://api.siliconflow.cn/v1/embeddings',
   embedding_api_key: '',
   embedding_model: 'Qwen/Qwen3-Embedding-4B',
@@ -50,11 +46,11 @@ function settingRows() {
   return [
     {
       title: '对话模型',
-      description: '全站默认 LLM。用户个人设置为空时会回退到这里。',
+      description: '全站默认 LLM（模型名/地址/供应商可修改）。API Key 统一在服务器 .env.local 的 LLM_API_KEY 中配置。',
       fields: [
+        ['llm_provider', '提供商', 'deepseek'],
         ['llm_api_url', 'API 地址', 'https://api.siliconflow.cn/v1/chat/completions'],
-        ['llm_api_key', 'API Key', 'sk-...', 'password'],
-        ['llm_model', '模型', FLASH_MODEL, 'readonly'],
+        ['llm_model', '模型', 'deepseek-ai/DeepSeek-V4-Flash'],
       ],
     },
     {
@@ -128,8 +124,6 @@ export default function AdminSettingsPage() {
     setApiSettings({
       ...defaultApiSettings,
       ...(data.settings || {}),
-      llm_provider: 'deepseek',
-      llm_model: FLASH_MODEL,
       embedding_dimensions: String(data.settings?.embedding_dimensions || defaultApiSettings.embedding_dimensions),
     });
   };
@@ -137,7 +131,7 @@ export default function AdminSettingsPage() {
   const updateApiSetting = (key: keyof ApiSettings, value: string) => {
     setApiSettings(prev => ({
       ...prev,
-      [key]: key === 'llm_model' ? FLASH_MODEL : value,
+      [key]: value,
     }));
   };
 
@@ -147,8 +141,6 @@ export default function AdminSettingsPage() {
     try {
       const normalized = {
         ...apiSettings,
-        llm_provider: 'deepseek',
-        llm_model: FLASH_MODEL,
       };
       const res = await fetch('/api/admin/api-settings', {
         method: 'PUT',

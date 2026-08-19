@@ -150,9 +150,8 @@ function compactSource(source: ResearchSource) {
 }
 
 function preferredModel(config: LLMConfig | null, override?: string) {
-  if (override === FLASH_MODEL) return override;
-  if (config?.defaultModel === FLASH_MODEL) return config.defaultModel;
-  if (config?.provider && config.provider !== 'deepseek' && config.defaultModel) return config.defaultModel;
+  if (override) return override;
+  if (config?.defaultModel) return config.defaultModel;
   return FLASH_MODEL;
 }
 
@@ -1470,7 +1469,7 @@ Write the final assistant response now.`;
       : llm.error
         ? `LLM 请求失败（${llm.error}）。`
         : 'LLM 未返回有效内容。';
-  const fallback = `${errorHint}${toolSummary ? `\n\n${toolSummary}` : ''}\n\n请在服务器端检查 LLM 配置（.env.local 中的 DEEPSEEK_API_KEY / SILICONFLOW_API_KEY，以及 system_settings 表里的 llm_provider / llm_api_key / llm_api_url / llm_model），确认 API key 有效且模型名可访问后重试。`;
+  const fallback = `${errorHint}${toolSummary ? `\n\n${toolSummary}` : ''}\n\n请在服务器端检查 LLM 配置（.env.local 中的 LLM_API_KEY / DEEPSEEK_API_KEY / SILICONFLOW_API_KEY，以及网站设置页里的模型名称 / API 地址 / 供应商），确认 API key 有效且模型名可访问后重试。`;
   return { content: fallback, reasoning: '', model: preferredModel(options.llmConfig, options.agentSettings?.model), usedThinking: false };
 }
 

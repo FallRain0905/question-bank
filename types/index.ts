@@ -267,7 +267,6 @@ export interface GenerateQuestionRequest {
 export interface UserSettings {
   user_id?: string;
   llm_provider: string;
-  llm_api_key: string;
   llm_api_url: string;
   llm_model: string;
   mineru_api_key: string;
