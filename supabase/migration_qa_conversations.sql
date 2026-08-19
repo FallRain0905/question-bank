@@ -25,9 +25,11 @@ CREATE INDEX IF NOT EXISTS idx_qa_messages_conv ON qa_messages(conversation_id);
 ALTER TABLE qa_conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE qa_messages ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage their own conversations" ON qa_conversations;
 CREATE POLICY "Users can manage their own conversations" ON qa_conversations
   FOR ALL USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can manage their own messages" ON qa_messages;
 CREATE POLICY "Users can manage their own messages" ON qa_messages
   FOR ALL USING (
     conversation_id IN (SELECT id FROM qa_conversations WHERE user_id = auth.uid())

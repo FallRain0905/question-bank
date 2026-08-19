@@ -18,15 +18,19 @@ CREATE INDEX IF NOT EXISTS idx_reading_notes_user_document
 
 ALTER TABLE reading_notes ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own reading notes" ON reading_notes;
 CREATE POLICY "Users can read own reading notes" ON reading_notes
   FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create own reading notes" ON reading_notes;
 CREATE POLICY "Users can create own reading notes" ON reading_notes
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own reading notes" ON reading_notes;
 CREATE POLICY "Users can update own reading notes" ON reading_notes
   FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own reading notes" ON reading_notes;
 CREATE POLICY "Users can delete own reading notes" ON reading_notes
   FOR DELETE USING (auth.uid() = user_id);
 

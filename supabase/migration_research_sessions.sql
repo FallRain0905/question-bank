@@ -16,15 +16,19 @@ CREATE INDEX IF NOT EXISTS idx_research_sessions_user_updated
 
 ALTER TABLE research_sessions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own research sessions" ON research_sessions;
 CREATE POLICY "Users can read own research sessions" ON research_sessions
   FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create own research sessions" ON research_sessions;
 CREATE POLICY "Users can create own research sessions" ON research_sessions
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own research sessions" ON research_sessions;
 CREATE POLICY "Users can update own research sessions" ON research_sessions
   FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own research sessions" ON research_sessions;
 CREATE POLICY "Users can delete own research sessions" ON research_sessions
   FOR DELETE USING (auth.uid() = user_id);
 
@@ -47,14 +51,18 @@ CREATE INDEX IF NOT EXISTS idx_research_evidence_session_created
 
 ALTER TABLE research_evidence ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own research evidence" ON research_evidence;
 CREATE POLICY "Users can read own research evidence" ON research_evidence
   FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create own research evidence" ON research_evidence;
 CREATE POLICY "Users can create own research evidence" ON research_evidence
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own research evidence" ON research_evidence;
 CREATE POLICY "Users can update own research evidence" ON research_evidence
   FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own research evidence" ON research_evidence;
 CREATE POLICY "Users can delete own research evidence" ON research_evidence
   FOR DELETE USING (auth.uid() = user_id);

@@ -32,11 +32,18 @@ CREATE INDEX IF NOT EXISTS idx_review_logs_user_reviewed ON review_logs(user_id,
 ALTER TABLE review_schedule ENABLE ROW LEVEL SECURITY;
 ALTER TABLE review_logs ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own review schedule" ON review_schedule;
 CREATE POLICY "Users can read own review schedule" ON review_schedule FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own review schedule" ON review_schedule;
 CREATE POLICY "Users can insert own review schedule" ON review_schedule FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own review schedule" ON review_schedule;
 CREATE POLICY "Users can update own review schedule" ON review_schedule FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own review schedule" ON review_schedule;
 CREATE POLICY "Users can delete own review schedule" ON review_schedule FOR DELETE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can read own review logs" ON review_logs;
 CREATE POLICY "Users can read own review logs" ON review_logs FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own review logs" ON review_logs;
 CREATE POLICY "Users can insert own review logs" ON review_logs FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own review logs" ON review_logs;
 CREATE POLICY "Users can delete own review logs" ON review_logs FOR DELETE USING (auth.uid() = user_id);

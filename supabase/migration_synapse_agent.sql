@@ -64,34 +64,48 @@ ALTER TABLE agent_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_tool_traces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_files ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own agent conversations" ON agent_conversations;
 CREATE POLICY "Users can read own agent conversations" ON agent_conversations
   FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can create own agent conversations" ON agent_conversations;
 CREATE POLICY "Users can create own agent conversations" ON agent_conversations
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own agent conversations" ON agent_conversations;
 CREATE POLICY "Users can update own agent conversations" ON agent_conversations
   FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own agent conversations" ON agent_conversations;
 CREATE POLICY "Users can delete own agent conversations" ON agent_conversations
   FOR DELETE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can read own agent messages" ON agent_messages;
 CREATE POLICY "Users can read own agent messages" ON agent_messages
   FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can create own agent messages" ON agent_messages;
 CREATE POLICY "Users can create own agent messages" ON agent_messages
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own agent messages" ON agent_messages;
 CREATE POLICY "Users can delete own agent messages" ON agent_messages
   FOR DELETE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can read own agent tool traces" ON agent_tool_traces;
 CREATE POLICY "Users can read own agent tool traces" ON agent_tool_traces
   FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can create own agent tool traces" ON agent_tool_traces;
 CREATE POLICY "Users can create own agent tool traces" ON agent_tool_traces
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own agent tool traces" ON agent_tool_traces;
 CREATE POLICY "Users can update own agent tool traces" ON agent_tool_traces
   FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own agent tool traces" ON agent_tool_traces;
 CREATE POLICY "Users can delete own agent tool traces" ON agent_tool_traces
   FOR DELETE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can read own agent files" ON agent_files;
 CREATE POLICY "Users can read own agent files" ON agent_files
   FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can create own agent files" ON agent_files;
 CREATE POLICY "Users can create own agent files" ON agent_files
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own agent files" ON agent_files;
 CREATE POLICY "Users can delete own agent files" ON agent_files
   FOR DELETE USING (auth.uid() = user_id);

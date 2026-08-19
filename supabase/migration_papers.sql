@@ -34,7 +34,11 @@ CREATE INDEX IF NOT EXISTS idx_paper_favorites_user ON paper_favorites(user_id);
 ALTER TABLE daily_papers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE paper_favorites ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Anyone can read papers" ON daily_papers;
 CREATE POLICY "Anyone can read papers" ON daily_papers FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users can favorite papers" ON paper_favorites;
 CREATE POLICY "Users can favorite papers" ON paper_favorites FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can unfavorite papers" ON paper_favorites;
 CREATE POLICY "Users can unfavorite papers" ON paper_favorites FOR DELETE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can read favorites" ON paper_favorites;
 CREATE POLICY "Users can read favorites" ON paper_favorites FOR SELECT USING (true);

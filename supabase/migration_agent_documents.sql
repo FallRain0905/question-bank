@@ -15,14 +15,18 @@ CREATE INDEX IF NOT EXISTS idx_agent_documents_user_updated
 
 ALTER TABLE agent_documents ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own agent documents" ON agent_documents;
 CREATE POLICY "Users can read own agent documents" ON agent_documents
   FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create own agent documents" ON agent_documents;
 CREATE POLICY "Users can create own agent documents" ON agent_documents
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own agent documents" ON agent_documents;
 CREATE POLICY "Users can update own agent documents" ON agent_documents
   FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own agent documents" ON agent_documents;
 CREATE POLICY "Users can delete own agent documents" ON agent_documents
   FOR DELETE USING (auth.uid() = user_id);

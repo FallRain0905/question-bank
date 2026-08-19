@@ -77,14 +77,18 @@ CREATE TRIGGER trg_agent_artifacts_updated_at
 
 ALTER TABLE agent_artifacts ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own agent artifacts" ON agent_artifacts;
 CREATE POLICY "Users can read own agent artifacts" ON agent_artifacts
   FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create own agent artifacts" ON agent_artifacts;
 CREATE POLICY "Users can create own agent artifacts" ON agent_artifacts
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own agent artifacts" ON agent_artifacts;
 CREATE POLICY "Users can update own agent artifacts" ON agent_artifacts
   FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own agent artifacts" ON agent_artifacts;
 CREATE POLICY "Users can delete own agent artifacts" ON agent_artifacts
   FOR DELETE USING (auth.uid() = user_id);

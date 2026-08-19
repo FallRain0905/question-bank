@@ -56,18 +56,25 @@ CREATE TRIGGER trg_agent_runs_updated_at
 ALTER TABLE agent_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_run_events ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own agent runs" ON agent_runs;
 CREATE POLICY "Users can read own agent runs" ON agent_runs
   FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can create own agent runs" ON agent_runs;
 CREATE POLICY "Users can create own agent runs" ON agent_runs
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own agent runs" ON agent_runs;
 CREATE POLICY "Users can update own agent runs" ON agent_runs
   FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own agent runs" ON agent_runs;
 CREATE POLICY "Users can delete own agent runs" ON agent_runs
   FOR DELETE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can read own agent run events" ON agent_run_events;
 CREATE POLICY "Users can read own agent run events" ON agent_run_events
   FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can create own agent run events" ON agent_run_events;
 CREATE POLICY "Users can create own agent run events" ON agent_run_events
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own agent run events" ON agent_run_events;
 CREATE POLICY "Users can delete own agent run events" ON agent_run_events
   FOR DELETE USING (auth.uid() = user_id);
