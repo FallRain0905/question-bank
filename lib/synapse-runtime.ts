@@ -157,7 +157,11 @@ function preferredModel(config: LLMConfig | null, override?: string) {
 }
 
 async function callSynapseLLM(config: LLMConfig | null, messages: any[], maxTokens = 1200, options: { model?: string; thinkingEnabled?: boolean } = {}) {
-  if (!config?.apiKey || !config?.endpoint) return { content: '', reasoning: '', model: preferredModel(config, options.model), usedThinking: false };
+  if (!config?.apiKey || !config?.endpoint) {
+    const error = !config?.apiKey ? 'missing-api-key' : 'missing-endpoint';
+    console.error(`[Synapse LLM] ${error}; cannot call the model.`);
+    return { content: '', reasoning: '', model: preferredModel(config, options.model), usedThinking: false, error };
+  }
 
   const model = preferredModel(config, options.model);
   const endpoint = config.endpoint;
@@ -200,15 +204,25 @@ async function callSynapseLLM(config: LLMConfig | null, messages: any[], maxToke
     usedThinking = options.thinkingEnabled !== false;
   }
 
-  if (!result.res.ok) return { content: '', reasoning: '', model, usedThinking: false };
+  if (!result.res.ok) {
+    const status = result.res.status;
+    const snippet = String(result.text || '').slice(0, 300);
+    console.error(`[Synapse LLM] API error ${status}: ${snippet}`);
+    return { content: '', reasoning: '', model, usedThinking: false, error: `api-error:${status}` };
+  }
 
   const message = result.data?.choices?.[0]?.message || {};
-  return {
-    content: message.content || '',
-    reasoning: message.reasoning_content || message.reasoning || '',
-    model,
-    usedThinking,
-  };
+  const content = message.content || '';
+  const reasoning = message.reasoning_content || message.reasoning || '';
+  if (!content && reasoning) {
+    console.warn('[Synapse LLM] response had empty content but non-empty reasoning; using reasoning as the answer.');
+    return { content: reasoning, reasoning, model, usedThinking, error: undefined };
+  }
+  if (!content) {
+    console.warn('[Synapse LLM] response had empty content and no reasoning.');
+    return { content: '', reasoning: '', model, usedThinking, error: 'empty-response' };
+  }
+  return { content, reasoning, model, usedThinking, error: undefined };
 }
 
 async function callSynapseLLMStreaming(
@@ -303,7 +317,15 @@ async function callSynapseLLMStreaming(
   }
   if (buffer.trim()) await handleLine(buffer);
 
-  return { content, reasoning, model, usedThinking };
+  if (!content && reasoning) {
+    console.warn('[Synapse LLM] streaming response had empty content but non-empty reasoning; using reasoning as the answer.');
+    return { content: reasoning, reasoning, model, usedThinking, error: undefined };
+  }
+  if (!content) {
+    console.warn('[Synapse LLM] streaming response ended with empty content.');
+    return { content: '', reasoning, model, usedThinking, error: 'empty-response' };
+  }
+  return { content, reasoning, model, usedThinking, error: undefined };
 }
 
 async function ensureConversation(supabase: SupabaseLike, userId: string, conversationId: string | undefined, message: string) {
@@ -1436,9 +1458,19 @@ Write the final assistant response now.`;
     };
   }
 
-  const fallback = toolCalls.length
-    ? `我已完成工具调用：${toolCalls.map(call => call.result || call.title).join('；')}\n\n${sources.length ? `检索到了 ${sources.length} 个来源。你可以在右侧来源栏查看，我也可以继续基于这些来源生成文档或进一步分析。` : ''}${readFiles.length ? `已读取 ${readFiles.length} 个上传文档。` : ''}`
-    : '我可以直接回答这个问题；如果你希望我检索资料、读取上传文档或创建文档，可以直接告诉我。';
+  // The model returned no usable content. Surface the underlying cause instead of
+  // silently serving canned text so config problems are diagnosable.
+  const toolSummary = toolCalls.length
+    ? `我已完成的工具调用：${toolCalls.map(call => call.result || call.title).join('；')}`
+    : '';
+  const errorHint = llm.error === 'missing-api-key'
+    ? '服务器端未配置 LLM API key。'
+    : llm.error === 'missing-endpoint'
+      ? '服务器端未配置 LLM endpoint。'
+      : llm.error
+        ? `LLM 请求失败（${llm.error}）。`
+        : 'LLM 未返回有效内容。';
+  const fallback = `${errorHint}${toolSummary ? `\n\n${toolSummary}` : ''}\n\n请在服务器端检查 LLM 配置（.env.local 中的 DEEPSEEK_API_KEY / SILICONFLOW_API_KEY，以及 system_settings 表里的 llm_provider / llm_api_key / llm_api_url / llm_model），确认 API key 有效且模型名可访问后重试。`;
   return { content: fallback, reasoning: '', model: preferredModel(options.llmConfig, options.agentSettings?.model), usedThinking: false };
 }
 

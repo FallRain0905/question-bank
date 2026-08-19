@@ -69,7 +69,9 @@ function getSystemLLMKey(provider: string, settings: SystemSettingsMap = {}) {
       return process.env.OPENAI_API_KEY || '';
     case 'deepseek':
     default:
-      return process.env.DEEPSEEK_API_KEY || '';
+      // The deepseek provider is hosted on SiliconFlow (DEFAULT_ENDPOINT), so a
+      // SiliconFlow key is a valid fallback when DEEPSEEK_API_KEY is not set.
+      return process.env.DEEPSEEK_API_KEY || process.env.SILICONFLOW_API_KEY || '';
   }
 }
 
