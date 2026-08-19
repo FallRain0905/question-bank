@@ -3,6 +3,7 @@ import "./globals.css";
 import "katex/dist/katex.min.css";
 import Sidebar, { SidebarProvider } from "@/components/Sidebar";
 import FloatingAIButton from "@/components/FloatingAIButton";
+import CommandPalette from "@/components/CommandPalette";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SidebarSpacer } from "@/components/Sidebar";
 
@@ -41,6 +42,7 @@ export default function RootLayout({
             </div>
           </SidebarProvider>
           <FloatingAIButton />
+          <CommandPalette />
         </ThemeProvider>
       </body>
     </html>

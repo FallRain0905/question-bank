@@ -102,6 +102,78 @@ export interface Database {
         }
         Relationships: []
       }
+      review_schedule: {
+        Row: {
+          id: string
+          user_id: string
+          question_id: string
+          ease: number
+          interval_days: number
+          reps: number
+          due_at: string
+          last_reviewed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          question_id: string
+          ease?: number
+          interval_days?: number
+          reps?: number
+          due_at?: string
+          last_reviewed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          question_id?: string
+          ease?: number
+          interval_days?: number
+          reps?: number
+          due_at?: string
+          last_reviewed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      review_logs: {
+        Row: {
+          id: string
+          user_id: string
+          schedule_id: string
+          question_id: string | null
+          grade: string
+          ease: number
+          interval_days: number
+          reviewed_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          schedule_id: string
+          question_id?: string | null
+          grade: string
+          ease: number
+          interval_days: number
+          reviewed_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          schedule_id?: string
+          question_id?: string | null
+          grade?: string
+          ease?: number
+          interval_days?: number
+          reviewed_at?: string
+        }
+        Relationships: []
+      }
       classes: {
         Row: {
           id: string

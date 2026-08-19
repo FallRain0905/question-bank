@@ -1,5 +1,7 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+
 interface Paper {
   id: string;
   arxiv_id: string;
@@ -36,6 +38,8 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function PaperCard({ paper, onFavorite, onImport }: PaperCardProps) {
+  const router = useRouter();
+
   let points: string[] = [];
   try {
     points = paper.summary_zh ? JSON.parse(paper.summary_zh) : [];
@@ -44,7 +48,10 @@ export default function PaperCard({ paper, onFavorite, onImport }: PaperCardProp
   const mainCategory = paper.categories[0] || 'cs.AI';
 
   return (
-    <div className="bg-white border border-gray-100 rounded-xl p-4 sm:p-5 hover:border-blue-200 transition-colors">
+    <div
+      onClick={() => router.push(`/papers/${paper.id}`)}
+      className="bg-white border border-gray-100 rounded-xl p-4 sm:p-5 hover:border-blue-200 transition-colors cursor-pointer"
+    >
       {/* Zone A: Source & Time */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs text-gray-400 font-mono">ArXiv {mainCategory}</span>
@@ -99,6 +106,7 @@ export default function PaperCard({ paper, onFavorite, onImport }: PaperCardProp
               href={paper.arxiv_url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
               className="text-xs text-gray-400 hover:text-blue-500 transition-colors"
             >
               原文
@@ -106,7 +114,7 @@ export default function PaperCard({ paper, onFavorite, onImport }: PaperCardProp
           )}
           {onImport && (
             <button
-              onClick={() => onImport(paper)}
+              onClick={e => { e.stopPropagation(); onImport(paper); }}
               className="px-2.5 py-1 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors"
             >
               导入知识库
@@ -114,7 +122,7 @@ export default function PaperCard({ paper, onFavorite, onImport }: PaperCardProp
           )}
           {onFavorite && (
             <button
-              onClick={() => onFavorite(paper.id, !paper.is_favorited)}
+              onClick={e => { e.stopPropagation(); onFavorite(paper.id, !paper.is_favorited); }}
               className={`text-lg leading-none transition-colors ${paper.is_favorited ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-400'}`}
             >
               {paper.is_favorited ? '★' : '☆'}

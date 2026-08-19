@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase';
 import { renderMarkdown } from '@/lib/render-markdown';
 import type { AgentArtifact, AgentConversation, AgentDocument, AgentFile, AgentPlan, AgentStoredMessage, AgentToolCallLog, ResearchSource } from '@/types';
@@ -1184,6 +1185,12 @@ export default function AgentPage() {
                 会话
               </button>
             )}
+            <Link
+              href="/agent/history"
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:border-gray-300"
+            >
+              运行历史
+            </Link>
             <div className="relative">
               <button
                 onClick={() => setSettingsOpen(prev => !prev)}

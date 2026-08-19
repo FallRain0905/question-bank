@@ -131,6 +131,11 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   ),
+  review: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 12a8 8 0 11-2.343-5.657L13 9" />
+    </svg>
+  ),
   more: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm6 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm6 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
@@ -148,6 +153,7 @@ const mainNavItems: NavItem[] = [
   { href: '/papers', label: '论文库', icon: Icons.papers },
   { href: '/graph', label: '研究图谱', icon: Icons.graph },
   { href: '/questions', label: '题库', icon: Icons.search },
+  { href: '/review', label: '复习', icon: Icons.review },
   { href: '/notes', label: '笔记', icon: Icons.notes },
 ];
 
@@ -156,6 +162,7 @@ export default function Sidebar() {
   const { collapsed, setCollapsed } = useSidebar();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [reviewDueCount, setReviewDueCount] = useState(0);
   const [isClassModerator, setIsClassModerator] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
@@ -186,6 +193,7 @@ export default function Sidebar() {
         });
         loadUnreadCount(session.user.id);
         checkClassModerator(session.user.id);
+        loadReviewDueCount(session.user.id);
       }
     };
     loadUser();
@@ -200,9 +208,11 @@ export default function Sidebar() {
         });
         loadUnreadCount(session.user.id);
         checkClassModerator(session.user.id);
+        loadReviewDueCount(session.user.id);
       } else {
         setUser(null);
         setUnreadCount(0);
+        setReviewDueCount(0);
         setIsClassModerator(false);
       }
     });
@@ -232,6 +242,19 @@ export default function Sidebar() {
         .eq('user_id', userId)
         .eq('is_read', false);
       setUnreadCount(count || 0);
+    } catch {
+      // ignore
+    }
+  };
+
+  const loadReviewDueCount = async (userId: string) => {
+    try {
+      const { count } = await getSupabase()
+        .from('review_schedule')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .lte('due_at', new Date().toISOString());
+      setReviewDueCount(count || 0);
     } catch {
       // ignore
     }
@@ -272,6 +295,7 @@ export default function Sidebar() {
     { href: '/papers', label: '论文库', icon: Icons.papers },
     { href: '/graph', label: '研究图谱', icon: Icons.graph },
     { href: '/questions', label: '题库', icon: Icons.search },
+    { href: '/review', label: '复习', icon: Icons.review },
     { href: '/notes', label: '笔记', icon: Icons.notes },
     { href: '/settings', label: '设置', icon: Icons.settings },
     { href: '/convert', label: '文档转换', icon: Icons.parse },
@@ -437,7 +461,7 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+              className={`relative flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
                 isActive(item.href)
                   ? 'bg-blue-50 text-blue-600 font-medium'
                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
@@ -445,6 +469,15 @@ export default function Sidebar() {
             >
               {item.icon}
               {!collapsed && <span>{item.label}</span>}
+              {item.href === '/review' && reviewDueCount > 0 && (
+                collapsed ? (
+                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-blue-600" />
+                ) : (
+                  <span className="ml-auto min-w-[16px] h-4 bg-blue-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+                    {reviewDueCount > 99 ? '99+' : reviewDueCount}
+                  </span>
+                )
+              )}
             </Link>
           ))}
 

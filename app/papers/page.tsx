@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { getSupabase } from '@/lib/supabase';
 import PaperCard, { Paper } from '@/components/PaperCard';
+import { ListSkeleton } from '@/components/Skeleton';
 
 export default function PapersPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
@@ -158,20 +159,7 @@ export default function PapersPage() {
 
       {/* Paper list */}
       {loading ? (
-        <div className="space-y-4">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="bg-white border border-gray-100 rounded-xl p-5 animate-pulse">
-              <div className="h-4 bg-gray-100 rounded w-1/4 mb-3" />
-              <div className="h-6 bg-gray-100 rounded w-3/4 mb-2" />
-              <div className="h-4 bg-gray-100 rounded w-1/2 mb-4" />
-              <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                <div className="h-3 bg-gray-100 rounded" />
-                <div className="h-3 bg-gray-100 rounded w-5/6" />
-                <div className="h-3 bg-gray-100 rounded w-4/6" />
-              </div>
-            </div>
-          ))}
-        </div>
+        <ListSkeleton count={3} component="paper" />
       ) : papers.length === 0 ? (
         <div className="text-center py-16 bg-white border border-gray-100 rounded-xl">
           <p className="text-gray-400 mb-2">暂无论文数据</p>

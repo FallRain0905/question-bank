@@ -129,7 +129,7 @@ export function applyTheme(themeId: string): void {
   if (theme.accent) root.style.setProperty('--theme-accent', theme.accent);
   if (theme.shadow) root.style.setProperty('--theme-shadow', theme.shadow);
 
-  root.classList.remove('theme-light', 'theme-dark', 'theme-professional', 'theme-fresh', 'theme-tech');
+  root.classList.remove('theme-light', 'theme-dark');
   root.classList.add(`theme-${themeId}`);
 
   if (theme.isDark) {

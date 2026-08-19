@@ -495,6 +495,33 @@ a:hover {
   box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.4) !important;
 }
 
+/* 补漏：半透明白色背景（移动端导航 / 吸顶栏 / 弹层） */
+.dark-mode .bg-white\/30 { background-color: rgba(26, 26, 26, 0.3) !important; }
+.dark-mode .bg-white\/50 { background-color: rgba(26, 26, 26, 0.5) !important; }
+.dark-mode .bg-white\/70 { background-color: rgba(26, 26, 26, 0.7) !important; }
+.dark-mode .bg-white\/80 { background-color: rgba(26, 26, 26, 0.8) !important; }
+.dark-mode .bg-white\/85 { background-color: rgba(26, 26, 26, 0.85) !important; }
+.dark-mode .bg-white\/90 { background-color: rgba(26, 26, 26, 0.9) !important; }
+.dark-mode .bg-white\/95 { background-color: rgba(26, 26, 26, 0.95) !important; }
+
+/* 补漏：灰阶背景 / 边框（分隔线 / 禁用态 / 输入框） */
+.dark-mode .bg-gray-200 { background-color: #2a2a2a !important; }
+.dark-mode .bg-gray-300 { background-color: #3a3a3a !important; }
+.dark-mode .border-gray-300 { border-color: #333 !important; }
+.dark-mode .border-gray-300\/50 { border-color: rgba(51, 51, 51, 0.5) !important; }
+.dark-mode .bg-gray-50\/30 { background-color: rgba(15, 15, 15, 0.3) !important; }
+.dark-mode .bg-gray-100\/30 { background-color: rgba(34, 34, 34, 0.3) !important; }
+.dark-mode .bg-gray-100\/80 { background-color: rgba(34, 34, 34, 0.8) !important; }
+.dark-mode .bg-gray-200\/30 { background-color: rgba(42, 42, 42, 0.3) !important; }
+
+/* 补漏：slate 深色文字（标题 / 摘要） */
+.dark-mode .text-slate-800 { color: #e5e5e5 !important; }
+.dark-mode .text-slate-700 { color: #d4d4d4 !important; }
+
+/* 补漏：hover 边框 */
+.dark-mode .hover\:border-gray-300:hover { border-color: #4a4a4a !important; }
+.dark-mode .hover\:border-gray-400:hover { border-color: #525252 !important; }
+
 /* 优化移动端动画性能 */
 @media (prefers-reduced-motion: reduce) {
   * {
