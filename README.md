@@ -6,6 +6,8 @@
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3E88C6?style=for-the-badge&logo=supabase)](https://supabase.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-black?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 
+> 产品定位、后端替换决策、英语资料导入策略和分阶段实施计划见：[学习辅助产品决策与实施计划](docs/LEARNING_PRODUCT_DECISION_AND_IMPLEMENTATION_PLAN.md)
+
 ## 功能概览
 SynapFlow 功能一览：
 

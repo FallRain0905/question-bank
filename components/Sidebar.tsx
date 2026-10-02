@@ -144,17 +144,11 @@ const Icons = {
 };
 
 const mainNavItems: NavItem[] = [
-  { href: '/agent', label: 'Agent', icon: Icons.qa },
-  { href: '/research', label: '研究', icon: Icons.research },
-  { href: '/search', label: '搜索', icon: Icons.search },
-  { href: '/kb', label: '知识库', icon: Icons.kb },
-  { href: '/qa', label: '知识问答', icon: Icons.qa },
-  { href: '/reader', label: 'AI 阅读', icon: Icons.papers },
-  { href: '/papers', label: '论文库', icon: Icons.papers },
-  { href: '/graph', label: '研究图谱', icon: Icons.graph },
+  { href: '/', label: '今日学习', icon: Icons.home },
   { href: '/questions', label: '题库', icon: Icons.search },
-  { href: '/review', label: '复习', icon: Icons.review },
   { href: '/notes', label: '笔记', icon: Icons.notes },
+  { href: '/review', label: '复习', icon: Icons.review },
+  { href: '/progress', label: '学习进度', icon: Icons.graph },
 ];
 
 export default function Sidebar() {
@@ -283,26 +277,22 @@ export default function Sidebar() {
   }, [pathname]);
 
   const mobileNavItems: NavItem[] = [
-    { href: '/research', label: '研究', icon: Icons.research },
-    { href: '/search', label: '搜索', icon: Icons.search },
-    { href: '/kb', label: '知识库', icon: Icons.kb },
-    { href: '/qa', label: '问答', icon: Icons.qa },
-    { href: '/reader', label: '阅读', icon: Icons.papers },
-  ];
-
-  const mobileMoreItems: NavItem[] = [
-    { href: '/', label: '首页', icon: Icons.home },
-    { href: '/papers', label: '论文库', icon: Icons.papers },
-    { href: '/graph', label: '研究图谱', icon: Icons.graph },
+    { href: '/', label: '今日学习', icon: Icons.home },
     { href: '/questions', label: '题库', icon: Icons.search },
     { href: '/review', label: '复习', icon: Icons.review },
     { href: '/notes', label: '笔记', icon: Icons.notes },
+    { href: '/me', label: '我的', icon: Icons.user },
+  ];
+
+  const mobileMoreItems: NavItem[] = [
+    { href: '/', label: '今日学习', icon: Icons.home },
+    { href: '/questions', label: '题库', icon: Icons.search },
+    { href: '/review', label: '复习', icon: Icons.review },
+    { href: '/notes', label: '笔记', icon: Icons.notes },
+    { href: '/progress', label: '学习进度', icon: Icons.graph },
     { href: '/settings', label: '设置', icon: Icons.settings },
-    { href: '/convert', label: '文档转换', icon: Icons.parse },
-    { href: '/english', label: '英语训练', icon: Icons.qa },
-    { href: '/generator', label: '智能出题', icon: Icons.admin },
-    { href: '/classes', label: '团队', icon: Icons.classes },
-    { href: '/me', label: '个人中心', icon: Icons.user },
+    { href: '/english', label: '英语练习', icon: Icons.qa },
+    { href: '/me', label: '我的', icon: Icons.user },
     { href: '/notifications', label: '通知', icon: Icons.notifications },
     ...(user?.is_admin || isClassModerator ? [{ href: '/admin', label: '管理后台', icon: Icons.admin }] : []),
   ];
@@ -485,30 +475,17 @@ export default function Sidebar() {
             <>
               {!collapsed && (
                 <div className="px-2 mt-4 mb-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
-                  资料
+                  学习工具
                 </div>
               )}
-              <Link
-                href="/convert"
-                className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                  isActive('/convert') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } ${collapsed ? 'justify-center' : ''}`}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                </svg>
-                {!collapsed && <span>文档转换</span>}
-              </Link>
               <Link
                 href="/english"
                 className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
                   isActive('/english') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 } ${collapsed ? 'justify-center' : ''}`}
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
-                </svg>
-                {!collapsed && <span>英语训练</span>}
+                {Icons.qa}
+                {!collapsed && <span>英语练习</span>}
               </Link>
 
               {(user.is_admin || isClassModerator) && (

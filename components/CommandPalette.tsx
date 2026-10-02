@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentTheme, setCurrentTheme } from '@/lib/theme';
+import { PRODUCT_FLAGS } from '@/lib/product-flags';
 
 interface Command {
   label: string;
@@ -13,23 +14,28 @@ interface Command {
   group: string;
 }
 
-const COMMANDS: Command[] = [
-  { group: '页面', icon: '🤖', label: 'Agent 工作台', href: '/agent', keywords: 'agent synapse 助手' },
-  { group: '页面', icon: '🕘', label: 'Agent 运行历史', href: '/agent/history', keywords: 'history run 历史 记录' },
-  { group: '页面', icon: '🔬', label: '研究', href: '/research', keywords: 'research 调研 报告' },
-  { group: '页面', icon: '🔎', label: '搜索', href: '/search', keywords: 'search 检索' },
-  { group: '页面', icon: '📚', label: '知识库', href: '/kb', keywords: 'knowledge base kb 文档' },
-  { group: '页面', icon: '💬', label: '知识问答', href: '/qa', keywords: 'qa question answer 问答' },
-  { group: '页面', icon: '📖', label: 'AI 阅读', href: '/reader', keywords: 'reader reading 阅读' },
-  { group: '页面', icon: '📄', label: '论文库', href: '/papers', keywords: 'paper arxiv 论文' },
-  { group: '页面', icon: '🕸️', label: '研究图谱', href: '/graph', keywords: 'graph 图谱 关系' },
-  { group: '页面', icon: '📝', label: '题库', href: '/questions', keywords: 'question bank 题目' },
-  { group: '页面', icon: '🗒️', label: '笔记', href: '/notes', keywords: 'note 笔记 记录' },
-  { group: '工具', icon: '🔄', label: '文档转换', href: '/convert', keywords: 'convert mineru pdf' },
-  { group: '工具', icon: '🎓', label: '英语训练', href: '/english', keywords: 'english 英语 单词' },
+const CORE_COMMANDS: Command[] = [
+  { group: '学习', icon: '🏠', label: '今日学习', href: '/', keywords: 'home today 今日 学习' },
+  { group: '学习', icon: '📝', label: '题库', href: '/questions', keywords: 'question bank 题目 练习' },
+  { group: '学习', icon: '🗒️', label: '笔记', href: '/notes', keywords: 'note 笔记 记录' },
+  { group: '学习', icon: '🔁', label: '复习', href: '/review', keywords: 'review 复习 间隔 错题' },
+  { group: '学习', icon: '📈', label: '学习进度', href: '/progress', keywords: 'progress 进度 统计' },
+  { group: '学习工具', icon: '🎓', label: '英语练习', href: '/english', keywords: 'english 英语 单词' },
   { group: '账户', icon: '👤', label: '个人中心', href: '/me', keywords: 'profile me 个人 收藏' },
   { group: '账户', icon: '🔔', label: '通知', href: '/notifications', keywords: 'notification 通知 消息' },
-  { group: '账户', icon: '⚙️', label: '设置', href: '/settings', keywords: 'settings 配置 api key' },
+  { group: '账户', icon: '⚙️', label: '设置', href: '/settings', keywords: 'settings 配置' },
+];
+
+const LEGACY_COMMANDS: Command[] = [
+  { group: '旧工作区', icon: '🤖', label: 'Agent 工作台', href: '/agent', keywords: 'agent synapse 助手' },
+  { group: '旧工作区', icon: '🕘', label: 'Agent 运行历史', href: '/agent/history', keywords: 'history run 历史 记录' },
+  { group: '旧工作区', icon: '🔬', label: '研究', href: '/research', keywords: 'research 调研 报告' },
+  { group: '旧工作区', icon: '🔎', label: '搜索', href: '/search', keywords: 'search 检索' },
+  { group: '旧工作区', icon: '📚', label: '知识库', href: '/kb', keywords: 'knowledge base kb 文档' },
+  { group: '旧工作区', icon: '💬', label: '知识问答', href: '/qa', keywords: 'qa question answer 问答' },
+  { group: '旧工作区', icon: '📖', label: 'AI 阅读', href: '/reader', keywords: 'reader reading 阅读' },
+  { group: '旧工作区', icon: '📄', label: '论文库', href: '/papers', keywords: 'paper arxiv 论文' },
+  { group: '旧工作区', icon: '🕸️', label: '研究图谱', href: '/graph', keywords: 'graph 图谱 关系' },
 ];
 
 export default function CommandPalette() {
@@ -54,7 +60,10 @@ export default function CommandPalette() {
     };
   }, [open]);
 
-  const allCommands: Command[] = useMemo(() => [...COMMANDS, toggleThemeCommand], [toggleThemeCommand]);
+  const allCommands: Command[] = useMemo(
+    () => [...CORE_COMMANDS, ...(PRODUCT_FLAGS.legacyWorkspace ? LEGACY_COMMANDS : []), toggleThemeCommand],
+    [toggleThemeCommand],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
