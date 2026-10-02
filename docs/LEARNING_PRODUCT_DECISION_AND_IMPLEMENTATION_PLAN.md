@@ -634,3 +634,42 @@ ai
 - 尚未在独立生产构建中验证 `NEXT_PUBLIC_ENABLE_LEGACY_WORKSPACE=true` 的恢复路径。
 
 下一步：进入 Phase 1，先建立新后端基础设施、数据库迁移和健康检查；在新 API 具备迁移回滚能力前，不切换题目、笔记和复习的线上写入。
+
+### Phase 1 首轮：后端基础骨架与本地依赖编排
+
+**状态：已完成首轮基础设施，业务接入未开始。**
+
+已完成：
+
+- 新增独立 `api/` workspace，使用 NestJS 11 + Fastify 5，与现有 Next.js 应用并行运行。
+- 新增 `/api/health` 存活检查、`/api/health/ready` 就绪检查和 `/api/docs` Swagger UI/OpenAPI 入口。
+- 启用全局输入校验管道、基础 CORS、session cookie 的 OpenAPI 认证声明；当前尚未接入真实认证。
+- 新增 `tsconfig.api.json`、`api:dev`、`api:build`、`api:start` 脚本，API 默认监听 `127.0.0.1:4000`。
+- 新增 `docker-compose.phase1.yml`，提供 PostgreSQL 16、Redis 7 和 MinIO 的本地开发容器、数据卷和健康检查。
+- 新增 `api/.env.example` 与 `api/README.md`，明确服务端配置命名、启动方式和与现网 Supabase/Next.js 的并行边界。
+- 将 API 健康检查纯响应逻辑纳入 Vitest，避免测试直接加载 Nest 装饰器。
+
+未完成：
+
+- Drizzle 连接层和首个 `api_metadata` migration 已接入，但 Better Auth + Argon2、Redis/BullMQ worker 和 MinIO 文件上传尚未接入。
+- `/api/health/ready` 已检查 PostgreSQL 配置/连通状态；Redis 和对象存储尚未接入检查。
+- 新 API 尚未接入题目、笔记、复习或用户业务，也未改变现有 Next.js `/api/*` 路由和 Supabase 数据。
+- 当前开发机没有 Docker CLI，`docker compose config` 和容器启动验收未执行；需要在安装 Docker 的开发机或 CI 中验证 Compose。
+- `api_metadata` 只属于新 API，不代表旧 Supabase 业务 schema 已迁移。
+- 生产环境仍使用 Next.js + PM2 + Supabase；本轮没有修改服务器部署和 Nginx 流量入口。
+
+验收记录：
+
+- `npm run api:build`：通过。
+- `npm test`：通过，3 个测试文件、53 个测试用例全部通过。
+- 独立 API 接入 Drizzle 后仍可启动；未设置 `DATABASE_URL` 时 readiness 明确返回 `degraded/not_configured`，不会伪装成数据库已就绪。
+- 独立 API 冒烟：`GET /api/health`、`GET /api/health/ready`、`GET /api/docs` 均返回 `200`。
+- `git diff --check`：通过。
+- Docker Compose：未执行，原因是当前开发机没有 Docker CLI；不能将其标记为容器运行验收通过。
+
+下一阶段注意事项：
+
+- 继续扩展 Drizzle migration，但使用独立 PostgreSQL，不直接把现有 Supabase SQL 当作新 schema；接入 Better Auth 前先确定用户 ID、session 和旧 Supabase Bearer token 的隔离边界。
+- Better Auth 必须使用仅服务端的 secret 和 cookie；不要复用 `NEXT_PUBLIC_*` 密钥，也不要让新 cookie 被旧 Supabase Bearer API 误认。
+- readiness 已开始区分进程存活和 PostgreSQL 依赖就绪；后续接入 Redis、MinIO 后继续扩展检查，并对依赖失败返回可诊断但不泄露凭据的信息。
+- 新 API 继续使用独立端口和路径，等认证、迁移和回滚测试通过后再考虑 Nginx 路由或前端页面切换。
