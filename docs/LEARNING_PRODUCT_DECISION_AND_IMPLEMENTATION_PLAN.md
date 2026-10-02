@@ -611,3 +611,26 @@ ai
 - 浏览器验证：在实际开发端口 `3001` 上确认今日学习首页、核心导航和空数据态；直接访问 `/research` 默认重定向到 `/`。端口 `3000` 已有其他应用，不能作为本项目验收地址。
 - 已知警告：Next.js 16 提示 `middleware.ts` 命名约定将迁移为 `proxy.ts`；本阶段保留兼容写法，Phase 1 统一升级时处理。
 - 未执行：`NEXT_PUBLIC_ENABLE_LEGACY_WORKSPACE=true` 的恢复路径尚未在独立构建进程中做浏览器回归；该开关属于发布/回滚验证项。
+
+### Phase 0 发布记录：2026-10-02
+
+**状态：已部署到生产环境，线上健康检查通过。**
+
+- 发布分支：`deploy/phase-0-learning-product`。
+- Git 提交：`2ffa410 feat: converge app on learning workflow`。
+- 服务器目录：`/home/deploy/synap`。
+- 服务器已切换到上述分支，生产构建成功，PM2 `question-bank` 已重启并保持 `online`。
+- 服务器依赖安装曾因 npm registry `ECONNRESET` 中断；使用串行连接和重试参数重新执行 `npm ci` 后成功，最终安装 525 个依赖包。
+- 生产构建 `npm run build` 成功，`/progress` 路由和由 `middleware.ts` 生成的 Proxy 均编译通过。
+- 本机健康检查：首页 `200`；`/research` 最终重定向到 `/`；`/progress` 返回 `200`。
+- 公网健康检查：`https://synap.fallrain0905.top/` 返回 `200`，页面包含“今天学点什么”和“今日学习”；公网 `/research` 最终重定向到首页。
+- 当前服务器保留原有的 `crawl-service` 和 `synapse-run-worker`；`arxiv-cron` 维持部署前的停止状态。服务器工作区未跟踪的 `crawl-service/.venv/` 为原有 Python 虚拟环境，不属于本次发布内容。
+
+本次发布未完成或未改变：
+
+- Supabase 仍是当前线上数据后端；NestJS/Fastify、PostgreSQL、Drizzle、Better Auth、Redis/BullMQ 和 MinIO 尚未实施。
+- 旧研究、Agent、论文和知识库代码仍保留，只通过默认 feature flag 和路由保护隐藏。
+- `middleware.ts` 仍会触发 Next.js 16 的弃用提示，后续应迁移为 `proxy.ts` 并重新回归旧路由保护。
+- 尚未在独立生产构建中验证 `NEXT_PUBLIC_ENABLE_LEGACY_WORKSPACE=true` 的恢复路径。
+
+下一步：进入 Phase 1，先建立新后端基础设施、数据库迁移和健康检查；在新 API 具备迁移回滚能力前，不切换题目、笔记和复习的线上写入。

@@ -1,7 +1,8 @@
 # SynapFlow 服务器部署指南
 
-> 基于现有 PM2 配置（`ecosystem.config.js` + `PM2.md`）整理的完整部署文档。
+> 基于现有 PM2 配置（`ecosystem.config.js` + `PM2.md`）整理的部署文档。
 > 目标环境：Ubuntu / Debian，Node 20，PM2 进程管理，Nginx 反向代理。
+> 当前产品主线是学习辅助工作台；论文、研究、Agent 和知识库能力处于隐藏兼容阶段。
 
 ## 一、架构总览
 
@@ -197,7 +198,31 @@ pm2 restart question-bank
 
 ---
 
-## 九、常见问题
+## 九、Phase 0 生产发布记录（2026-10-02）
+
+本次发布将学习辅助产品 Phase 0 部署到 `synap.fallrain0905.top`。
+
+- 发布分支：`deploy/phase-0-learning-product`。
+- Git 提交：`2ffa410 feat: converge app on learning workflow`。
+- 服务器目录：`/home/deploy/synap`。
+- `question-bank` 已完成生产构建并由 PM2 重启，状态为 `online`；Node 版本为 `20.20.2`。
+- 服务器执行 `npm ci` 时曾遇到 npm registry `ECONNRESET`，通过限制并发并增加重试后成功完成依赖安装。
+- 本机检查：首页 `200`；`/progress` `200`；`/research` 最终重定向到 `/`。
+- 公网检查：`https://synap.fallrain0905.top/` `200`；公网 `/research` 最终重定向到首页。
+- 当前服务器保留 `crawl-service` 和 `synapse-run-worker`；`arxiv-cron` 维持原有停止状态。未跟踪的 `crawl-service/.venv/` 是服务器原有 Python 虚拟环境，不属于代码发布内容。
+
+本次发布仍使用现有 Supabase 后端，未执行新后端替换。下一阶段应按 `docs/LEARNING_PRODUCT_DECISION_AND_IMPLEMENTATION_PLAN.md` 进入 Phase 1，先建设 NestJS/Fastify、PostgreSQL、Drizzle、Better Auth、Redis/BullMQ、MinIO 和健康检查。
+
+发布注意事项：
+
+- 修改 `NEXT_PUBLIC_*` 后必须重新执行 `npm run build`；不要只重启 PM2。
+- `middleware.ts` 在 Next.js 16 会出现迁移到 `proxy.ts` 的弃用提示，迁移前保持现有路由保护回归测试。
+- `NEXT_PUBLIC_ENABLE_LEGACY_WORKSPACE=true` 是构建期开关，尚未在生产环境验证恢复路径；默认关闭时 `/research` 等旧入口应继续重定向到首页。
+- 服务器 `.env.local` 含有部署环境密钥，不纳入 Git、不打印到日志，也不在文档中记录具体值。
+
+---
+
+## 十、常见问题
 
 | 症状 | 原因与解决 |
 |------|-----------|
