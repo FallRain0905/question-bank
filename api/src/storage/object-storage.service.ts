@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rmdir, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
 /**
@@ -89,6 +89,18 @@ export class ObjectStorageService implements OnModuleInit {
   }
 
   async remove(key: string): Promise<void> {
-    await rm(this.resolvePath(key), { force: true });
+    const target = this.resolvePath(key);
+    await rm(target, { force: true });
+
+    // Drop the per-document folder once it is empty so the storage tree mirrors
+    // the database instead of accumulating empty directories.
+    const parent = dirname(target);
+    if (parent !== this.rootDir && parent.startsWith(`${this.rootDir}${sep}`)) {
+      try {
+        await rmdir(parent);
+      } catch {
+        // Folder is not empty (other files) or already removed.
+      }
+    }
   }
 }

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,6 +47,23 @@ describe('ObjectStorageService', () => {
 
     await storage.remove(key);
     expect(await storage.exists(key)).toBe(false);
+  });
+
+  it('removes the per-document folder once its last file is deleted', async () => {
+    const storage = new ObjectStorageService();
+    await storage.onModuleInit();
+
+    const first = storage.buildKey('doc-2', 'a.pdf');
+    const second = storage.buildKey('doc-2', 'b.pdf');
+    await storage.put(first, Buffer.from('a'));
+    await storage.put(second, Buffer.from('b'));
+
+    await storage.remove(first);
+    expect(await storage.exists(second)).toBe(true);
+
+    await storage.remove(second);
+    expect(await storage.exists(second)).toBe(false);
+    expect(existsSync(join(dir, 'doc-2'))).toBe(false);
   });
 
   it('rejects keys that escape the storage root', async () => {

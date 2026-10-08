@@ -11,14 +11,16 @@
 | 组件 | 作用 | 端口 | 是否必需 |
 |------|------|------|----------|
 | `question-bank` | Next.js 主应用（页面 + API） | 3000 | ✅ 必需 |
+| `learning-api` | Phase 1 学习 API（知识库 / RAG 问答） | 4000（仅本机） | ⚠️ 要用知识库时需要 |
+| `question-bank-postgres` | Docker 容器：PostgreSQL 16 + pgvector | 5432（仅本机） | ⚠️ 要用知识库时需要 |
 | `synapse-run-worker` | Synapse Agent 后台 worker | — | ⚠️ 用到 Agent 功能时需要 |
 | `arxiv-cron` | 论文抓取定时任务（每天 9:00） | — | ⚠️ 要论文推送时需要 |
 | `crawl-service` | Python 网页正文抓取 sidecar | 8002 | ⚠️ 要研究搜索时需要 |
-| `hyper-rag-service` | Python 超图 RAG 服务 | 8001 | ⚠️ 要知识库问答时需要 |
+| `hyper-rag-service` | Python 超图 RAG 服务 | 8001 | ⚠️ 旧知识库问答（已被 learning-api 取代） |
 | `synapse-sandbox` | Docker 沙箱镜像（Agent 执行命令用） | — | ⚠️ 要 Agent 终端时需要 |
-| Supabase | 数据库 + Auth + Storage | 云端 | ✅ 必需（托管，不自建） |
+| Supabase | 数据库 + Auth + Storage | 云端 | ✅ 必需（托管，不自建；迁移中） |
 
-**最小部署 = Supabase（托管）+ Next.js 主应用**，其余组件按需启用。
+**最小部署 = Supabase（托管）+ Next.js 主应用**，其余组件按需启用；知识库额外需要 `learning-api` + PostgreSQL(pgvector) 容器。
 
 ---
 
@@ -177,7 +179,79 @@ sudo certbot --nginx -d 你的域名.com
 
 ---
 
-## 八、日常运维
+## 八、学习 API（知识库 / RAG）生产部署
+
+线上形态（2026-10-08 起在 `synap.fallrain0905.top` 生效）：
+
+| 部分 | 实现 |
+|------|------|
+| 进程 | PM2 `learning-api`，`node dist/api/main.js`，监听 `127.0.0.1:4000` |
+| 配置 | `/home/deploy/synap/.env.api`（权限 600，不进 Git，自动由 `api/src/load-env.ts` 加载） |
+| 数据库 | Docker 容器 `question-bank-postgres`（`pgvector/pgvector:pg16`），仅绑定 `127.0.0.1:5432`，数据卷 `learning-pg-data` |
+| 文件存储 | `/srv/learning-api/storage`（`KB_STORAGE_DIR`，保存上传的原始资料） |
+| 路由 | Nginx `location /learning-api/` → `http://127.0.0.1:4000/`（`client_max_body_size 32m`，读超时 180s） |
+| 前端 | `.env.local` 中 `NEXT_PUBLIC_API_BASE_URL=/learning-api` 与 `NEXT_PUBLIC_API_ACCESS_TOKEN=<token>`，构建期写入 |
+
+`.env.api` 需要的键（其余键见 `api/.env.example`）：
+
+```env
+API_HOST=127.0.0.1
+API_PORT=4000
+API_CORS_ORIGIN=https://synap.fallrain0905.top
+API_ACCESS_TOKEN=<随机 48 位十六进制>
+KB_STORAGE_DIR=/srv/learning-api/storage
+DATABASE_URL=postgresql://learning:<密码>@127.0.0.1:5432/learning
+MINERU_API_TOKEN=<MinerU Token>
+EMBEDDING_API_KEY=<嵌入模型 Key>
+SILICONFLOW_API_KEY / DEEPSEEK_API_KEY=<问答模型 Key>
+```
+
+首次准备数据库：
+
+```bash
+DB_PASS=$(openssl rand -hex 18)          # 保存到 /root/.learning-api-db-pass
+docker run -d --name question-bank-postgres --restart unless-stopped \
+  -e POSTGRES_DB=learning -e POSTGRES_USER=learning -e POSTGRES_PASSWORD="$DB_PASS" \
+  -p 127.0.0.1:5432:5432 -v learning-pg-data:/var/lib/postgresql/data \
+  pgvector/pgvector:pg16
+```
+
+更新学习 API：
+
+```bash
+cd /home/deploy/synap
+git pull
+npm install --no-audit --no-fund          # 依赖较多，网络抖动时加 --fetch-retries=8 --maxsockets=2
+npm run api:build
+npm run db:migrate:prod                    # 用 drizzle-orm 迁移器，读取 .env.api
+pm2 restart learning-api --update-env
+```
+
+前端（改了 `NEXT_PUBLIC_*` 或页面后必须重新构建）：
+
+```bash
+npm run build && pm2 restart question-bank
+```
+
+验收：
+
+```bash
+curl -s http://127.0.0.1:4000/api/health/ready        # database 应为 ok
+curl -s https://synap.fallrain0905.top/learning-api/api/health/ready
+curl -so /dev/null -w '%{http_code}\n' https://synap.fallrain0905.top/knowledge
+```
+
+注意事项：
+
+- **pgvector 维度上限**：HNSW 索引对 `vector` 最大 2000 维，当前嵌入是 2560 维，因此向量列用 `halfvec(2560)`（上限 4000 维）。改嵌入维度必须同步改 `api/src/database/schema.ts` 的 `VECTOR_DIMENSIONS` 并重新生成迁移。
+- **迁移命令**：`drizzle-kit migrate` 在服务器上会静默失败（退出码 1、无 stderr），生产统一用 `npm run db:migrate:prod`（drizzle-orm 的 migrator，会打印真实错误）。
+- **访问令牌**：`API_ACCESS_TOKEN` 同时通过 `NEXT_PUBLIC_API_ACCESS_TOKEN` 暴露给浏览器，只能挡住脚本和扫描器，不是真正的鉴权；真正的用户隔离要等 Better Auth 接入。
+- **存储必须持久化**：`KB_STORAGE_DIR` 指向仓库外目录，否则 `git clean` 或重新克隆会丢掉原始资料，导致「重新解析」不可用。
+- 数据库密码文件 `/root/.learning-api-db-pass` 与实际密码不同步时（轮换后），需同时更新 `.env.api` 并重启 `learning-api`。
+
+---
+
+## 九、日常运维
 
 ```bash
 pm2 status                 # 查看所有进程状态
@@ -198,7 +272,7 @@ pm2 restart question-bank
 
 ---
 
-## 九、Phase 0 生产发布记录（2026-10-02）
+## 十、Phase 0 生产发布记录（2026-10-02）
 
 本次发布将学习辅助产品 Phase 0 部署到 `synap.fallrain0905.top`。
 
@@ -222,7 +296,7 @@ pm2 restart question-bank
 
 ---
 
-## 十、常见问题
+## 十一、常见问题
 
 | 症状 | 原因与解决 |
 |------|-----------|

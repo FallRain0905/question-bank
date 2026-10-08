@@ -768,3 +768,48 @@ ai
 - 在有 Token 的环境先用一份真实 PDF 跑通 `MINERU_PARSE_MODE=v4-batch` 和 `agent` 两条链路，确认签名上传不需要 `Content-Type`、zip 内 Markdown 命名（代码优先取 `full.md`）和轮询状态取值与文档一致。
 - `KB_STORAGE_DIR` 在生产必须指向持久化卷，否则重启后无法自动重试解析。
 - 大文件（MinerU 单文件上限 200MB、200 页）和批量导入在接入 BullMQ 前不要并发提交，避免占用进程内队列和外部额度。
+
+### Phase 1 追加其三：知识库上线到生产（2026-10-08）
+
+**状态：已部署并对公网可用，端到端流程在真实环境验证通过。**
+
+已完成：
+
+- PM2 新增 `learning-api` 进程（`dist/api/main.js`，`127.0.0.1:4000`）并已 `pm2 save`；`ecosystem.config.js` 只放非敏感默认值。
+- 服务器新增 Docker 容器 `question-bank-postgres`（`pgvector/pgvector:pg16`），只绑定 `127.0.0.1:5432`，数据卷 `learning-pg-data`，`--restart unless-stopped`。
+- 新增 `.env.api`（权限 600，仅服务器本地、不进 Git）承载数据库连接串、访问令牌、存储目录和 MinerU/嵌入/LLM Key；API 通过 `api/src/load-env.ts` 在启动时自动加载。
+- 迁移改用 `npm run db:migrate:prod`（drizzle-orm 的 migrator），已建表 `api_metadata`、`kb_documents`、`kb_chunks`，含 `halfvec(2560)` 列与 HNSW 余弦索引。
+- 向量列由 `vector(2560)` 改为 `halfvec(2560)`：pgvector 的 HNSW 索引对 `vector` 超过 2000 维直接报错（实测 `column cannot have more than 2000 dimensions for hnsw index`），`halfvec` 上限 4000 维且存储减半。
+- Nginx 在 443 站点内新增 `location /learning-api/` → `127.0.0.1:4000/`（上传上限 32MB、读写超时 180s），配置已备份、`nginx -t` 通过后 reload。
+- 前端新增 `NEXT_PUBLIC_API_BASE_URL=/learning-api` 与 `NEXT_PUBLIC_API_ACCESS_TOKEN`，重新构建并重启 `question-bank`，`/knowledge` 通过同域路径访问学习 API。
+- 原始资料保存在 `/srv/learning-api/storage`（仓库外，重新部署不会丢）。
+- 部署期间轮换了数据库密码（生成新密码 → `ALTER USER` → 更新 `.env.api` → 重启），避免口令残留在排查记录中。
+
+验收记录：
+
+- `npm test`：通过，16 个测试文件、117 个测试用例。
+- `npm run api:build` 与前端 `npm run build`：在服务器上通过。
+- `GET /api/health` 200；`GET /api/health/ready` 返回 `{"checks":{"process":"ok","database":"ok"}}`，公网经 Nginx 同样 200。
+- `GET /knowledge` 公网 200，页面包含「知识库 / 上传资料 / 基于资料提问 / 资料列表」。
+- 令牌门禁：不带令牌访问知识库接口 401，带令牌 200。
+- 端到端（Markdown）：上传 → `status=ready`、`converter=text`、3 个分块 → 提问由真实嵌入模型（`Qwen/Qwen3-Embedding-4B`）与真实 LLM（`deepseek-ai/DeepSeek-V4-Flash`）生成带 `[1][2][3]` 引用的中文回答，相似度 0.69/0.64/0.54。
+- 端到端（PDF）：上传后由真实 MinerU v4 链路解析成功（`converter=mineru-v4`，2 个分块），证明签名上传、轮询、zip 解压在生产 Node 20 环境可用。
+- 测试资料与临时文件已清理，`kb_documents` 归零，存储目录无残留文件。
+- 未执行：真实浏览器点击测试（由用户自测）、并发与大文件压力测试。
+
+未完成与已知限制：
+
+- **没有真正的用户鉴权**：`API_ACCESS_TOKEN` 通过 `NEXT_PUBLIC_API_ACCESS_TOKEN` 打进前端包，只能挡住脚本和扫描器；任何能打开页面的人都能上传和提问，知识库是单一共享工作区，没有用户隔离。这是上线的已知风险，Better Auth 落地后必须替换。
+- Nginx 未加限流，接口没有速率限制与用量配额；MinerU、嵌入和 LLM 的额度消耗目前只依赖访问令牌这一层。
+- 学习 API 与知识库数据库没有备份策略和监控，只有 Docker 卷 `learning-pg-data`。
+- 索引仍是进程内串行队列，未接 BullMQ；重启会重新排队，但不适合高并发批量导入。
+- 旧 Supabase 数据与题库/笔记/复习尚未接入新 API；`/knowledge` 之外的学习主线仍走 Supabase。
+- 服务器上 `synapse-run-worker` 处于崩溃重启循环（累计重启 760+ 次，占用约 18% CPU），属于上线前就存在的旧服务，本轮未处理。
+
+下一阶段注意事项：
+
+- 优先补鉴权（Better Auth + Argon2）并替换令牌方案，否则不要对外推广 `/knowledge`。
+- 给 `/learning-api/` 增加 Nginx 限流，并考虑为嵌入/LLM 调用设定每日配额。
+- 为 `learning-pg-data` 与 `/srv/learning-api/storage` 安排定期备份（`pg_dump` + 目录打包到异地）。
+- 处理或停用崩溃重启的 `synapse-run-worker`。
+- 继续 Phase 1 剩余项：Redis/BullMQ 队列、MinIO/S3 存储驱动、题库/笔记/复习迁移到新 API。
