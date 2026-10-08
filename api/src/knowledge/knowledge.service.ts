@@ -447,12 +447,12 @@ export class KnowledgeService implements OnModuleInit {
           c.page,
           c.content,
           d.title,
-          1 - (c.embedding <=> ${vectorLiteral}::vector) as score
+          1 - (c.embedding <=> ${vectorLiteral}::halfvec) as score
         from kb_chunks c
         join kb_documents d on d.id = c.document_id
         where d.status = 'ready'
           ${documentFilter}
-        order by c.embedding <=> ${vectorLiteral}::vector
+        order by c.embedding <=> ${vectorLiteral}::halfvec
         limit ${topK}
       `);
     } catch (error) {

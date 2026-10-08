@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1790944640507,
-      "tag": "0000_dazzling_human_torch",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1791464544691,
-      "tag": "0001_sour_edwin_jarvis",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1791465928059,
-      "tag": "0002_tearful_vulcan",
+      "when": 1791469451318,
+      "tag": "0000_fair_rattler",
       "breakpoints": true
     }
   ]
