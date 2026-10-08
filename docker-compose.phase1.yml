@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector image is required by the knowledge base vector columns.
+    image: pgvector/pgvector:pg16
     container_name: question-bank-postgres
     restart: unless-stopped
     environment:

@@ -6,6 +6,7 @@ import {
   SwaggerModule,
 } from '@nestjs/swagger';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import multipart from '@fastify/multipart';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -13,6 +14,11 @@ async function bootstrap() {
     AppModule,
     new FastifyAdapter(),
   );
+
+  const maxUploadBytes = Number(process.env.KB_MAX_UPLOAD_MB ?? 30) * 1024 * 1024;
+  await app.register(multipart, {
+    limits: { fileSize: maxUploadBytes, files: 1 },
+  });
 
   app.setGlobalPrefix('api');
   const allowedOrigins = (process.env.API_CORS_ORIGIN ?? '')
@@ -36,6 +42,10 @@ async function bootstrap() {
     .setDescription('Learning workflow API foundation')
     .setVersion('0.1.0')
     .addCookieAuth('session')
+    .addBearerAuth(
+      { type: 'http', scheme: 'bearer', description: 'API_ACCESS_TOKEN' },
+      'api-token',
+    )
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);

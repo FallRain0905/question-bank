@@ -147,6 +147,7 @@ const mainNavItems: NavItem[] = [
   { href: '/', label: '今日学习', icon: Icons.home },
   { href: '/questions', label: '题库', icon: Icons.search },
   { href: '/notes', label: '笔记', icon: Icons.notes },
+  { href: '/knowledge', label: '知识库', icon: Icons.papers },
   { href: '/review', label: '复习', icon: Icons.review },
   { href: '/progress', label: '学习进度', icon: Icons.graph },
 ];
@@ -289,6 +290,7 @@ export default function Sidebar() {
     { href: '/questions', label: '题库', icon: Icons.search },
     { href: '/review', label: '复习', icon: Icons.review },
     { href: '/notes', label: '笔记', icon: Icons.notes },
+    { href: '/knowledge', label: '知识库', icon: Icons.papers },
     { href: '/progress', label: '学习进度', icon: Icons.graph },
     { href: '/settings', label: '设置', icon: Icons.settings },
     { href: '/english', label: '英语练习', icon: Icons.qa },

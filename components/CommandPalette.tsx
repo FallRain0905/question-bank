@@ -18,6 +18,7 @@ const CORE_COMMANDS: Command[] = [
   { group: '学习', icon: '🏠', label: '今日学习', href: '/', keywords: 'home today 今日 学习' },
   { group: '学习', icon: '📝', label: '题库', href: '/questions', keywords: 'question bank 题目 练习' },
   { group: '学习', icon: '🗒️', label: '笔记', href: '/notes', keywords: 'note 笔记 记录' },
+  { group: '学习', icon: '📚', label: '知识库', href: '/knowledge', keywords: 'knowledge base kb rag 知识库 资料 pdf 问答' },
   { group: '学习', icon: '🔁', label: '复习', href: '/review', keywords: 'review 复习 间隔 错题' },
   { group: '学习', icon: '📈', label: '学习进度', href: '/progress', keywords: 'progress 进度 统计' },
   { group: '学习工具', icon: '🎓', label: '英语练习', href: '/english', keywords: 'english 英语 单词' },

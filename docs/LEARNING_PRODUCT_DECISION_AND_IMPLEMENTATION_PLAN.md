@@ -36,6 +36,7 @@
 - 今日学习
 - 题库
 - 笔记
+- 知识库
 - 复习
 - 学习进度
 - 设置
@@ -159,6 +160,8 @@ note.content_html  → 展示、兼容旧数据和过渡期搜索
 - Nextcloud 和沙箱能力。
 
 第一阶段不物理删除旧代码、旧数据或旧表。通过 feature flag 或路由保护隐藏，保留只读和回滚窗口。等核心链路稳定、数据完成迁移并备份验证后，再决定归档或移除。
+
+知识库是例外：旧的 `/kb`、`/qa` 和 Hyper-RAG 研究问答按上述规则隐藏，但“上传学习资料并基于资料提问”作为学习闭环的一部分重新实现，落在新后端和新路由 `/knowledge` 上，不复用旧页面和旧服务。
 
 英语对话功能可以保留，但改名为“英语练习”。会话中临时提取的单词只作为候选词或学习记录，不能继续作为正式词库的唯一数据来源。
 
@@ -673,3 +676,50 @@ ai
 - Better Auth 必须使用仅服务端的 secret 和 cookie；不要复用 `NEXT_PUBLIC_*` 密钥，也不要让新 cookie 被旧 Supabase Bearer API 误认。
 - readiness 已开始区分进程存活和 PostgreSQL 依赖就绪；后续接入 Redis、MinIO 后继续扩展检查，并对依赖失败返回可诊断但不泄露凭据的信息。
 - 新 API 继续使用独立端口和路径，等认证、迁移和回滚测试通过后再考虑 Nginx 路由或前端页面切换。
+
+### Phase 1 追加：知识库与 RAG 问答模块
+
+**状态：已完成本地实现与离线验证，尚未在真实 PostgreSQL/pgvector 上执行迁移。**
+
+产品决策更新：
+
+- 知识库重新作为学习资料产品的一部分（“上传资料 → 提问 → 标注出处”），不再是旧研究工作区能力。
+- 旧 `/kb`、`/qa` 页面和 Hyper-RAG 服务仍保持隐藏，继续由 `NEXT_PUBLIC_ENABLE_LEGACY_WORKSPACE` 控制；新功能使用独立路由 `/knowledge`，避免与受保护的旧路由冲突。
+- 资料和向量只写入自建 PostgreSQL + pgvector，不再依赖 Supabase Storage 或 Hyper-RAG Python 服务。
+
+已完成：
+
+- 后端新增 `api/src/knowledge/` 模块：PDF/文本解析、Markdown 分块、向量嵌入、pgvector 检索、RAG 问答。
+- PDF → Markdown 使用本地 `pdf-parse` 文本层提取，保留 `<!-- page: N -->` 页码标记，识别编号标题为 Markdown 标题，去掉页码行和重复页眉页脚，合并被连字符拆分的英文单词。
+- 分块保留标题和页码上下文，超长段落按句子边界切分并带重叠。
+- 新增数据表 `kb_documents`、`kb_chunks`（`vector(2560)` 列 + HNSW 余弦索引），迁移文件 `api/drizzle/0001_*.sql` 手动补上 `CREATE EXTENSION IF NOT EXISTS vector;`。
+- Docker Compose 的 PostgreSQL 镜像改为 `pgvector/pgvector:pg16`。
+- 嵌入与 LLM 配置沿用现有项目约定：`EMBEDDING_API_KEY`/`SILICONFLOW_API_KEY`、`EMBEDDING_MODEL`、`EMBEDDING_DIMENSIONS`(默认 2560)、`LLM_API_KEY`/`DEEPSEEK_API_KEY`/`SILICONFLOW_API_KEY`；未配置嵌入 Key 时退化为 `local-hash` 开发向量，并在日志和文档中明确标注质量有限。
+- 新增接口：上传资料、资料列表、资料详情、删除、重新索引、提问（返回答案与引用）。
+- 新增可选 `API_ACCESS_TOKEN` bearer 门禁，覆盖知识库接口，作为 Better Auth 落地前的临时边界。
+- 新增前端 `/knowledge` 页面（上传、提问、引用展示、索引状态轮询、重新索引/删除），并加入桌面导航、移动端更多菜单和命令面板。
+
+未完成：
+
+- 迁移和向量检索尚未在真实 PostgreSQL 上执行；开发机没有 Docker/PostgreSQL，`npm run db:migrate` 与 `<=>` 检索仅通过代码审查和离线管线验证，必须在有 Docker 的环境补验收。
+- 索引任务在 API 进程内执行，重启会中断并要求手动重新索引；BullMQ worker 尚未接入。
+- 嵌入维度默认 2560（对应 `Qwen/Qwen3-Embedding-4B`），更换模型需要同步修改 `VECTOR_DIMENSIONS` 并新增迁移。
+- 扫描版 PDF 无文本层时不支持 OCR，接口会明确报错而不是伪造内容；复杂表格和双栏排版的版面结构可能丢失。
+- 知识库尚未与题库、笔记或复习打通，也未接入用户体系（当前是单用户工作区，不做数据隔离）。
+- 生产环境未部署新 API，公网暂时无法使用 `/knowledge`。
+
+验收记录：
+
+- `npm test`：通过，8 个测试文件、79 个测试用例全部通过（新增分块、PDF 转 Markdown、hash 嵌入、AI 配置解析、访问令牌共 26 个用例）。
+- `npm run api:build`、`npx tsc --noEmit`：通过。
+- `npm run build`：通过，路由列表包含 `/knowledge`。
+- 接口冒烟：`/api/health` 200；`/api/knowledge/*` 在未配置数据库时返回 503 和明确的中文提示；空问题、越界 `topK` 返回 400；OpenAPI 文档包含 6 条知识库路径。
+- 页面渲染：开发服务器 `/knowledge` 返回 200，包含“知识库 / 上传资料 / 基于资料提问 / 资料列表 / 扫描版 PDF”标记。
+- 离线管线验证：本地生成的 PDF 经 `pdfBufferToMarkdown → chunkMarkdown → hashEmbedding → 余弦检索` 得到正确分块（页码、标题、检索命中均符合预期）。
+- 未执行：真实数据库迁移、pgvector 检索、真实嵌入模型和真实 LLM 调用。
+
+下一阶段注意事项：
+
+- 在有 Docker 的环境先执行 `npm run api:compose:up` → `npm run db:migrate`，再验证上传、检索与引用；确认 HNSW 索引和 `<=>` 排序结果正确后再考虑部署。
+- 若要在生产开放知识库，需要先补用户认证（Better Auth）和数据归属隔离，并给学习 API 规划 Nginx 路由与 PM2 进程，不要直接暴露 4000 端口。
+- 大文件与批量导入后续应迁移到 BullMQ 队列，并补充重试、进度上报和失败续跑。
