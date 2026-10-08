@@ -13,6 +13,8 @@ interface KbDocument {
   sourceFilename: string | null;
   status: string;
   errorMessage?: string | null;
+  converter?: string | null;
+  hasSource?: boolean;
   pageCount?: number | null;
   chunkCount: number;
   byteSize?: number | null;
@@ -38,6 +40,13 @@ interface AskResult {
   llm?: { configured: boolean; model: string | null };
   retrieved?: number;
 }
+
+const CONVERTER_LABELS: Record<string, string> = {
+  'mineru-v4': 'MinerU 精确解析',
+  'mineru-agent': 'MinerU 快速解析',
+  'local-pdf-parse': '本地文本层',
+  text: '纯文本',
+};
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   pending: { label: '排队中', className: 'bg-gray-100 text-gray-600' },
@@ -179,11 +188,12 @@ export default function KnowledgePage() {
     await loadDocuments();
   };
 
-  const handleReindex = async (id: string) => {
+  const handleReindex = async (id: string, fromSource = false) => {
     setError(null);
     const response = await fetch(`${API_BASE}/api/knowledge/documents/${id}/reindex`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ fromSource }),
     });
     if (!response.ok) {
       setError(await readError(response));
@@ -220,7 +230,7 @@ export default function KnowledgePage() {
             <span className="text-sm font-medium text-gray-700">
               {uploading ? '上传中…' : '点击选择文件'}
             </span>
-            <span className="text-xs text-gray-500">扫描版 PDF 暂不支持（没有文本层，不做 OCR 猜测）</span>
+            <span className="text-xs text-gray-500">PDF 由 MinerU 解析；扫描版需要在服务端开启 OCR（MINERU_IS_OCR=true）</span>
           </label>
           {uploadMessage && <p className="mt-3 text-xs text-green-700">{uploadMessage}</p>}
         </div>
@@ -318,6 +328,7 @@ export default function KnowledgePage() {
                     <p className="mt-1 text-xs text-gray-500">
                       {doc.sourceFilename}
                       {doc.byteSize ? ` · ${formatBytes(doc.byteSize)}` : ''}
+                      {doc.converter ? ` · ${CONVERTER_LABELS[doc.converter] ?? doc.converter}` : ''}
                       {doc.pageCount ? ` · ${doc.pageCount} 页` : ''}
                       {doc.chunkCount ? ` · ${doc.chunkCount} 个分块` : ''}
                       {` · ${new Date(doc.createdAt).toLocaleString('zh-CN')}`}
@@ -327,10 +338,19 @@ export default function KnowledgePage() {
                     )}
                   </div>
                   <div className="flex shrink-0 gap-2">
+                    {doc.status === 'failed' && doc.hasSource && (
+                      <button
+                        type="button"
+                        onClick={() => void handleReindex(doc.id, true)}
+                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                      >
+                        重新解析
+                      </button>
+                    )}
                     {(doc.status === 'failed' || doc.status === 'ready') && (
                       <button
                         type="button"
-                        onClick={() => void handleReindex(doc.id)}
+                        onClick={() => void handleReindex(doc.id, false)}
                         className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
                       >
                         重新索引

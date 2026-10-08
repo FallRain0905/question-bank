@@ -31,6 +31,8 @@ export const kbDocuments = pgTable('kb_documents', {
   byteSize: integer('byte_size'),
   status: text('status').notNull().default('pending'),
   errorMessage: text('error_message'),
+  converter: text('converter'),
+  sourceStorageKey: text('source_storage_key'),
   markdown: text('markdown'),
   pageCount: integer('page_count'),
   chunkCount: integer('chunk_count').notNull().default(0),

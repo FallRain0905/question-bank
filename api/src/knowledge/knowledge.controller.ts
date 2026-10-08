@@ -14,7 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import '@fastify/multipart';
 import type { FastifyRequest } from 'fastify';
 import { AccessTokenGuard } from '../auth/access-token.guard';
-import { AskDto } from './knowledge.dto';
+import { AskDto, ReindexDto } from './knowledge.dto';
 import { KnowledgeService } from './knowledge.service';
 
 @ApiTags('knowledge')
@@ -72,9 +72,9 @@ export class KnowledgeController {
   }
 
   @Post('documents/:id/reindex')
-  @ApiOperation({ summary: 'Re-chunk and re-embed a document from stored markdown' })
-  reindexDocument(@Param('id') id: string) {
-    return this.knowledge.reindex(id);
+  @ApiOperation({ summary: 'Re-chunk and re-embed a document, optionally re-running PDF conversion' })
+  reindexDocument(@Param('id') id: string, @Body() body: ReindexDto) {
+    return this.knowledge.reindex(id, { fromSource: body?.fromSource });
   }
 
   @Post('ask')

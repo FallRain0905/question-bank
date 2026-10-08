@@ -22,15 +22,37 @@ npm run api:dev
 | `GET` | `/api/knowledge/documents` | 资料列表与索引状态 |
 | `GET` | `/api/knowledge/documents/:id` | 单篇资料（含转换后的 Markdown） |
 | `DELETE` | `/api/knowledge/documents/:id` | 删除资料及其分块 |
-| `POST` | `/api/knowledge/documents/:id/reindex` | 基于已保存 Markdown 重新分块和向量化 |
+| `POST` | `/api/knowledge/documents/:id/reindex` | 重新分块和向量化；传 `{ "fromSource": true }` 时用保存的原始文件重新解析 |
 | `POST` | `/api/knowledge/ask` | 向量检索 + LLM 回答，返回引用来源 |
 
 处理流程：
 
 ```text
-上传 → PDF/文本解析为 Markdown（保留页码标记）→ 分块（含标题与页码上下文）
+上传 → 保存原始文件 → MinerU 解析为 Markdown → 分块（含标题与页码上下文）
 → 向量嵌入 → 写入 pgvector → 提问时向量检索 → LLM 基于片段作答并标注引用
 ```
+
+### PDF 解析（MinerU）
+
+PDF 默认交给 MinerU（<https://mineru.net/apiManage> 获取 Token）：
+
+- 配置 `MINERU_API_TOKEN` 时使用官方 v4 精确解析：`POST /api/v4/file-urls/batch` 获取签名上传链接 →
+  `PUT` 上传文件 → 轮询 `GET /api/v4/extract-results/batch/{batch_id}` → 下载 `full_zip_url`
+  并取出其中的 Markdown。
+- 未配置 Token 时使用免鉴权的 agent 快速解析：`POST /api/v1/agent/parse/file` → 上传 →
+  轮询 `GET /api/v1/agent/parse/{task_id}` → 直接下载 `markdown_url`。
+- 两者都失败时，若 `KB_PDF_FALLBACK_LOCAL` 不为 `false`，回退到本地文本层解析；
+  文档上会记录实际使用的转换方式（`mineru-v4` / `mineru-agent` / `local-pdf-parse`）。
+- `MINERU_PARSE_MODE` 可以强制指定链路，`MINERU_TIMEOUT_MS` 控制整体等待时间，
+  `MINERU_IS_OCR=true` 打开扫描件 OCR。MinerU 返回结果里的图片不会被本产品保存，
+  Markdown 中的图片语法会替换成 `[图片]` 占位。
+
+### 原始文件存储与重试
+
+- 上传的原始文件保存在 `KB_STORAGE_DIR`（默认 `<仓库>/.data/knowledge`），
+  这样解析失败或服务重启后可以用「重新解析」重跑 MinerU，而不必重新上传。
+- 服务启动时会把被中断的索引任务重新排队；原始文件缺失时才标记为失败。
+- 索引任务在进程内串行执行；BullMQ worker 接入后会替换这一实现。
 
 环境变量：
 
@@ -45,11 +67,12 @@ npm run api:dev
 
 已知边界：
 
-- 扫描版 PDF 没有文本层，当前不做 OCR，会明确报错而不是伪造内容。
-- 解析为本地启发式转换（标题识别、页眉页脚去重、连字符合并），不是版面还原；
-  复杂表格和双栏排版可能丢失结构。
-- 索引任务在 API 进程内执行，服务重启会中断并标记失败，需要手动“重新索引”；
+- 扫描版 PDF 需要 MinerU（`MINERU_IS_OCR=true`）；既没有文本层又关闭 MinerU 时会明确报错，而不是伪造内容。
+- 本地回退解析是启发式转换（标题识别、页眉页脚去重、连字符合并），不是版面还原；
+  复杂表格和双栏排版可能丢失结构，这类文档建议走 MinerU。
+- 索引任务在 API 进程内串行执行；重启会重新排队，但仍不适合大量并发导入，
   BullMQ worker 接入后会替换这一实现。
+- MinerU 结果中的图片和表格截图不会保存，Markdown 里的图片语法会变成 `[图片]` 占位。
 
 ## 基础设施
 
@@ -74,10 +97,12 @@ npm run db:generate
 npm run db:migrate
 ```
 
-当前首个 migration 只创建 API 自身的 `api_metadata` 表，不读取或修改现有 Supabase schema。
+当前 migration 只创建 API 自身的 `api_metadata`、`kb_documents`、`kb_chunks`（含 pgvector 扩展与 HNSW 索引），
+不读取或修改现有 Supabase schema。
 
 ## 当前边界
 
-- 数据库、Redis 和对象存储目前只提供本地开发基础设施；数据库连接和 readiness 检查已接入，业务模块尚未接入。
-- Better Auth、Argon2、BullMQ worker 和文件上传将在后续 Phase 1 子阶段接入。
+- 数据库和 Redis 目前只提供本地开发基础设施；数据库连接和 readiness 检查已接入。
+- 原始文件保存在本地磁盘（`KB_STORAGE_DIR`）；MinIO/S3 驱动会在后续 Phase 1 子阶段接入。
+- Better Auth + Argon2 和 BullMQ worker 尚未接入。
 - 生产环境仍由 Next.js + PM2 + Supabase 提供服务；不要直接把本地 Compose 配置用于生产。

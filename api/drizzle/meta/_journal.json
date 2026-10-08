@@ -15,6 +15,13 @@
       "when": 1791464544691,
       "tag": "0001_sour_edwin_jarvis",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791465928059,
+      "tag": "0002_tearful_vulcan",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsInt,
   IsOptional,
   IsString,
@@ -10,6 +11,13 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+
+export class ReindexDto {
+  /** Re-run PDF conversion from the stored original file instead of re-chunking saved markdown. */
+  @IsOptional()
+  @IsBoolean({ message: 'fromSource 必须是布尔值' })
+  fromSource?: boolean;
+}
 
 export class AskDto {
   @IsString({ message: '问题必须是文本' })

@@ -9,9 +9,11 @@ import {
 import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service';
 import { kbChunks, kbDocuments } from '../database/schema';
+import { ObjectStorageService } from '../storage/object-storage.service';
 import { chunkMarkdown } from './chunking';
 import { EmbeddingService } from './embedding.service';
 import { LlmService } from './llm.service';
+import { MineruService } from './mineru.service';
 import { pdfBufferToMarkdown, plainTextToMarkdown } from './pdf-markdown';
 
 const IN_PROGRESS_STATUSES = ['pending', 'extracting', 'chunking', 'embedding'] as const;
@@ -25,6 +27,12 @@ export interface UploadedDocumentInput {
   filename: string;
   mimetype?: string;
   buffer: Buffer;
+}
+
+interface ExtractionOutcome {
+  markdown: string;
+  pageCount: number | null;
+  converter: string;
 }
 
 interface SearchRow {
@@ -47,11 +55,15 @@ export interface AskInput {
 @Injectable()
 export class KnowledgeService implements OnModuleInit {
   private readonly logger = new Logger(KnowledgeService.name);
+  /** Serialises indexing work so MinerU and embedding calls are not fired in parallel bursts. */
+  private queueTail: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly database: DatabaseService,
     private readonly embeddings: EmbeddingService,
     private readonly llm: LlmService,
+    private readonly mineru: MineruService,
+    private readonly storage: ObjectStorageService,
   ) {}
 
   private get db() {
@@ -65,31 +77,79 @@ export class KnowledgeService implements OnModuleInit {
   }
 
   async onModuleInit() {
+    await this.reconcileInterrupted();
+  }
+
+  /** Re-queue indexing work that a restart interrupted, using the stored source file when available. */
+  private async reconcileInterrupted() {
     if (!this.database.db) {
       return;
     }
+
     try {
       const stale = await this.database.db
-        .update(kbDocuments)
-        .set({
-          status: 'failed',
-          errorMessage: '服务重启中断了索引流程，请重新索引。',
-          updatedAt: new Date(),
+        .select({
+          id: kbDocuments.id,
+          sourceFilename: kbDocuments.sourceFilename,
+          sourceStorageKey: kbDocuments.sourceStorageKey,
         })
-        .where(inArray(kbDocuments.status, [...IN_PROGRESS_STATUSES]))
-        .returning({ id: kbDocuments.id });
-      if (stale.length > 0) {
-        this.logger.warn(`已将 ${stale.length} 个中断的索引任务标记为失败`);
+        .from(kbDocuments)
+        .where(inArray(kbDocuments.status, [...IN_PROGRESS_STATUSES]));
+
+      if (stale.length === 0) {
+        return;
       }
+
+      let retried = 0;
+      let failed = 0;
+
+      for (const document of stale) {
+        const key = document.sourceStorageKey;
+        const canRetry = Boolean(key) && this.storage.isAvailable && (await this.storage.exists(key as string));
+
+        if (canRetry && key) {
+          await this.db
+            .update(kbDocuments)
+            .set({ status: 'pending', errorMessage: null, updatedAt: new Date() })
+            .where(eq(kbDocuments.id, document.id));
+          const filename = document.sourceFilename ?? 'document.pdf';
+          this.enqueue(() =>
+            this.ingestFromStorage(document.id, key, filename).catch((error: unknown) =>
+              this.failDocument(document.id, error),
+            ),
+          );
+          retried += 1;
+        } else {
+          await this.markFailed(
+            document.id,
+            '服务重启中断了索引流程，且没有可用的原始文件，请删除后重新上传。',
+          );
+          failed += 1;
+        }
+      }
+
+      this.logger.log(`启动恢复：${retried} 个索引任务重新排队，${failed} 个标记为失败`);
     } catch (error) {
       this.logger.warn(
-        `启动清理索引状态失败（数据库可能尚未迁移）：${error instanceof Error ? error.message : '未知错误'}`,
+        `启动恢复索引任务失败（数据库可能尚未迁移）：${error instanceof Error ? error.message : '未知错误'}`,
       );
     }
   }
 
+  private enqueue(task: () => Promise<void>) {
+    this.queueTail = this.queueTail.then(task).catch((error: unknown) => {
+      this.logger.error(
+        `知识库后台任务异常：${error instanceof Error ? error.message : '未知错误'}`,
+      );
+    });
+  }
+
+  private extensionOf(filename: string) {
+    return filename.split('.').pop()?.toLowerCase() ?? '';
+  }
+
   async createDocument(input: UploadedDocumentInput) {
-    const extension = input.filename.split('.').pop()?.toLowerCase() ?? '';
+    const extension = this.extensionOf(input.filename);
     if (!SUPPORTED_EXTENSIONS.has(extension)) {
       throw new BadRequestException('暂只支持 PDF、Markdown 和纯文本文件');
     }
@@ -109,38 +169,99 @@ export class KnowledgeService implements OnModuleInit {
       })
       .returning();
 
-    void this.ingest(document.id, input.buffer, extension).catch(async (error: unknown) => {
-      const message = error instanceof Error ? error.message : '索引失败';
-      this.logger.error(`文档 ${document.id} 索引失败：${message}`);
-      await this.markFailed(document.id, message);
-    });
+    const storageKey = await this.storeSource(document.id, input.filename, input.buffer);
+    if (storageKey) {
+      await this.db
+        .update(kbDocuments)
+        .set({ sourceStorageKey: storageKey, updatedAt: new Date() })
+        .where(eq(kbDocuments.id, document.id));
+    }
 
-    return this.toSummary(document);
+    this.enqueue(() =>
+      this.ingest(document.id, input.buffer, input.filename, extension).catch((error: unknown) =>
+        this.failDocument(document.id, error),
+      ),
+    );
+
+    return { ...this.toSummary(document), converter: null, hasSource: Boolean(storageKey) };
   }
 
-  private async ingest(documentId: string, buffer: Buffer, extension: string) {
+  private async storeSource(documentId: string, filename: string, buffer: Buffer) {
+    if (!this.storage.isAvailable) {
+      this.logger.warn('文件存储不可用，跳过保存原始文件；重启后无法自动重试该文档');
+      return null;
+    }
+    try {
+      const key = this.storage.buildKey(documentId, filename);
+      await this.storage.put(key, buffer);
+      return key;
+    } catch (error) {
+      this.logger.warn(
+        `保存原始文件失败：${error instanceof Error ? error.message : '未知错误'}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * PDF handling: MinerU is the primary converter when enabled, and the local
+   * text-layer extractor is the fallback (or the only option when MinerU is
+   * disabled). The converter actually used is stored on the document.
+   */
+  private async extract(
+    buffer: Buffer,
+    filename: string,
+    extension: string,
+  ): Promise<ExtractionOutcome> {
+    if (extension !== 'pdf') {
+      return { markdown: plainTextToMarkdown(buffer), pageCount: null, converter: 'text' };
+    }
+
+    if (this.mineru.isEnabled) {
+      try {
+        const result = await this.mineru.parsePdf(buffer, filename);
+        if (!result.markdown.trim()) {
+          throw new Error('MinerU 返回的 Markdown 为空');
+        }
+        return { markdown: result.markdown, pageCount: null, converter: result.converter };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知错误';
+        if (process.env.KB_PDF_FALLBACK_LOCAL === 'false') {
+          throw error;
+        }
+        this.logger.warn(`MinerU 解析失败，回退本地 PDF 解析：${message}`);
+      }
+    }
+
+    const local = await pdfBufferToMarkdown(buffer);
+    return { markdown: local.markdown, pageCount: local.pageCount, converter: 'local-pdf-parse' };
+  }
+
+  private async ingest(documentId: string, buffer: Buffer, filename: string, extension: string) {
     await this.setStatus(documentId, 'extracting');
 
-    const extracted =
-      extension === 'pdf'
-        ? await pdfBufferToMarkdown(buffer)
-        : { markdown: plainTextToMarkdown(buffer), pageCount: null };
-
-    if (!extracted.markdown.trim()) {
-      throw new Error('未提取到文本内容：可能是扫描版 PDF，当前不支持 OCR，请改用带文本层的 PDF');
+    const outcome = await this.extract(buffer, filename, extension);
+    if (!outcome.markdown.trim()) {
+      throw new Error('未提取到文本内容：可能是扫描版 PDF，请在环境变量中启用 MinerU OCR 或改用带文本层的文件');
     }
 
     await this.db
       .update(kbDocuments)
       .set({
-        markdown: extracted.markdown,
-        pageCount: extracted.pageCount,
+        markdown: outcome.markdown,
+        pageCount: outcome.pageCount,
+        converter: outcome.converter,
         status: 'chunking',
         updatedAt: new Date(),
       })
       .where(eq(kbDocuments.id, documentId));
 
-    await this.indexMarkdown(documentId, extracted.markdown);
+    await this.indexMarkdown(documentId, outcome.markdown);
+  }
+
+  private async ingestFromStorage(documentId: string, key: string, filename: string) {
+    const buffer = await this.storage.read(key);
+    await this.ingest(documentId, buffer, filename, this.extensionOf(filename));
   }
 
   private async indexMarkdown(documentId: string, markdown: string) {
@@ -180,6 +301,18 @@ export class KnowledgeService implements OnModuleInit {
     });
   }
 
+  private async failDocument(documentId: string, error: unknown) {
+    const message = error instanceof Error ? error.message : '索引失败';
+    this.logger.error(`文档 ${documentId} 索引失败：${message}`);
+    try {
+      await this.markFailed(documentId, message);
+    } catch (markError) {
+      this.logger.error(
+        `更新失败状态时出错：${markError instanceof Error ? markError.message : '未知错误'}`,
+      );
+    }
+  }
+
   private async setStatus(documentId: string, status: DocumentStatus) {
     await this.db
       .update(kbDocuments)
@@ -202,6 +335,8 @@ export class KnowledgeService implements OnModuleInit {
         sourceFilename: kbDocuments.sourceFilename,
         status: kbDocuments.status,
         errorMessage: kbDocuments.errorMessage,
+        converter: kbDocuments.converter,
+        sourceStorageKey: kbDocuments.sourceStorageKey,
         pageCount: kbDocuments.pageCount,
         chunkCount: kbDocuments.chunkCount,
         byteSize: kbDocuments.byteSize,
@@ -210,10 +345,14 @@ export class KnowledgeService implements OnModuleInit {
       })
       .from(kbDocuments)
       .orderBy(desc(kbDocuments.createdAt));
-    return rows;
+
+    return rows.map(({ sourceStorageKey, ...rest }) => ({
+      ...rest,
+      hasSource: Boolean(sourceStorageKey),
+    }));
   }
 
-  async getDocument(id: string) {
+  private async getDocumentRow(id: string) {
     const [document] = await this.db
       .select()
       .from(kbDocuments)
@@ -225,21 +364,56 @@ export class KnowledgeService implements OnModuleInit {
     return document;
   }
 
+  async getDocument(id: string) {
+    const document = await this.getDocumentRow(id);
+    const { sourceStorageKey, ...rest } = document;
+    return { ...rest, hasSource: Boolean(sourceStorageKey) };
+  }
+
   async deleteDocument(id: string) {
     const [deleted] = await this.db
       .delete(kbDocuments)
       .where(eq(kbDocuments.id, id))
-      .returning({ id: kbDocuments.id });
+      .returning({ id: kbDocuments.id, sourceStorageKey: kbDocuments.sourceStorageKey });
     if (!deleted) {
       throw new NotFoundException('文档不存在');
     }
+
+    if (deleted.sourceStorageKey) {
+      try {
+        await this.storage.remove(deleted.sourceStorageKey);
+      } catch (error) {
+        this.logger.warn(
+          `删除原始文件失败：${error instanceof Error ? error.message : '未知错误'}`,
+        );
+      }
+    }
+
     return { id: deleted.id, deleted: true };
   }
 
-  async reindex(id: string) {
-    const document = await this.getDocument(id);
+  async reindex(id: string, options: { fromSource?: boolean } = {}) {
+    const document = await this.getDocumentRow(id);
+    const sourceKey = document.sourceStorageKey;
+    const fromSource = Boolean(options.fromSource);
+
+    if (fromSource) {
+      if (!sourceKey || !(await this.storage.exists(sourceKey))) {
+        throw new BadRequestException('没有可用的原始文件，无法重新解析；请重新上传或退回普通重新索引');
+      }
+      try {
+        await this.setStatus(id, 'extracting');
+        await this.ingestFromStorage(id, sourceKey, document.sourceFilename ?? 'document.pdf');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '重新解析失败';
+        await this.markFailed(id, message);
+        throw new BadRequestException(message);
+      }
+      return this.getDocument(id);
+    }
+
     if (!document.markdown?.trim()) {
-      throw new BadRequestException('该文档没有可用的解析文本，请删除后重新上传');
+      throw new BadRequestException('该文档没有可用的解析文本，请使用原始文件重新解析或重新上传');
     }
 
     try {

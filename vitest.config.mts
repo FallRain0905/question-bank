@@ -9,6 +9,8 @@ export default defineConfig({
       '@': path.resolve(process.cwd()),
     },
   },
+  // NestJS services use decorators. `api/tsconfig.json` enables them so the
+  // transform (oxc) can parse API services imported by unit tests.
   test: {
     environment: 'node',
     include: ['lib/**/*.test.ts', 'api/**/*.test.ts'],

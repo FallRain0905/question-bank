@@ -10,6 +10,9 @@ dist
 build
 *.tsbuildinfo
 
+# 本地学习 API 的文件存储（上传的原始资料）
+.data
+
 # 环境变量
 .env
 .env.local

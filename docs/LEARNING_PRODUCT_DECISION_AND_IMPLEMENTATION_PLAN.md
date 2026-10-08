@@ -723,3 +723,48 @@ ai
 - 在有 Docker 的环境先执行 `npm run api:compose:up` → `npm run db:migrate`，再验证上传、检索与引用；确认 HNSW 索引和 `<=>` 排序结果正确后再考虑部署。
 - 若要在生产开放知识库，需要先补用户认证（Better Auth）和数据归属隔离，并给学习 API 规划 Nginx 路由与 PM2 进程，不要直接暴露 4000 端口。
 - 大文件与批量导入后续应迁移到 BullMQ 队列，并补充重试、进度上报和失败续跑。
+
+### Phase 1 追加其二：MinerU 解析与可重试的索引流程
+
+**状态：已完成实现与单元/接口验证，仍需在有 Docker 和 MinerU Token 的环境做真机验收。**
+
+已完成：
+
+- PDF 转换改为优先调用 MinerU API（<https://mineru.net/apiManage>），保留本地文本层解析作为回退：
+  - 配置 `MINERU_API_TOKEN` 时走官方 v4 精确解析：`POST /api/v4/file-urls/batch` 取签名上传链接 → `PUT` 上传 → 轮询 `GET /api/v4/extract-results/batch/{batch_id}` → 下载 `full_zip_url` 解压取 Markdown。
+  - 未配置 Token 时走免鉴权的 agent 快速解析：`POST /api/v1/agent/parse/file` → `PUT` 上传 → 轮询 `GET /api/v1/agent/parse/{task_id}` → 下载 `markdown_url`。
+  - `MINERU_PARSE_MODE` 可强制链路；`KB_PDF_FALLBACK_LOCAL=false` 可关闭回退；`MINERU_ENABLED=false` 可完全停用 MinerU。
+  - 转换方式写入 `kb_documents.converter`（`mineru-v4` / `mineru-agent` / `local-pdf-parse` / `text`），便于排查来源质量。
+- MinerU 返回结果中的图片不落盘，Markdown 里的图片语法统一替换为 `[图片]` 占位，避免留下失效链接。
+- 新增本地文件存储 `api/src/storage/`：原始上传文件按 `文档 ID/文件名` 保存到 `KB_STORAGE_DIR`（默认 `.data/knowledge`，已加入 `.gitignore`），文件名做了路径穿越防护；接口保持不变，后续可换 MinIO/S3 驱动。
+- 索引流程改为可重试：
+  - 服务启动时把中断的索引任务重新排队，并从原始文件重新解析（此前一律标记失败）。
+  - `POST /api/knowledge/documents/:id/reindex` 支持 `{ "fromSource": true }`，用原始文件重跑 MinerU；不带参数则只重新分块和向量化已保存的 Markdown。
+  - 删除文档时同步删除保存的原始文件。
+  - 进程内索引任务改为串行队列，避免 MinerU 和嵌入接口被并发打爆。
+- 新增 `kb_documents.converter`、`kb_documents.source_storage_key` 两列（迁移 `api/drizzle/0002_*.sql`）。
+- 前端 `/knowledge` 页面显示转换方式，并对失败文档提供「重新解析」（用原始文件）和「重新索引」两个操作。
+
+未完成：
+
+- 未使用真实 MinerU Token 调用过线上接口：鉴权、真实解析质量、页数与配额限制都未验证。
+  v4 批量链路已用本地假 MinerU 服务（真实 HTTP + 真实 zip）验证；agent 链路目前只有桩测试。
+- zip 解压只取 Markdown 文本，MinerU 结果里的图片、版式 JSON 未保存，也未解析表格结构。
+- MinIO/S3 驱动、BullMQ worker、并发与进度上报仍未接入；索引队列仍是进程内串行。
+- 迁移与向量检索仍未在真实 PostgreSQL 上执行（开发机没有 Docker/PostgreSQL）。
+
+验收记录：
+
+- `npm test`：通过，13 个测试文件、108 个测试用例全部通过（新增 MinerU 配置 5、MinerU 响应解析 11、MinerU 双链路桩测试 5、zip 解压 3、文件存储 5）。
+- `npm run api:build`、`npx tsc --noEmit`：通过。
+- MinerU 桩测试覆盖：agent 链路上传/轮询/下载、v4 链路签名上传与 Bearer 鉴权、错误信封（`code != 0`）、任务失败状态、超时。
+- 文件存储测试覆盖：读写存在删除、CJK 文件名、路径穿越拒绝、前导点与非法字符清理。
+- MinerU v4 真实链路验证：用本地假 MinerU 服务跑通「申请签名链接 → 无 Content-Type 的 PUT 上传（13 字节）→ 轮询两次得到 done → 下载真实 zip → 解压 full.md → 图片转 `[图片]`」，鉴权头、请求体、转换方式（`mineru-v4`）均符合预期。
+- 该验证发现并修复了一个真实缺陷：yauzl 3 的 `fromBufferPromise` 强制 `lazyEntries`，原先只调用一次 `readEntry()` 会导致解压永久挂起；现已在 `entry` 回调中继续读取，并补了 zip 单测锁定行为。
+- 未执行：真实 MinerU 调用、真实数据库迁移与向量检索。
+
+下一阶段注意事项：
+
+- 在有 Token 的环境先用一份真实 PDF 跑通 `MINERU_PARSE_MODE=v4-batch` 和 `agent` 两条链路，确认签名上传不需要 `Content-Type`、zip 内 Markdown 命名（代码优先取 `full.md`）和轮询状态取值与文档一致。
+- `KB_STORAGE_DIR` 在生产必须指向持久化卷，否则重启后无法自动重试解析。
+- 大文件（MinerU 单文件上限 200MB、200 页）和批量导入在接入 BullMQ 前不要并发提交，避免占用进程内队列和外部额度。
