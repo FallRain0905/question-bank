@@ -25,7 +25,13 @@ export class EmbeddingService {
     return this.config.dimensions;
   }
 
-  async embedTexts(texts: string[]): Promise<number[][]> {
+  /**
+   * @param onBatch optional progress callback: (embeddedSoFar, total)
+   */
+  async embedTexts(
+    texts: string[],
+    onBatch?: (done: number, total: number) => Promise<void> | void,
+  ): Promise<number[][]> {
     if (texts.length === 0) {
       return [];
     }
@@ -36,13 +42,16 @@ export class EmbeddingService {
           '未配置嵌入模型 API Key，使用 local-hash 开发回退向量（检索质量有限，仅适合联调）。',
         );
       }
-      return texts.map((text) => hashEmbedding(text, this.config.dimensions));
+      const vectors = texts.map((text) => hashEmbedding(text, this.config.dimensions));
+      await onBatch?.(texts.length, texts.length);
+      return vectors;
     }
 
     const vectors: number[][] = [];
     for (let start = 0; start < texts.length; start += this.config.batchSize) {
       const batch = texts.slice(start, start + this.config.batchSize);
       vectors.push(...(await this.requestEmbeddings(batch)));
+      await onBatch?.(vectors.length, texts.length);
     }
     return vectors;
   }

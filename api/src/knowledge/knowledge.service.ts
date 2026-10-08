@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service';
-import { kbChunks, kbDocuments } from '../database/schema';
+import { kbChunks, kbDocumentLogs, kbDocuments } from '../database/schema';
 import { ObjectStorageService } from '../storage/object-storage.service';
 import { chunkMarkdown } from './chunking';
 import { EmbeddingService } from './embedding.service';
@@ -112,6 +112,7 @@ export class KnowledgeService implements OnModuleInit {
             .update(kbDocuments)
             .set({ status: 'pending', errorMessage: null, updatedAt: new Date() })
             .where(eq(kbDocuments.id, document.id));
+          await this.log(document.id, 'warn', '服务重启中断了索引，已使用原始文件重新排队');
           const filename = document.sourceFilename ?? 'document.pdf';
           this.enqueue(() =>
             this.ingestFromStorage(document.id, key, filename).catch((error: unknown) =>
@@ -120,6 +121,11 @@ export class KnowledgeService implements OnModuleInit {
           );
           retried += 1;
         } else {
+          await this.log(
+            document.id,
+            'error',
+            '服务重启中断了索引，且没有可用的原始文件，请删除后重新上传',
+          );
           await this.markFailed(
             document.id,
             '服务重启中断了索引流程，且没有可用的原始文件，请删除后重新上传。',
@@ -183,6 +189,12 @@ export class KnowledgeService implements OnModuleInit {
       ),
     );
 
+    await this.log(
+      document.id,
+      'info',
+      `已接收 ${input.filename}（${(input.buffer.length / 1024).toFixed(1)} KB），开始索引`,
+    );
+
     return { ...this.toSummary(document), converter: null, hasSource: Boolean(storageKey) };
   }
 
@@ -209,38 +221,53 @@ export class KnowledgeService implements OnModuleInit {
    * disabled). The converter actually used is stored on the document.
    */
   private async extract(
+    documentId: string,
     buffer: Buffer,
     filename: string,
     extension: string,
   ): Promise<ExtractionOutcome> {
     if (extension !== 'pdf') {
-      return { markdown: plainTextToMarkdown(buffer), pageCount: null, converter: 'text' };
+      const markdown = plainTextToMarkdown(buffer);
+      return { markdown, pageCount: null, converter: 'text' };
     }
 
     if (this.mineru.isEnabled) {
+      await this.log(documentId, 'info', `PDF 解析：MinerU（${this.mineru.mode}）`);
+      const startedAt = Date.now();
       try {
         const result = await this.mineru.parsePdf(buffer, filename);
         if (!result.markdown.trim()) {
           throw new Error('MinerU 返回的 Markdown 为空');
         }
+        await this.log(
+          documentId,
+          'info',
+          `MinerU 解析完成（${result.converter}，${((Date.now() - startedAt) / 1000).toFixed(1)} 秒，Markdown ${result.markdown.length} 字）`,
+        );
         return { markdown: result.markdown, pageCount: null, converter: result.converter };
       } catch (error) {
         const message = error instanceof Error ? error.message : '未知错误';
         if (process.env.KB_PDF_FALLBACK_LOCAL === 'false') {
           throw error;
         }
-        this.logger.warn(`MinerU 解析失败，回退本地 PDF 解析：${message}`);
+        await this.log(documentId, 'warn', `MinerU 解析失败：${message}；回退本地文本层解析`);
       }
     }
 
     const local = await pdfBufferToMarkdown(buffer);
+    await this.log(
+      documentId,
+      'info',
+      `本地文本层解析完成（${local.pageCount ?? '未知'} 页，Markdown ${local.markdown.length} 字）`,
+    );
     return { markdown: local.markdown, pageCount: local.pageCount, converter: 'local-pdf-parse' };
   }
 
   private async ingest(documentId: string, buffer: Buffer, filename: string, extension: string) {
     await this.setStatus(documentId, 'extracting');
+    await this.log(documentId, 'info', `抽取内容（${extension}）`);
 
-    const outcome = await this.extract(buffer, filename, extension);
+    const outcome = await this.extract(documentId, buffer, filename, extension);
     if (!outcome.markdown.trim()) {
       throw new Error('未提取到文本内容：可能是扫描版 PDF，请在环境变量中启用 MinerU OCR 或改用带文本层的文件');
     }
@@ -271,9 +298,15 @@ export class KnowledgeService implements OnModuleInit {
     }
 
     await this.setStatus(documentId, 'embedding');
-    const vectors = await this.embeddings.embedTexts(
-      chunks.map((chunk) => (chunk.heading ? `${chunk.heading}\n${chunk.content}` : chunk.content)),
+    await this.log(documentId, 'info', `分块完成：${chunks.length} 个分块，开始向量化（${this.embeddings.model}）`);
+
+    const inputs = chunks.map((chunk) =>
+      chunk.heading ? `${chunk.heading}\n${chunk.content}` : chunk.content,
     );
+    const vectors = await this.embeddings.embedTexts(inputs, async (done, total) => {
+      await this.log(documentId, 'info', `向量化 ${done}/${total} 个分块`);
+    });
+    await this.log(documentId, 'info', '向量化完成，写入向量库');
 
     const rows = chunks.map((chunk, index) => ({
       documentId,
@@ -299,18 +332,58 @@ export class KnowledgeService implements OnModuleInit {
         })
         .where(eq(kbDocuments.id, documentId));
     });
+
+    await this.log(documentId, 'info', `索引完成：${rows.length} 个分块可供检索`);
   }
 
   private async failDocument(documentId: string, error: unknown) {
     const message = error instanceof Error ? error.message : '索引失败';
     this.logger.error(`文档 ${documentId} 索引失败：${message}`);
     try {
+      await this.log(documentId, 'error', `索引失败：${message}`);
       await this.markFailed(documentId, message);
     } catch (markError) {
       this.logger.error(
         `更新失败状态时出错：${markError instanceof Error ? markError.message : '未知错误'}`,
       );
     }
+  }
+
+  /**
+   * Indexing progress is stored per document so the UI can show what happened
+   * (and what failed) instead of forcing users to read PM2 logs.
+   */
+  private async log(documentId: string, level: 'info' | 'warn' | 'error', message: string) {
+    this.logger.log(`[${documentId}] ${message}`);
+    if (!this.database.db) {
+      return;
+    }
+    try {
+      await this.database.db.insert(kbDocumentLogs).values({
+        documentId,
+        level,
+        message: message.slice(0, 1000),
+      });
+    } catch (error) {
+      this.logger.warn(
+        `写入索引日志失败：${error instanceof Error ? error.message : '未知错误'}`,
+      );
+    }
+  }
+
+  async getDocumentLogs(id: string, limit = 200) {
+    await this.getDocumentRow(id);
+    return this.db
+      .select({
+        id: kbDocumentLogs.id,
+        level: kbDocumentLogs.level,
+        message: kbDocumentLogs.message,
+        createdAt: kbDocumentLogs.createdAt,
+      })
+      .from(kbDocumentLogs)
+      .where(eq(kbDocumentLogs.documentId, id))
+      .orderBy(kbDocumentLogs.createdAt)
+      .limit(Math.min(Math.max(limit, 1), 500));
   }
 
   private async setStatus(documentId: string, status: DocumentStatus) {
@@ -401,11 +474,13 @@ export class KnowledgeService implements OnModuleInit {
       if (!sourceKey || !(await this.storage.exists(sourceKey))) {
         throw new BadRequestException('没有可用的原始文件，无法重新解析；请重新上传或退回普通重新索引');
       }
+      await this.log(id, 'info', '收到重新解析请求：使用保存的原始文件重跑解析');
       try {
         await this.setStatus(id, 'extracting');
         await this.ingestFromStorage(id, sourceKey, document.sourceFilename ?? 'document.pdf');
       } catch (error) {
         const message = error instanceof Error ? error.message : '重新解析失败';
+        await this.log(id, 'error', `重新解析失败：${message}`);
         await this.markFailed(id, message);
         throw new BadRequestException(message);
       }
@@ -416,11 +491,13 @@ export class KnowledgeService implements OnModuleInit {
       throw new BadRequestException('该文档没有可用的解析文本，请使用原始文件重新解析或重新上传');
     }
 
+    await this.log(id, 'info', '收到重新索引请求：基于已保存的 Markdown 重新分块和向量化');
     try {
       await this.setStatus(id, 'chunking');
       await this.indexMarkdown(id, document.markdown);
     } catch (error) {
       const message = error instanceof Error ? error.message : '重新索引失败';
+      await this.log(id, 'error', `重新索引失败：${message}`);
       await this.markFailed(id, message);
       throw new BadRequestException(message);
     }

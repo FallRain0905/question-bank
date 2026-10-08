@@ -66,8 +66,23 @@ export const kbChunks = pgTable(
   ],
 );
 
+export const kbDocumentLogs = pgTable(
+  'kb_document_logs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => kbDocuments.id, { onDelete: 'cascade' }),
+    level: text('level').notNull().default('info'),
+    message: text('message').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('kb_document_logs_document_id_idx').on(table.documentId)],
+);
+
 export const schema = {
   apiMetadata,
   kbDocuments,
   kbChunks,
+  kbDocumentLogs,
 };

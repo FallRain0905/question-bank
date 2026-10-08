@@ -65,6 +65,12 @@ export class KnowledgeController {
     return this.knowledge.getDocument(id);
   }
 
+  @Get('documents/:id/logs')
+  @ApiOperation({ summary: 'Indexing log lines for a document' })
+  getDocumentLogs(@Param('id') id: string) {
+    return this.knowledge.getDocumentLogs(id);
+  }
+
   @Delete('documents/:id')
   @ApiOperation({ summary: 'Delete a document and its chunks' })
   deleteDocument(@Param('id') id: string) {

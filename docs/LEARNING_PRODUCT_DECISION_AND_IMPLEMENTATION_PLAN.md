@@ -813,3 +813,27 @@ ai
 - 为 `learning-pg-data` 与 `/srv/learning-api/storage` 安排定期备份（`pg_dump` + 目录打包到异地）。
 - 处理或停用崩溃重启的 `synapse-run-worker`。
 - 继续 Phase 1 剩余项：Redis/BullMQ 队列、MinIO/S3 存储驱动、题库/笔记/复习迁移到新 API。
+
+### Phase 1 追加其四：索引日志可见化、知识库问答页重做、停止旧 worker（2026-10-08）
+
+**状态：已完成并部署到生产。**
+
+已完成：
+
+- 新增 `kb_document_logs` 表（迁移 `api/drizzle/0001_fine_spacker_dave.sql`），记录每篇资料的索引过程：接收文件、解析方式（MinerU 链路与耗时 / 本地文本层）、分块数量、向量化批次进度（`向量化 16/48`）、写入完成、以及**失败时的原始错误信息**。
+- 新增接口 `GET /api/knowledge/documents/:id/logs`；`EmbeddingService.embedTexts` 增加批次进度回调。
+- 失败、重启重排、重新解析/重新索引等路径都会写入日志，前端不必再依赖 PM2 日志排查。
+- `/knowledge` 页面前端按旧 AI 问答页（`/qa`）的结构重做：左侧资料列表（状态徽标、转换方式、分块数、可展开的索引日志、重新解析/重新索引/删除），右侧聊天式问答（Markdown 渲染、引用资料可展开折叠、加载动画、回车发送、清空对话、可调引用条数）。
+- 删除 `synapse-run-worker`：服务器 `pm2 delete` + `pm2 save`，并从 `ecosystem.config.js` 移除该进程定义（`scripts/synapse-run-worker.ts` 保留在仓库中，便于回滚）。
+
+验收记录：
+
+- `npm test`：16 个测试文件、117 个用例通过；`npm run api:build`、`npx tsc --noEmit`、前端 `npm run build` 均通过。
+- 生产端到端：上传 Markdown → 左侧日志实时显示「已接收 → 抽取内容 → 分块完成 → 向量化 3/3 → 索引完成：3 个分块」；问答区返回带引用序号的回答，引用面板可展开查看原文片段与相似度。
+- PDF 走 MinerU 时日志会显示 `PDF 解析：MinerU（v4-batch）` 与解析耗时；MinerU 失败会以 warn 级日志写明原因并注明已回退本地解析。
+
+下一阶段注意事项：
+
+- 日志表目前无清理策略，长期使用需要按文档或时间归档（例如删除文档时级联清理，已随外键级联生效；仅需关注活跃文档的日志量）。
+- 前端仍是无鉴权页面，任何人可上传与提问；正式对外前必须补 Better Auth。
+- 旧的 `/qa`、`/kb` 页面继续隐藏，未删除；知识库相关能力统一由 `/knowledge` 与新 API 提供。

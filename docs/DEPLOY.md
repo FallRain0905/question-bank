@@ -13,7 +13,6 @@
 | `question-bank` | Next.js 主应用（页面 + API） | 3000 | ✅ 必需 |
 | `learning-api` | Phase 1 学习 API（知识库 / RAG 问答） | 4000（仅本机） | ⚠️ 要用知识库时需要 |
 | `question-bank-postgres` | Docker 容器：PostgreSQL 16 + pgvector | 5432（仅本机） | ⚠️ 要用知识库时需要 |
-| `synapse-run-worker` | Synapse Agent 后台 worker | — | ⚠️ 用到 Agent 功能时需要 |
 | `arxiv-cron` | 论文抓取定时任务（每天 9:00） | — | ⚠️ 要论文推送时需要 |
 | `crawl-service` | Python 网页正文抓取 sidecar | 8002 | ⚠️ 要研究搜索时需要 |
 | `hyper-rag-service` | Python 超图 RAG 服务 | 8001 | ⚠️ 旧知识库问答（已被 learning-api 取代） |
@@ -283,7 +282,7 @@ pm2 restart question-bank
 - 服务器执行 `npm ci` 时曾遇到 npm registry `ECONNRESET`，通过限制并发并增加重试后成功完成依赖安装。
 - 本机检查：首页 `200`；`/progress` `200`；`/research` 最终重定向到 `/`。
 - 公网检查：`https://synap.fallrain0905.top/` `200`；公网 `/research` 最终重定向到首页。
-- 当前服务器保留 `crawl-service` 和 `synapse-run-worker`；`arxiv-cron` 维持原有停止状态。未跟踪的 `crawl-service/.venv/` 是服务器原有 Python 虚拟环境，不属于代码发布内容。
+- 当前服务器保留 `crawl-service` 和 `synapse-run-worker`；`arxiv-cron` 维持原有停止状态。未跟踪的 `crawl-service/.venv/` 是服务器原有 Python 虚拟环境，不属于代码发布内容。（`synapse-run-worker` 已于 2026-10-08 删除，见第八节。）
 
 本次发布仍使用现有 Supabase 后端，未执行新后端替换。下一阶段应按 `docs/LEARNING_PRODUCT_DECISION_AND_IMPLEMENTATION_PLAN.md` 进入 Phase 1，先建设 NestJS/Fastify、PostgreSQL、Drizzle、Better Auth、Redis/BullMQ、MinIO 和健康检查。
 
