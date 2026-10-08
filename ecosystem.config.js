@@ -25,6 +25,20 @@ module.exports = {
       max_memory_restart: '1G'
     },
     {
+      name: 'learning-api',
+      script: 'dist/api/main.js',
+      cwd: rootDir,
+      env: {
+        NODE_ENV: 'production',
+        API_HOST: '127.0.0.1',
+        API_PORT: 4000
+      },
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '700M'
+    },
+    {
       name: 'synapse-run-worker',
       script: './node_modules/.bin/tsx',
       args: 'scripts/synapse-run-worker.ts',
