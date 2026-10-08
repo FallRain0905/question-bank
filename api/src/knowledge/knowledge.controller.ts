@@ -5,8 +5,10 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   PayloadTooLargeException,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -14,7 +16,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import '@fastify/multipart';
 import type { FastifyRequest } from 'fastify';
 import { AccessTokenGuard } from '../auth/access-token.guard';
-import { AskDto, ReindexDto } from './knowledge.dto';
+import { AskDto, CreateCollectionDto, ReindexDto, UpdateCollectionDto } from './knowledge.dto';
 import { KnowledgeService } from './knowledge.service';
 
 @ApiTags('knowledge')
@@ -24,9 +26,33 @@ import { KnowledgeService } from './knowledge.service';
 export class KnowledgeController {
   constructor(private readonly knowledge: KnowledgeService) {}
 
+  @Get('collections')
+  @ApiOperation({ summary: 'List knowledge bases with document and chunk counts' })
+  listCollections() {
+    return this.knowledge.listCollections();
+  }
+
+  @Post('collections')
+  @ApiOperation({ summary: 'Create a knowledge base' })
+  createCollection(@Body() body: CreateCollectionDto) {
+    return this.knowledge.createCollection(body);
+  }
+
+  @Patch('collections/:id')
+  @ApiOperation({ summary: 'Rename or describe a knowledge base' })
+  updateCollection(@Param('id') id: string, @Body() body: UpdateCollectionDto) {
+    return this.knowledge.updateCollection(id, body);
+  }
+
+  @Delete('collections/:id')
+  @ApiOperation({ summary: 'Delete a knowledge base; pass force=true to delete its documents too' })
+  deleteCollection(@Param('id') id: string, @Query('force') force?: string) {
+    return this.knowledge.deleteCollection(id, { force: force === 'true' });
+  }
+
   @Post('documents')
-  @ApiOperation({ summary: 'Upload a PDF/Markdown/text document and start indexing' })
-  async uploadDocument(@Req() request: FastifyRequest) {
+  @ApiOperation({ summary: 'Upload a PDF/Markdown/text document into a knowledge base' })
+  async uploadDocument(@Req() request: FastifyRequest, @Query('collectionId') collectionId?: string) {
     const file = await request.file();
     if (!file) {
       throw new BadRequestException('缺少上传文件（multipart 字段名 file）');
@@ -46,17 +72,22 @@ export class KnowledgeController {
       throw new PayloadTooLargeException('文件超过大小限制');
     }
 
-    return this.knowledge.createDocument({
-      filename: file.filename,
-      mimetype: file.mimetype,
-      buffer,
-    });
+    const fieldCollectionId = (file.fields?.collectionId as { value?: string } | undefined)?.value;
+
+    return this.knowledge.createDocument(
+      {
+        filename: file.filename,
+        mimetype: file.mimetype,
+        buffer,
+      },
+      collectionId || fieldCollectionId,
+    );
   }
 
   @Get('documents')
-  @ApiOperation({ summary: 'List knowledge base documents' })
-  listDocuments() {
-    return this.knowledge.listDocuments();
+  @ApiOperation({ summary: 'List knowledge base documents, optionally filtered by collection' })
+  listDocuments(@Query('collectionId') collectionId?: string) {
+    return this.knowledge.listDocuments({ collectionId });
   }
 
   @Get('documents/:id')

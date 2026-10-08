@@ -19,6 +19,31 @@ export class ReindexDto {
   fromSource?: boolean;
 }
 
+export class CreateCollectionDto {
+  @IsString({ message: '名称必须是文本' })
+  @MinLength(1, { message: '名称不能为空' })
+  @MaxLength(80, { message: '名称请控制在 80 字以内' })
+  name!: string;
+
+  @IsOptional()
+  @IsString({ message: '描述必须是文本' })
+  @MaxLength(500, { message: '描述请控制在 500 字以内' })
+  description?: string;
+}
+
+export class UpdateCollectionDto {
+  @IsOptional()
+  @IsString({ message: '名称必须是文本' })
+  @MinLength(1, { message: '名称不能为空' })
+  @MaxLength(80, { message: '名称请控制在 80 字以内' })
+  name?: string;
+
+  @IsOptional()
+  @IsString({ message: '描述必须是文本' })
+  @MaxLength(500, { message: '描述请控制在 500 字以内' })
+  description?: string;
+}
+
 export class AskDto {
   @IsString({ message: '问题必须是文本' })
   @MinLength(1, { message: '问题不能为空' })
@@ -36,4 +61,8 @@ export class AskDto {
   @IsArray()
   @IsUUID('4', { each: true, message: 'documentIds 必须是 UUID 列表' })
   documentIds?: string[];
+
+  @IsOptional()
+  @IsUUID('4', { message: 'collectionId 必须是 UUID' })
+  collectionId?: string;
 }

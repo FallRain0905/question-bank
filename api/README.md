@@ -18,13 +18,17 @@ npm run api:dev
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `POST` | `/api/knowledge/documents` | 上传 PDF/Markdown/文本（multipart 字段 `file`），后台解析、分块、向量化 |
-| `GET` | `/api/knowledge/documents` | 资料列表与索引状态 |
+| `GET` | `/api/knowledge/collections` | 知识库列表（含资料数、就绪数、分块数） |
+| `POST` | `/api/knowledge/collections` | 新建知识库 `{ name, description? }` |
+| `PATCH` | `/api/knowledge/collections/:id` | 重命名或修改描述 |
+| `DELETE` | `/api/knowledge/collections/:id` | 删除知识库；`?force=true` 时连同资料一起删除 |
+| `POST` | `/api/knowledge/documents` | 上传 PDF/Markdown/文本（multipart 字段 `file`），可用 `?collectionId=` 指定知识库 |
+| `GET` | `/api/knowledge/documents` | 资料列表与索引状态，可用 `?collectionId=` 过滤 |
 | `GET` | `/api/knowledge/documents/:id` | 单篇资料（含转换后的 Markdown） |
 | `GET` | `/api/knowledge/documents/:id/logs` | 索引过程日志（步骤、向量化进度、错误原文） |
 | `DELETE` | `/api/knowledge/documents/:id` | 删除资料及其分块 |
 | `POST` | `/api/knowledge/documents/:id/reindex` | 重新分块和向量化；传 `{ "fromSource": true }` 时用保存的原始文件重新解析 |
-| `POST` | `/api/knowledge/ask` | 向量检索 + LLM 回答，返回引用来源 |
+| `POST` | `/api/knowledge/ask` | 向量检索 + LLM 回答，返回引用来源；传 `collectionId` 只检索指定知识库 |
 
 处理流程：
 

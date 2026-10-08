@@ -29,22 +29,37 @@ export const apiMetadata = pgTable('api_metadata', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const kbDocuments = pgTable('kb_documents', {
+export const kbCollections = pgTable('kb_collections', {
   id: uuid('id').defaultRandom().primaryKey(),
-  title: text('title').notNull(),
-  sourceFilename: text('source_filename'),
-  mimeType: text('mime_type'),
-  byteSize: integer('byte_size'),
-  status: text('status').notNull().default('pending'),
-  errorMessage: text('error_message'),
-  converter: text('converter'),
-  sourceStorageKey: text('source_storage_key'),
-  markdown: text('markdown'),
-  pageCount: integer('page_count'),
-  chunkCount: integer('chunk_count').notNull().default(0),
+  name: text('name').notNull().unique(),
+  description: text('description'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const kbDocuments = pgTable(
+  'kb_documents',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    collectionId: uuid('collection_id').references(() => kbCollections.id, {
+      onDelete: 'cascade',
+    }),
+    title: text('title').notNull(),
+    sourceFilename: text('source_filename'),
+    mimeType: text('mime_type'),
+    byteSize: integer('byte_size'),
+    status: text('status').notNull().default('pending'),
+    errorMessage: text('error_message'),
+    converter: text('converter'),
+    sourceStorageKey: text('source_storage_key'),
+    markdown: text('markdown'),
+    pageCount: integer('page_count'),
+    chunkCount: integer('chunk_count').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('kb_documents_collection_id_idx').on(table.collectionId)],
+);
 
 export const kbChunks = pgTable(
   'kb_chunks',
@@ -82,6 +97,7 @@ export const kbDocumentLogs = pgTable(
 
 export const schema = {
   apiMetadata,
+  kbCollections,
   kbDocuments,
   kbChunks,
   kbDocumentLogs,

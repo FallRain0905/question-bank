@@ -15,6 +15,13 @@
       "when": 1791472478893,
       "tag": "0001_fine_spacker_dave",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791473541716,
+      "tag": "0002_dear_corsair",
+      "breakpoints": true
     }
   ]
 }

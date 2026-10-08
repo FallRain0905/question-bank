@@ -6,13 +6,14 @@ import {
   OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { desc, eq, inArray, sql } from 'drizzle-orm';
+import { count, desc, eq, inArray, sql } from 'drizzle-orm';
 import { DatabaseService } from '../database/database.service';
-import { kbChunks, kbDocumentLogs, kbDocuments } from '../database/schema';
+import { kbChunks, kbCollections, kbDocumentLogs, kbDocuments } from '../database/schema';
 import { ObjectStorageService } from '../storage/object-storage.service';
 import { chunkMarkdown } from './chunking';
 import { EmbeddingService } from './embedding.service';
 import { LlmService } from './llm.service';
+import { normalizeAnswerMarkdown } from './markdown-output';
 import { MineruService } from './mineru.service';
 import { pdfBufferToMarkdown, plainTextToMarkdown } from './pdf-markdown';
 
@@ -50,7 +51,11 @@ export interface AskInput {
   question: string;
   topK?: number;
   documentIds?: string[];
+  /** Restrict retrieval to one knowledge base. Omit to search every collection. */
+  collectionId?: string;
 }
+
+export const DEFAULT_COLLECTION_NAME = '默认知识库';
 
 @Injectable()
 export class KnowledgeService implements OnModuleInit {
@@ -154,7 +159,7 @@ export class KnowledgeService implements OnModuleInit {
     return filename.split('.').pop()?.toLowerCase() ?? '';
   }
 
-  async createDocument(input: UploadedDocumentInput) {
+  async createDocument(input: UploadedDocumentInput, collectionId?: string) {
     const extension = this.extensionOf(input.filename);
     if (!SUPPORTED_EXTENSIONS.has(extension)) {
       throw new BadRequestException('暂只支持 PDF、Markdown 和纯文本文件');
@@ -163,10 +168,12 @@ export class KnowledgeService implements OnModuleInit {
       throw new BadRequestException('上传的文件为空');
     }
 
+    const collection = await this.resolveCollection(collectionId);
     const title = input.filename.replace(/\.[^.]+$/, '').slice(0, MAX_TITLE_LENGTH) || '未命名资料';
     const [document] = await this.db
       .insert(kbDocuments)
       .values({
+        collectionId: collection.id,
         title,
         sourceFilename: input.filename,
         mimeType: input.mimetype ?? null,
@@ -192,10 +199,15 @@ export class KnowledgeService implements OnModuleInit {
     await this.log(
       document.id,
       'info',
-      `已接收 ${input.filename}（${(input.buffer.length / 1024).toFixed(1)} KB），开始索引`,
+      `已接收 ${input.filename}（${(input.buffer.length / 1024).toFixed(1)} KB），归入知识库「${collection.name}」，开始索引`,
     );
 
-    return { ...this.toSummary(document), converter: null, hasSource: Boolean(storageKey) };
+    return {
+      ...this.toSummary(document),
+      collectionId: collection.id,
+      converter: null,
+      hasSource: Boolean(storageKey),
+    };
   }
 
   private async storeSource(documentId: string, filename: string, buffer: Buffer) {
@@ -400,10 +412,176 @@ export class KnowledgeService implements OnModuleInit {
       .where(eq(kbDocuments.id, documentId));
   }
 
-  async listDocuments() {
+  private normalizeCollectionName(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new BadRequestException('知识库名称不能为空');
+    }
+    return trimmed.slice(0, 80);
+  }
+
+  private isDuplicateNameError(error: unknown) {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { code?: string }).code === '23505'
+    );
+  }
+
+  /** The default collection keeps uploads working when the client sends no collection id. */
+  private async ensureDefaultCollection() {
+    const [existing] = await this.db
+      .select()
+      .from(kbCollections)
+      .where(eq(kbCollections.name, DEFAULT_COLLECTION_NAME))
+      .limit(1);
+    if (existing) {
+      return existing;
+    }
+    const [created] = await this.db
+      .insert(kbCollections)
+      .values({ name: DEFAULT_COLLECTION_NAME, description: '未指定知识库时的默认归档位置' })
+      .onConflictDoNothing()
+      .returning();
+    if (created) {
+      return created;
+    }
+    const [fallback] = await this.db
+      .select()
+      .from(kbCollections)
+      .where(eq(kbCollections.name, DEFAULT_COLLECTION_NAME))
+      .limit(1);
+    return fallback;
+  }
+
+  private async resolveCollection(collectionId?: string) {
+    if (!collectionId) {
+      return this.ensureDefaultCollection();
+    }
+    const [collection] = await this.db
+      .select()
+      .from(kbCollections)
+      .where(eq(kbCollections.id, collectionId))
+      .limit(1);
+    if (!collection) {
+      throw new NotFoundException('知识库不存在');
+    }
+    return collection;
+  }
+
+  async listCollections() {
+    const rows = await this.db
+      .select({
+        id: kbCollections.id,
+        name: kbCollections.name,
+        description: kbCollections.description,
+        createdAt: kbCollections.createdAt,
+        documentCount: count(kbDocuments.id),
+        readyCount: sql<number>`count(*) filter (where ${kbDocuments.status} = 'ready')`,
+        chunkCount: sql<number>`coalesce(sum(${kbDocuments.chunkCount}), 0)`,
+      })
+      .from(kbCollections)
+      .leftJoin(kbDocuments, eq(kbDocuments.collectionId, kbCollections.id))
+      .groupBy(kbCollections.id)
+      .orderBy(kbCollections.createdAt);
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      createdAt: row.createdAt,
+      documentCount: Number(row.documentCount),
+      readyCount: Number(row.readyCount),
+      chunkCount: Number(row.chunkCount),
+    }));
+  }
+
+  async createCollection(input: { name: string; description?: string }) {
+    const name = this.normalizeCollectionName(input.name);
+    try {
+      const [created] = await this.db
+        .insert(kbCollections)
+        .values({ name, description: input.description?.trim() || null })
+        .returning();
+      return { ...created, documentCount: 0, readyCount: 0, chunkCount: 0 };
+    } catch (error) {
+      if (this.isDuplicateNameError(error)) {
+        throw new BadRequestException(`已存在名为「${name}」的知识库`);
+      }
+      throw error;
+    }
+  }
+
+  async updateCollection(id: string, input: { name?: string; description?: string }) {
+    await this.getCollection(id);
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (input.name !== undefined) {
+      patch.name = this.normalizeCollectionName(input.name);
+    }
+    if (input.description !== undefined) {
+      patch.description = input.description?.trim() || null;
+    }
+
+    try {
+      const [updated] = await this.db
+        .update(kbCollections)
+        .set(patch)
+        .where(eq(kbCollections.id, id))
+        .returning();
+      return updated;
+    } catch (error) {
+      if (this.isDuplicateNameError(error)) {
+        throw new BadRequestException('已存在同名知识库');
+      }
+      throw error;
+    }
+  }
+
+  private async getCollection(id: string) {
+    const [collection] = await this.db
+      .select()
+      .from(kbCollections)
+      .where(eq(kbCollections.id, id))
+      .limit(1);
+    if (!collection) {
+      throw new NotFoundException('知识库不存在');
+    }
+    return collection;
+  }
+
+  async deleteCollection(id: string, options: { force?: boolean } = {}) {
+    const collection = await this.getCollection(id);
+    const documents = await this.db
+      .select({ id: kbDocuments.id, sourceStorageKey: kbDocuments.sourceStorageKey })
+      .from(kbDocuments)
+      .where(eq(kbDocuments.collectionId, id));
+
+    if (documents.length > 0 && !options.force) {
+      throw new BadRequestException(
+        `知识库「${collection.name}」中还有 ${documents.length} 篇资料；请先删除资料，或选择连同资料一起删除`,
+      );
+    }
+
+    for (const document of documents) {
+      if (!document.sourceStorageKey) continue;
+      try {
+        await this.storage.remove(document.sourceStorageKey);
+      } catch (error) {
+        this.logger.warn(
+          `删除原始文件失败：${error instanceof Error ? error.message : '未知错误'}`,
+        );
+      }
+    }
+
+    await this.db.delete(kbCollections).where(eq(kbCollections.id, id));
+    return { id, deleted: true, documentsDeleted: documents.length };
+  }
+
+  async listDocuments(options: { collectionId?: string } = {}) {
     const rows = await this.db
       .select({
         id: kbDocuments.id,
+        collectionId: kbDocuments.collectionId,
         title: kbDocuments.title,
         sourceFilename: kbDocuments.sourceFilename,
         status: kbDocuments.status,
@@ -417,6 +595,9 @@ export class KnowledgeService implements OnModuleInit {
         updatedAt: kbDocuments.updatedAt,
       })
       .from(kbDocuments)
+      .where(
+        options.collectionId ? eq(kbDocuments.collectionId, options.collectionId) : undefined,
+      )
       .orderBy(desc(kbDocuments.createdAt));
 
     return rows.map(({ sourceStorageKey, ...rest }) => ({
@@ -512,6 +693,9 @@ export class KnowledgeService implements OnModuleInit {
       input.documentIds && input.documentIds.length > 0
         ? sql`and c.document_id = any(${input.documentIds}::uuid[])`
         : sql``;
+    const collectionFilter = input.collectionId
+      ? sql`and c.document_id in (select id from kb_documents where collection_id = ${input.collectionId}::uuid)`
+      : sql``;
 
     let raw: unknown;
     try {
@@ -529,6 +713,7 @@ export class KnowledgeService implements OnModuleInit {
         join kb_documents d on d.id = c.document_id
         where d.status = 'ready'
           ${documentFilter}
+          ${collectionFilter}
         order by c.embedding <=> ${vectorLiteral}::halfvec
         limit ${topK}
       `);
@@ -552,6 +737,10 @@ export class KnowledgeService implements OnModuleInit {
       throw new BadRequestException('问题不能为空');
     }
 
+    // Resolve the scope first so a stale id fails loudly instead of returning
+    // "no results" as if the knowledge base were empty.
+    const collection = input.collectionId ? await this.getCollection(input.collectionId) : null;
+
     const embedding = await this.embeddings.embedQuery(question);
     const matches = await this.search(embedding, input);
 
@@ -573,6 +762,7 @@ export class KnowledgeService implements OnModuleInit {
       embedding: { provider: this.embeddings.provider, model: this.embeddings.model },
       llm: { configured: this.llm.isConfigured, model: this.llm.model },
       retrieved: citations.length,
+      collection: collection ? { id: collection.id, name: collection.name } : null,
     };
 
     if (citations.length === 0) {
@@ -615,6 +805,8 @@ export class KnowledgeService implements OnModuleInit {
           '引用资料时在句末标注序号，例如 [1][2]。',
           '资料不足以回答时，明确说明缺少什么信息。',
           '使用与提问一致的语言，回答保持简洁、条理清晰。',
+          '直接输出 Markdown 正文：列表的每个条目必须单独占一行，不要写成一行；',
+          '不要用代码块（```）包裹整个回答。',
         ].join('\n'),
       },
       {
@@ -623,7 +815,7 @@ export class KnowledgeService implements OnModuleInit {
       },
     ]);
 
-    return { answer, citations, notice: null, ...meta };
+    return { answer: normalizeAnswerMarkdown(answer), citations, notice: null, ...meta };
   }
 
   private toSummary(document: typeof kbDocuments.$inferSelect) {
