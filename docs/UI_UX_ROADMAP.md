@@ -176,3 +176,65 @@
 ```
 
 > 建议先落地 1→2（快、稳、直观），跑通「补死角 + 清理」后，再进入 3→4（体验层），最后做 5（需要新增表 + 间隔重复算法，风险与工作量最大）。
+
+---
+
+## 第三部分：新前端主题（ThreeUI 组件）落地记录 — 2026-10-09
+
+旧主题保持不变；本阶段并行引入一套**新前端主题**，以四个 ThreeUI 组件为基准件，先在样张页定下材质、动效与尺度，再决定铺到哪些承接面。
+
+### 已完成
+
+**1. 组件按注册源码原样引入**（见 [components/threeui/README.md](../components/threeui/README.md)）
+
+| 组件 | 变体 | 挂载点 |
+|---|---|---|
+| `AnimatedTopDock` | `modern` | 样张 01 |
+| `TextAnimationCollection` | `threeui-intro` | 样张 02 |
+| `ConstellationField` | `constellation-field` | 样张 03 |
+| `ShaderButtons` | `star-portal` | 样张 04 |
+
+四个 bundle 共 31 个注册文件全部逐字节落地并复算 SHA-256 通过；二进制字体 `fragment-mono.woff2` 从包内 data URI 还原，哈希与注册值一致。`src/shaders/` 下的代码与样式没有任何手写或近似实现。
+
+**2. 构建链路打通**：Turbopack 在 Next 16.2.4 下不会把 `?raw` 变成字符串（`raw` 模块类型解析为 `undefined`，`text` 类型不被接受），改为在 [next.config.ts](../next.config.ts) 里按 query 条件挂 `raw-loader`，导入写法不变；`three128` 走 npm alias；`@types/three@0.128.0` 经 tsconfig `paths` 映射给该 alias，被引入的 shader 源文件保持未改动。
+
+**3. 新主题自有外壳**：[components/AppShell.tsx](../components/AppShell.tsx) 让 `/theme` 等路由全幅渲染，不带学习工作台的侧边栏、悬浮助手与命令面板；其余页面维持原样。
+
+**4. 样张页 `/theme`**：四个组件按各自注册 props 装配。构建产物中 `/theme` 为静态预渲染。
+
+**5. 浏览器实测**（1440×900 与 390×844）：
+
+- 停靠坞：指针邻近时目标项 82→99px、邻居 111→112 / 94→97px，远端项不动；`data-dock-state` 在 `idle → active → idle` 之间正确迁移；点击后 `aria-pressed` 正确转移；指针移出后复位。
+- 开场字标：ThreeUI 色散字标正常合成。
+- 星座场：粒子与连线持续漂移（前后两帧节点位置不同）。
+- 全息按钮：hover 触发 `translateY(-1px)` 与暖色辉光。
+- 无横向溢出、无控制台错误。
+
+### 追加（同日）：改为「有限借鉴」
+
+用户随后要求**只借鉴结构和动态效果，不照搬**。据此把两组页面拆开：
+
+- **`/theme/reference`** — 四个组件仍按注册源码 + 注册 props 原样挂载，作为对照物保留，文案与配色不动（即上面第 1–5 条的成果）。
+- **`/theme`** — 改成 SynapFlow 自己的页面。只有两处直接复用（它们本身不含作者文案）：`topDockController.ts`（指针弹簧，纯行为）与 `ConstellationField`（纯背景）。其余在 [components/new-theme/](../components/new-theme/) 本地重写：
+  - `SynapTopDock.tsx` — 品牌在左 / 停靠坞居中 / 操作在右的命令栏，导航项为今日学习·题库·笔记·知识库·复习，右侧为登录与开始复习；blue 极光、毛玻璃胶囊、`data-dock-near` 高亮。窄屏（<768px）命令栏隐藏，改为一行可横向滚动的同类入口。
+  - `SynapWordmark.tsx` — 开场字标：逐字母从模糊中装配，前面叠一层青／品红的色散残影并在 ~1.1s 内收敛消失（WAAPI 驱动，无全局样式表污染，遵循 prefers-reduced-motion）。
+  - `HoloButton.tsx` — 全息胶囊 CTA：虹彩渐变填充、外发光在 hover 变宽、上浮 1px、一道高光横扫。
+  - `ConstellationBackdrop.tsx` — 背景代理，`hue=180` 把作者的琥珀色转向应用的冷色。
+- 集成时踩到并被浏览器实测抓出的问题：命令栏所在的 header 会被放大的标签撑高，触发控制器的 `ResizeObserver` 重新测量，于是每帧把弹簧取消（表现为 `dockState` 停在 `idle`）。按作者在 `lockTrack` 注释里的提示加 `data-dock-frame` 并把栏高固定（`h-16`）后正常；同时去掉 `lockTrack`，因为 `justify-between` 下胶囊是左右对称长大，品牌与操作不会位移（实测品牌 x 不变）。
+
+### 未完成 / 已知边界
+
+- **作者原文案只保留在对照页**：`/theme` 已全部换成 SynapFlow 自己的文案与配色；`Lumina`、`ThreeUI`、`Begin the journey`、`Everything above the fold` 等只出现在 `/theme/reference`，作为参照物不参与产品面。
+- **`AnimatedTopDock` modern 是宽幅帧组件**：命令栏按自身内容撑宽，390px 视口下会被裁切（组件作者未给窄屏折叠规则）。这只是对照页的现象；`/theme` 用的是自有命令栏，窄屏另有一行横向滚动的入口。
+- **`ShaderButtons` 的十个 study 变体未落地**：其依赖的 `ShaderButtonStudies.tsx` 既不在注册 bundle 里，也未随 npm 包发布，源文件无法获取，因此按占位处理而非重写；`star-portal` 路径不受影响。同理 `NeuformIsolatedEffects.tsx` 引用的 `recursive-erosion.html`、`synthesis-orb.html` 也是占位空舞台（对应两个未被挂载的变体）。
+- **页面体积**：`/theme` 只经 `ConstellationField` 引入 `NeuformBatchEffects`；`/theme/reference` 才会把 `NeuformIsolatedEffects` 连同其 HTML 源一并打进客户端包（约 1.1MB 字符串）。若新主题要上产品面，建议只保留 ConstellationField 这一条引入。
+- **尚未提交、尚未部署**；旧页面（题库 / 复习 / 进度 / 知识库）仍是旧主题，新主题目前只存在于 `/theme` 与 `/theme/reference` 两个路由。
+- **新主题尚未接真实数据**：`/theme` 上的导航与 CTA 指向真实路由（`/questions`、`/review`、`/knowledge` 等），但页面本身是静态文案，没有读取学习进度。
+
+### 下一步待决策
+
+1. 新主题的承接面：做成对外落地页（`/theme` 直接对外），还是逐步替换工作台外壳（导航 + 首页 hero），或两者并行。
+2. 若替换外壳：命令栏需要与现有 `Sidebar` 共存还是取代它；移动端与现有底部导航如何合并。
+3. 体积策略：产品面只引入 `ConstellationField`，不要为了一个背景把整棵组件树带进来。
+4. 上一阶段的仪表盘 / 侧边栏改造已随 `9f77f4d` 上线，可与新主题的卡片、页头、空状态规范合并成一套设计令牌；`styles/glassmorphism.css` 是否启用或删除仍待定。
+

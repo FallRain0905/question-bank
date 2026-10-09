@@ -29,6 +29,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "three128": [
+        "./node_modules/@types/three"
       ]
     }
   },
