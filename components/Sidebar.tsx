@@ -364,7 +364,7 @@ export default function Sidebar() {
                     href={item.href}
                     className={`touch-target flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-colors ${
                       isActive(item.href)
-                        ? 'bg-blue-50 text-blue-600 font-medium'
+                        ? 'bg-blue-50 text-blue-700 font-medium ring-1 ring-inset ring-blue-100'
                         : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                     }`}
                   >
@@ -455,7 +455,7 @@ export default function Sidebar() {
               href={item.href}
               className={`relative flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
                 isActive(item.href)
-                  ? 'bg-blue-50 text-blue-600 font-medium'
+                  ? 'bg-blue-50 text-blue-700 font-medium ring-1 ring-inset ring-blue-100'
                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
               } ${collapsed ? 'justify-center' : ''}`}
             >
@@ -483,7 +483,7 @@ export default function Sidebar() {
               <Link
                 href="/english"
                 className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                  isActive('/english') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  isActive('/english') ? 'bg-blue-50 text-blue-700 font-medium ring-1 ring-inset ring-blue-100' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 } ${collapsed ? 'justify-center' : ''}`}
               >
                 {Icons.qa}
@@ -500,7 +500,7 @@ export default function Sidebar() {
                   <Link
                     href="/admin"
                     className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                      isActive('/admin') ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                      isActive('/admin') ? 'bg-blue-50 text-blue-700 font-medium ring-1 ring-inset ring-blue-100' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                     } ${collapsed ? 'justify-center' : ''}`}
                   >
                     {Icons.admin}
