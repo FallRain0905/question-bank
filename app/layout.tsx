@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "katex/dist/katex.min.css";
-import AppShell from "@/components/AppShell";
+import UIChrome from "@/components/UIChrome";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {
@@ -25,10 +25,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN">
+    // data-ui drives the glass token layer in globals.css; UIChrome keeps it in sync
+    // with the remembered choice. It defaults to the new shell so nothing flashes.
+    <html lang="zh-CN" data-ui="glass">
       <body className="bg-gray-50 text-gray-900">
         <ThemeProvider>
-          <AppShell>{children}</AppShell>
+          <UIChrome>{children}</UIChrome>
         </ThemeProvider>
       </body>
     </html>

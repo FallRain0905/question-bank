@@ -13,7 +13,13 @@ import CommandPalette from '@/components/CommandPalette';
  */
 const STANDALONE_ROUTES = ['/welcome', '/theme'];
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({
+  children,
+  onUseGlass,
+}: {
+  children: React.ReactNode;
+  onUseGlass?: () => void;
+}) {
   const pathname = usePathname();
   const standalone = STANDALONE_ROUTES.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`),
@@ -33,6 +39,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </SidebarProvider>
       <FloatingAIButton />
       <CommandPalette />
+      {onUseGlass && (
+        <button
+          type="button"
+          onClick={onUseGlass}
+          className="fixed right-4 top-4 z-40 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-500 shadow-sm hover:text-gray-900"
+          title="切回新的玻璃外观"
+        >
+          切回新外观
+        </button>
+      )}
     </>
   );
 }

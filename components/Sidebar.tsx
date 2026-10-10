@@ -176,7 +176,15 @@ export default function Sidebar() {
   }, []);
 
   useEffect(() => {
-    const supabase = getSupabase();
+    // getSupabase() throws when the Supabase env is absent, so a synchronous call in an
+    // effect body would take the whole tree down with it. Losing the session lookup is
+    // recoverable; losing the shell is not.
+    let supabase: ReturnType<typeof getSupabase>;
+    try {
+      supabase = getSupabase();
+    } catch {
+      return;
+    }
     const loadUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {

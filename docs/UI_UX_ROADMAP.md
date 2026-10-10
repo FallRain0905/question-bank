@@ -215,12 +215,19 @@
 用户随后要求**只借鉴结构和动态效果，不照搬**。据此把两组页面拆开：
 
 - **`/theme/reference`** — 四个组件仍按注册源码 + 注册 props 原样挂载，作为对照物保留，文案与配色不动（即上面第 1–5 条的成果）。
-- **`/theme`** — 改成 SynapFlow 自己的页面。只有两处直接复用（它们本身不含作者文案）：`topDockController.ts`（指针弹簧，纯行为）与 `ConstellationField`（纯背景）。其余在 [components/new-theme/](../components/new-theme/) 本地重写：
+- **`/welcome`** — SynapFlow 自己的页面，同时作为未登录访客的网页入口。只有两处直接复用（它们本身不含作者文案）：`topDockController.ts`（指针弹簧，纯行为）与 `ConstellationField`（纯背景）。其余在 [components/new-theme/](../components/new-theme/) 本地重写：
   - `SynapTopDock.tsx` — 品牌在左 / 停靠坞居中 / 操作在右的命令栏，导航项为今日学习·题库·笔记·知识库·复习，右侧为登录与开始复习；blue 极光、毛玻璃胶囊、`data-dock-near` 高亮。窄屏（<768px）命令栏隐藏，改为一行可横向滚动的同类入口。
   - `SynapWordmark.tsx` — 开场字标：逐字母从模糊中装配，前面叠一层青／品红的色散残影并在 ~1.1s 内收敛消失（WAAPI 驱动，无全局样式表污染，遵循 prefers-reduced-motion）。
   - `HoloButton.tsx` — 全息胶囊 CTA：虹彩渐变填充、外发光在 hover 变宽、上浮 1px、一道高光横扫。
   - `ConstellationBackdrop.tsx` — 背景代理，`hue=180` 把作者的琥珀色转向应用的冷色。
 - 集成时踩到并被浏览器实测抓出的问题：命令栏所在的 header 会被放大的标签撑高，触发控制器的 `ResizeObserver` 重新测量，于是每帧把弹簧取消（表现为 `dockState` 停在 `idle`）。按作者在 `lockTrack` 注释里的提示加 `data-dock-frame` 并把栏高固定（`h-16`）后正常；同时去掉 `lockTrack`，因为 `justify-between` 下胶囊是左右对称长大，品牌与操作不会位移（实测品牌 x 不变）。
+
+### 追加（同日）：接入为网页入口
+
+- 用户要求删掉首页下方多余的「学习闭环」四步与开发向的页脚说明，只保留命令栏 + 首屏，并把该页作为 web 登录入口。`/welcome` 现在只有这两块，首屏高度 `calc(100svh - 4rem)`，主按钮为「登录 / 注册」→ `/login`。
+- [middleware.ts](../middleware.ts) 的 matcher 增加 `/`：请求 `/` 时若没有 Supabase 会话 cookie（`sb-*-auth-token`，分片形式一并匹配），307 跳到 `/welcome`；有会话仍进工作台仪表盘。这只是路由分流，不是鉴权——仪表盘的数据仍由自身守卫。
+- 路由由 `/theme` 改名为 `/welcome`（`/theme/reference` 保留）。
+- 已提交 `57b26fc` 并部署到 `synap.fallrain0905.top`。
 
 ### 未完成 / 已知边界
 
@@ -237,4 +244,54 @@
 2. 若替换外壳：命令栏需要与现有 `Sidebar` 共存还是取代它；移动端与现有底部导航如何合并。
 3. 体积策略：产品面只引入 `ConstellationField`，不要为了一个背景把整棵组件树带进来。
 4. 上一阶段的仪表盘 / 侧边栏改造已随 `9f77f4d` 上线，可与新主题的卡片、页头、空状态规范合并成一套设计令牌；`styles/glassmorphism.css` 是否启用或删除仍待定。
+
+---
+
+## 第四部分：液态玻璃外壳改造 — 2026-10-09
+
+用户看到天气仪表盘样张后要求「参考这个风格把前端全部大改，尤其是侧边栏」，并明确「保留之前的、别删除、做个备份」。第 1 与第 2 条待决策已按此执行。
+
+### 备份
+
+- 标签 `backup/classic-theme-2026-10-09` + 分支 `backup/classic-theme`（都指向 `57b26fc`，即改造前的完整状态）。
+- 运行期也保留：旧外壳 `components/AppShell.tsx`、`components/Sidebar.tsx`、`FloatingAIButton`、`CommandPalette` 全部留在原地，一行未删。
+
+### 新增（全部是新增，没有删除）
+
+| 文件 | 作用 |
+|---|---|
+| [components/glass/GlassShell.tsx](../components/glass/GlassShell.tsx) | 新外壳：左侧玻璃图标轨（活动项白色 pip）、细玻璃顶栏、固定天空背景，以及照搬样张的入场节拍 |
+| [components/UIChrome.tsx](../components/UIChrome.tsx) | 二选一的外壳开关，默认玻璃；选择记在 localStorage，经典模式随时可切回 |
+| [app/globals.css](../app/globals.css) | 新增 `[data-ui="glass"]` 令牌层：外壳样式 + 把页面里已有的工具类重映射到玻璃面板与浅色墨色 |
+
+刻度沿用样张的参考画布 1357×871，但收成 `--gu: clamp(.8px, min(100vw/1357, 100dvh/871), 1.35px)`——保留比例感又不让正文随窗口无限放大。页面内容仍是普通文档流（可滚动），只有外壳用绝对定位，这样 30 个内容页不需要为固定画布让路。
+
+**关键取舍**：没有逐个改 30 个页面，而是在 `[data-ui="glass"]` 作用域内重映射它们已经在用的工具类（`bg-white`、`text-gray-*`、`border-gray-*`、输入框、hover 态、`.prose`）。代价是"一把梭"的覆盖面，好处是页面无需改动、回退零成本。
+
+### 已验证
+
+- 桌面 1440×900：图标轨 + pip（落在当前路由项上）、顶栏、页面卡片全部玻璃化，无横向溢出。
+- 移动 390px：图标轨变底部 64u 停靠条（横向），顶栏隐藏品牌字样、工具按钮收小后不再溢出。
+- 互切：玻璃 → 经典 → 玻璃 全链路可用，偏好持久化；经典模式 `data-ui="classic"`，令牌层完全不生效。
+- `npx tsc --noEmit` 与 `npm run build` 均通过。
+
+### 未完成 / 已知边界
+
+- **数据页没法在本地看全**：本机 checkouting 没有 Supabase 环境变量，题库 / 笔记 / 知识库 / 设置等页只能看到骨架屏或加载态，玻璃化效果需要连上数据后才能逐页确认。
+- **重映射是粗粒度的**：编辑器、阅读器、表格、图表这类密集界面很可能需要逐页微调（`.prose` 已先行处理）。
+- 顺手修掉一个既有 bug：[components/Sidebar.tsx](../components/Sidebar.tsx) 的 effect 里同步调用 `getSupabase()`，环境变量缺失时会抛错并**带走整棵树**（Next 显示「This page couldn't load」）。已加 try/catch——否则"切回经典"在没有 Supabase 环境时会白屏。
+- 未提交、未部署。
+
+---
+
+## 附一：液态玻璃样张页 — 2026-10-09
+
+[public/weather/index.html](../public/weather/index.html)：单文件静态页（内联 CSS、内联 SVG sprite、无框架、无 JS），复刻「Aurora Weather / Weather Forecast — Central Jakarta」液态玻璃仪表盘。参考画布 1357×871，所有尺寸 `calc(N * var(--u))`；左侧玻璃图标轨 + 白色 pip、右侧玻璃卡片、波形图先描边自绘再左→右擦除填充，入场节拍逐条对齐（侧栏 .92s@.05 → 图标 .60s@.36–.56 → pip .50s@.68 → 芯片 .80s@.44 → 标题遮罩 1.05s@.56/.67 → 卡片 .95s@.80–1.14 → 波形 1.60s@1.50 → 擦除 1.42s@1.72 → 星期 @2.10+ → sheen @2.55）。
+
+两点说明：
+
+- **背景图不是原图**。参考页用的是内嵌 JPEG，本仓库没有。改为 [scripts/make-storm-background.py](../scripts/make-storm-background.py) 程序化生成的替代图（分形云噪声 + 受光砧状云 + 绿色地面 + 三道分叉闪电），落在 `public/weather/assets/storm-background.jpg`。这是仿作，不是那张照片；换真图只需覆盖同一路径，CSS 不用改。
+- 温度与图标的排布、波形路径数据、图标几何是规格未给出、按意图补的（规格只给了波形起点 `M0,79` 与终点 `L835,86`）。
+
+该页是独立静态样张，不参与应用路由（`/weather/index.html`）；[components/glass/](../components/glass/) 的外壳风格取自它。
 

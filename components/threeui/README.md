@@ -8,12 +8,13 @@ They are used in two ways, and the split is deliberate:
 
 - **Reference mounts** — `app/theme/reference/page.tsx` mounts all four at their
   registered props, untouched. This is where the originals stay comparable.
-- **Borrowed into SynapFlow** — `app/theme/page.tsx` is SynapFlow's own page. It reuses
-  the two pieces that carry no copy of the author's at all: `topDockController.ts` (the
-  proximity spring, which is pure behaviour) and `ConstellationField` (a background
-  field). The command bar's markup and labels, the opening wordmark, the holographic CTA
-  and the palette are written locally under `components/new-theme/`, following the
-  originals' structure and motion rather than reproducing their content.
+- **Borrowed into SynapFlow** — `app/welcome/page.tsx` is SynapFlow's own page and the
+  entry served to signed-out visitors. It reuses the two pieces that carry no copy of
+  the author's at all: `topDockController.ts` (the proximity spring, which is pure
+  behaviour) and `ConstellationField` (a background field). The command bar's markup and
+  labels, the opening wordmark, the holographic CTA and the palette are written locally
+  under `components/new-theme/`, following the originals' structure and motion rather
+  than reproducing their content.
 
 Nothing in `src/shaders/` was hand-written or approximated: every registered file was
 copied byte-for-byte from its source bundle and its SHA-256 re-checked after the copy.
