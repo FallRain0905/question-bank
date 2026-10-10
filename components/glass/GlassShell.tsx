@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { getSupabase } from "@/lib/supabase";
+import { ICON_PATHS } from "@/components/icons";
 import CommandPalette from "@/components/CommandPalette";
 import FloatingAIButton from "@/components/FloatingAIButton";
 
@@ -14,42 +15,19 @@ import FloatingAIButton from "@/components/FloatingAIButton";
  * Structure and motion are lifted from the weather dashboard reference: a floating
  * glass rail on the left with a white pip marking the active destination, a slim glass
  * top bar, and the same entrance beats (rail slides in, logo pops, items rise in a
- * stagger, the pip grows last). The classic shell is still here and still selectable —
- * see components/UIChrome.tsx.
+ * stagger, the pip grows last). The icons are SynapFlow's own set so each destination
+ * reads the same here as it does in the classic shell — see components/icons.tsx.
+ * That shell is still wired up and one click away: components/UIChrome.tsx.
  */
 
 const NAV = [
-  {
-    href: "/",
-    label: "今日学习",
-    icon: <><rect x="3.2" y="3.2" width="7.2" height="7.2" rx="2" /><rect x="13.6" y="3.2" width="7.2" height="7.2" rx="2" /><rect x="3.2" y="13.6" width="7.2" height="7.2" rx="2" /><rect x="13.6" y="13.6" width="7.2" height="7.2" rx="2" /></>,
-  },
-  {
-    href: "/questions",
-    label: "题库",
-    icon: <><path d="M4 20V4" /><path d="M4 20h16" /><path d="M8.4 20v-6.2" /><path d="M12.8 20v-9.4" /><path d="M17.2 20V8.6" /></>,
-  },
-  {
-    href: "/notes",
-    label: "笔记",
-    icon: <><rect x="3.4" y="5" width="17.2" height="15.4" rx="3" /><path d="M3.4 10h17.2" /><path d="M8.2 3.4v3.2M15.8 3.4v3.2" /></>,
-  },
-  {
-    href: "/knowledge",
-    label: "知识库",
-    icon: <><circle cx="12" cy="12" r="8.4" /><path d="M3.6 12h16.8" /><path d="M12 3.6c2.4 2.4 3.6 5.2 3.6 8.4S14.4 18 12 20.4C9.6 18 8.4 15.2 8.4 12S9.6 6 12 3.6Z" /></>,
-  },
-  {
-    href: "/review",
-    label: "复习",
-    icon: <><circle cx="12" cy="12" r="8.4" /><path d="M12 7.2V12l3.4 2.1" /></>,
-  },
-  {
-    href: "/progress",
-    label: "学习进度",
-    icon: <><path d="M4 16.4 9 10l3.6 4.2L20 6.4" /><path d="M20 11V6.4h-4.6" /></>,
-  },
-];
+  { href: "/", label: "今日学习", icon: "home" },
+  { href: "/questions", label: "题库", icon: "questions" },
+  { href: "/notes", label: "笔记", icon: "notes" },
+  { href: "/knowledge", label: "知识库", icon: "knowledge" },
+  { href: "/review", label: "复习", icon: "review" },
+  { href: "/progress", label: "学习进度", icon: "progress" },
+] as const;
 
 const TITLES: Array<[string, string]> = [
   ["/questions", "题库"],
@@ -130,8 +108,8 @@ export default function GlassShell({
                   data-active={active ? "true" : undefined}
                 >
                   {active && <span className="glass-pip" aria-hidden="true" />}
-                  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                    {item.icon}
+                  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    {ICON_PATHS[item.icon]}
                   </svg>
                 </Link>
               );
@@ -139,9 +117,8 @@ export default function GlassShell({
           </nav>
 
           <Link className="glass-navlink glass-navlink--tail" href="/settings" aria-label="设置">
-            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3.2" />
-              <path d="M12 3.4v2.4M12 18.2v2.4M4.6 12H2.2M21.8 12h-2.4M6.8 6.8 5.1 5.1M18.9 18.9l-1.7-1.7M17.2 6.8l1.7-1.7M5.1 18.9l1.7-1.7" />
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              {ICON_PATHS.settings}
             </svg>
           </Link>
         </aside>
